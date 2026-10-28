@@ -18,12 +18,18 @@ it — with full visibility and control.
 - **Command Center** with live host telemetry from the API (memory, load, uptime,
   API RSS) and an honest component status list.
 - **Settings:** theme selection, account, system details.
-- **Chat (M2, in progress):** pick a model from the configured provider (Ollama),
+- **Chat (M2):** pick a model from the configured provider (Ollama),
   send a request, and watch the agent stream its answer and its tool calls. The
   agent has list/read/write file tools confined to a per-run workspace. Runs are
   bounded (steps, time, tokens) and **not saved**: leaving the page stops the run
   (durable runs are M3/M4).
-- Tasks, Agents, Projects, Studio, Inspector, Models, Tools: page structure with
+- **Tasks (M3):** create a task, then follow its timeline live: steps, tool calls
+  and lifecycle notes (attempts, resumes, retries, interruptions). Tasks run in
+  the worker, so they keep going when the page is closed; the timeline is rebuilt
+  from stored events on reload and resumes after a dropped connection. Cancel
+  and retry appear only in the states that allow them. Needs `SEED_DATABASE_URL`;
+  without it the page says so.
+- Agents, Projects, Studio, Inspector, Models, Tools: page structure with
   empty states naming the milestone that delivers each.
 
 ## API (as built)
@@ -40,6 +46,7 @@ it — with full visibility and control.
 | GET | `/api/v1/tasks` | admin | Newest first; `?state=queued\|running\|completed\|failed\|canceled`, `?limit=1..100` |
 | GET | `/api/v1/tasks/{id}` | admin | Task: state, attempt, termination, error, result, usage, `last_seq`, `resumable_from_step`; 404 `not_found` |
 | GET | `/api/v1/tasks/{id}/events` | admin | `{events[], last_seq, state}`; `?after=<seq>&limit=` for incremental reads. Events: `task_created`, `attempt_started`, run events, `cancel_requested`, `task_requeued`, `task_released`, `lease_expired` |
+| GET | `/api/v1/tasks/{id}/stream` | admin | `text/event-stream`: each stored event as `id: <seq>` + JSON data, then `event: end` once the task is finished. Resumes after `Last-Event-ID` (or `?after=`); 404 `not_found` |
 | POST | `/api/v1/tasks/{id}/cancel` | admin | Queued → `canceled` at once; running → stops at the worker's next heartbeat; 409 `not_cancelable` |
 | POST | `/api/v1/tasks/{id}/retry` | admin | Failed/canceled → `queued` as a fresh run; 409 `not_retryable` |
 

@@ -24,7 +24,8 @@ function greeting(d = new Date()): string {
 type ComponentState = {
   name: string;
   detail: string;
-  state: "online" | "not-built";
+  /** online: answering now; built: shipped but not health-checked here; not-built. */
+  state: "online" | "built" | "not-built";
   milestone?: string;
 };
 
@@ -95,13 +96,8 @@ function SystemHealth() {
 
 const COMPONENTS: ComponentState[] = [
   { name: "SEED API", detail: "Authentication, telemetry", state: "online" },
-  {
-    name: "SEED Core",
-    detail: "Agent runtime, providers, tools",
-    state: "not-built",
-    milestone: "M2",
-  },
-  { name: "SEED Flow", detail: "Durable tasks and workers", state: "not-built", milestone: "M3" },
+  { name: "SEED Core", detail: "Agent runtime, providers, tools", state: "built" },
+  { name: "SEED Flow", detail: "Durable tasks and workers", state: "built" },
   {
     name: "SEED Memory",
     detail: "Projects, knowledge, artifacts",
@@ -153,6 +149,12 @@ export function CommandCenterPage() {
                 <li key={c.name} className="flex items-center gap-3 px-4 py-2.5">
                   {c.state === "online" ? (
                     <CheckCircle2 size={14} className="shrink-0 text-accent" aria-label="Online" />
+                  ) : c.state === "built" ? (
+                    <CheckCircle2
+                      size={14}
+                      className="shrink-0 text-fg-subtle"
+                      aria-label="Built"
+                    />
                   ) : (
                     <ListChecks
                       size={14}
@@ -166,6 +168,8 @@ export function CommandCenterPage() {
                   </div>
                   {c.state === "online" ? (
                     <Badge tone="accent">Online</Badge>
+                  ) : c.state === "built" ? (
+                    <Badge>Built</Badge>
                   ) : (
                     <Badge>{c.milestone}</Badge>
                   )}

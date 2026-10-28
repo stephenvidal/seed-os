@@ -10,7 +10,6 @@ import {
   ModelsPage,
   ProjectsPage,
   StudioPage,
-  TasksPage,
   ToolsPage,
 } from "./pages/areas";
 import { ChatPage } from "./pages/Chat";
@@ -18,6 +17,7 @@ import { CommandCenterPage } from "./pages/CommandCenter";
 import { LoginPage } from "./pages/Login";
 import { NotFoundPage } from "./pages/NotFound";
 import { SettingsPage } from "./pages/Settings";
+import { TaskDetailPage, TasksPage } from "./pages/Tasks";
 
 export function App() {
   const session = useSession();
@@ -51,6 +51,7 @@ export function App() {
         <Route index element={<CommandCenterPage />} />
         <Route path="chat" element={<ChatPage />} />
         <Route path="tasks" element={<TasksPage />} />
+        <Route path="tasks/:id" element={<TaskDetailPage />} />
         <Route path="agents" element={<AgentsPage />} />
         <Route path="projects" element={<ProjectsPage />} />
         <Route path="studio" element={<StudioPage />} />

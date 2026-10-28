@@ -1,19 +1,25 @@
 """Tasks API: create, inspect, cancel and retry durable tasks. Workers execute them."""
 
+import asyncio
+import json
 import uuid
+from collections.abc import AsyncIterator
 from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from ..auth import Principal, require_role
 from ..config import Settings, get_settings
 from ..core.messages import Usage
 from ..errors import ApiError
-from .store import Task, TaskEvent, TaskState, TaskStore
+from .store import TERMINAL, Task, TaskEvent, TaskState, TaskStore
 
 router = APIRouter(prefix="/api/v1/tasks", tags=["tasks"])
+STREAM_POLL_S = 0.5
+KEEPALIVE_S = 15.0
 
 AdminOnly = Annotated[Principal, Depends(require_role("admin"))]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
@@ -164,3 +170,49 @@ async def retry_task(
     if task is None:
         raise ApiError(409, "not_retryable", "Only failed or canceled tasks can be retried.")
     return TaskView.of(task)
+
+
+@router.get("/{task_id}/stream")
+async def stream_task(
+    task_id: uuid.UUID,
+    request: Request,
+    _: AdminOnly,
+    store: StoreDep,
+    after: Annotated[int, Query(ge=0)] = 0,
+    last_event_id: Annotated[str | None, Header(max_length=20)] = None,
+) -> StreamingResponse:
+    """Server-Sent Events for one task (ADR-0003). Each event is the stored row,
+    with `id:` = its seq, so a reconnecting EventSource resumes via Last-Event-ID
+    without gaps or duplicates. Ends with `event: end` once the task is finished
+    and every event has been sent. The stream only reads; closing it never
+    affects the task."""
+    await _task(store, task_id)
+    start = max(after, int(last_event_id) if last_event_id and last_event_id.isdigit() else 0)
+
+    async def events() -> AsyncIterator[bytes]:
+        seq, idle = start, 0.0
+        yield b"retry: 2000\n\n"
+        while not await request.is_disconnected():
+            batch = await store.events(task_id, after=seq, limit=500)
+            for e in batch:
+                seq = e.seq
+                yield f"id: {e.seq}\ndata: {e.model_dump_json()}\n\n".encode()
+            if batch:
+                idle = 0.0
+                continue
+            task = await store.get(task_id)
+            if task is None or (task.state in TERMINAL and task.last_seq <= seq):
+                end = json.dumps({"state": task.state if task else None})
+                yield f"event: end\ndata: {end}\n\n".encode()
+                return
+            await asyncio.sleep(STREAM_POLL_S)
+            idle += STREAM_POLL_S
+            if idle >= KEEPALIVE_S:
+                yield b": keepalive\n\n"
+                idle = 0.0
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+    )
