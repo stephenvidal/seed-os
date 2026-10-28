@@ -37,18 +37,19 @@ jobs:
             pytest -q -p no:cacheprovider
           '
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
+      # Same approach for the frontend: setup-node's tool-cache write took minutes
+      # on golden-eye and the run was cut off there. node:22-alpine is the web build image.
       - name: Frontend checks
-        working-directory: frontend
         run: |
-          npm ci
-          npm run typecheck
-          npm run lint
-          npm run format:check
-          npm test
-          npm run build
+          docker run --rm -v "$PWD/frontend:/src:ro" node:22-alpine sh -euc '
+            mkdir /work && cd /src && cp -r $(ls -A | grep -vx node_modules) /work/ && cd /work
+            npm ci --no-audit --no-fund
+            npm run typecheck
+            npm run lint
+            npm run format:check
+            npm test
+            npm run build
+          '
 
       - name: Build images (not pushed)
         run: |

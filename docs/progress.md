@@ -160,3 +160,23 @@ mounted read-only and copied, so no root-owned files land in the runner workspac
 `actionlint` → clean.
 
 **Not tested:** the step on golden-eye itself; the re-run on the PR will show it.
+
+---
+
+## 2026-10-28 — CI: frontend checks in a container
+
+**Context:** Re-run on golden-eye (head 5735d3d): backend step passed on the
+runner (`All checks passed!`, `9 files already formatted`, `Success: no issues
+found in 6 source files`, `11 passed`). Then `actions/setup-node` spent ~6 min in
+"Adding to the cache ..." and the job ended with "The runner has received a
+shutdown signal" — runner-side, before any frontend command ran.
+
+**Changed:** frontend checks run in `node:22-alpine` (the web build image), same
+read-only-mount-and-copy pattern as the backend; no tool-cache writes.
+
+**Tested:** exact step script locally (sandbox-only: proxy CA, host network):
+`added 307 packages`, Prettier clean, `Test Files 3 passed (3)`,
+`Tests 12 passed (12)`, `✓ built`. actionlint clean.
+
+**Not tested:** on golden-eye. If the runner shuts down again without a heavy
+step, the cause is on the host (runner service/watchdog), not the workflow.
