@@ -274,6 +274,40 @@ actionlint (hosted-runner workflows) -> clean
 
 ---
 
+## 2026-10-28 — CI green on hosted runners; repository hardened for public exposure
+
+**Changed**
+- `docs/deployment.md` — staging status (steps 1–4 done), hosted-runner rationale,
+  secrets handling and rotation path.
+- `frontend/vitest.config.ts` — comment corrected: the pool timeout happened on the
+  retired self-hosted runner, not on the current CI host.
+
+**Tested (observed)**
+```
+run 40769170969 (pull_request, 0ae85a2) -> completed / success, 1m25s
+run 40769163771 (push,         0ae85a2) -> completed / success, 1m23s
+gh pr view 1 -> mergeStateStatus CLEAN, statusCheckRollup: checks SUCCESS x2
+```
+Both runs executed the hosted workflow (setup-python, setup-node, docker build) that
+the earlier runs could not: the self-hosted equivalent spent 15 minutes failing on
+toolchain startup. The seed-os self-hosted runner has been deregistered from GitHub
+and its unit and install directory removed from golden-eye; dustline's runner is
+untouched.
+
+**Repository hardening after going public**
+- Secret scanning and push protection: enabled (verified via `security_and_analysis`).
+- Vulnerability alerts and Dependabot security updates: enabled (HTTP 204).
+- Fork tracking: `~/.hermes/scripts/seed-os-fork-watch.py` on a 6-hourly cron,
+  silent unless a new fork appears or a known fork pushes. Logic verified against a
+  stub `gh` (baseline message, silence when unchanged, "New fork of …" when a record
+  is removed from state); the live repo currently has 0 forks.
+
+**Not tested**
+- `deploy.yml` has still never executed. `DEPLOY_ENABLED` remains unset, so the deploy
+  job is skipped by design; the first image build needs a merge to `main`.
+- Nothing has been deployed to `seed.nsystems.live`; the hostname answers 502 because
+  no container is listening on `127.0.0.1:8091` yet.
+
 ## 2026-10-28 — Milestone 1 shipped: hosted CI green, first production deploy live
 
 **Changed**
