@@ -33,9 +33,12 @@ export function useLogout() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: api.logout,
-    onSuccess: () => {
-      qc.clear();
+    // A session that already expired or was revoked is signed out either way.
+    onSettled: () => {
+      // Update the session query in place: clear() would detach the components
+      // watching it, and they would keep showing the signed-in app.
       qc.setQueryData(ME_KEY, null);
+      qc.removeQueries({ predicate: (q) => q.queryKey[0] !== ME_KEY[0] });
     },
   });
 }
