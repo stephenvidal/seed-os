@@ -247,3 +247,27 @@ git log -p main..HEAD | grep -E 'PRIVATE KEY|ghp_|password'      -> only test fi
 **Not tested**
 - No CI or deploy run has executed on a hosted runner yet.
 - Fork monitoring is not automated yet; it is tracked separately from the repository.
+
+---
+
+## 2026-10-28 — CI fix: vitest.config.ts failed typecheck
+
+**Context:** CI on fb42489 (golden-eye) failed at `npm run typecheck`:
+```
+vitest.config.ts(24,5): error TS2769: No overload matches this call.
+  'poolOptions' does not exist in type 'InlineConfig'.
+```
+Vitest 5 removed `poolOptions`; vitest ignored the key at runtime (tests passed),
+but `tsc` now covers the config. afcc8aa did not touch the file, so the hosted run
+would fail the same way.
+
+**Changed:** `frontend/vitest.config.ts` — `poolOptions.threads.singleThread` →
+`maxWorkers: 1` (same effect, supported key). Reproduced the error locally first.
+
+**Tested (local, clean tree at afcc8aa + fix):**
+```
+tsc -b --noEmit -> clean · eslint -> clean · prettier -> All matched files use Prettier code style!
+Test Files  3 passed (3) · Tests  12 passed (12) · ✓ built
+actionlint (hosted-runner workflows) -> clean
+```
+**Not tested:** the hosted-runner run itself; it starts on push.

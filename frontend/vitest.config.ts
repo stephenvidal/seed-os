@@ -8,7 +8,7 @@
  * worker answers:
  *   Error [vitest-pool]: Failed to start forks worker ... Timeout waiting for worker to respond
  * Tests never compile Tailwind, so this config keeps `react()` only and runs in a
- * single thread instead of one fork per file — measured on golden-eye: 12 passed
+ * single worker thread instead of one fork per file — measured on golden-eye: 12 passed
  * in 67s here, versus three worker-start errors with the Tailwind plugin loaded.
  */
 import { defineConfig } from "vite";
@@ -21,6 +21,7 @@ export default defineConfig({
     setupFiles: ["./src/test/setup.ts"],
     css: false,
     pool: "threads",
-    poolOptions: { threads: { singleThread: true } },
+    // Vitest 4+ dropped poolOptions; one worker replaces threads.singleThread.
+    maxWorkers: 1,
   },
 });
