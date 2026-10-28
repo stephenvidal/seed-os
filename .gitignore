@@ -1,0 +1,44 @@
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# Dependencies & build output (toolchain-agnostic on purpose)
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+dist/
+build/
+target/
+out/
+coverage/
+.coverage
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.next/
+.cache/
+
+# Logs & local state
+*.log
+logs/
+*.sqlite
+*.sqlite3
+*.db
+tmp/
+var/state/
+
+# Spikes are disposable and never tracked
+spikes/
