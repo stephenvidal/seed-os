@@ -271,3 +271,45 @@ Test Files  3 passed (3) · Tests  12 passed (12) · ✓ built
 actionlint (hosted-runner workflows) -> clean
 ```
 **Not tested:** the hosted-runner run itself; it starts on push.
+
+---
+
+## 2026-10-28 — Milestone 1 shipped: hosted CI green, first production deploy live
+
+**Changed**
+- `docs/deployment.md` — staging status marked done, hosted-runner rationale, secrets
+  handling and rotation path.
+- `frontend/vitest.config.ts` — comment corrected (the pool timeout belonged to the
+  retired self-hosted runner, not to today's CI host).
+
+**Pipeline result (observed)**
+
+| Step | Evidence |
+|---|---|
+| CI on hosted runners | runs 40769170969 (pull_request) and 40769163771 (push) — `success` in 1m25s / 1m23s, versus 15-minute toolchain failures on the retired runner. PR #1 merged with `mergeStateStatus: CLEAN`. |
+| Images published | `ghcr.io/stephenvidal/seed-api` and `seed-web`, tags `latest` + `sha-f68de47` |
+| Deploy | run 40770378699 — "Build and push images" `success`, "Deploy to VPS" `success` after `DEPLOY_ENABLED=true` |
+| Containers | `seed-api-1`, `seed-web-1` on `ghcr.io/stephenvidal/seed-web:sha-f68de47`, both healthy, listening `127.0.0.1:8091` |
+| Public surface | `https://seed.nsystems.live/healthz` → `{"status":"ok","version":"0.1.0"}`; `/` → 200; CSP, `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: same-origin` present |
+| Sign-in | `POST /api/v1/auth/login` → 200, cookie `seed_session=…; HttpOnly; Max-Age=43200; Path=/; SameSite=lax; Secure`; `/api/v1/auth/me` → `{"username":"admin","role":"admin"}`; `/api/v1/system` returns live telemetry |
+
+**Public-repository hardening** (the repository is public by owner decision, so that
+standard GitHub-hosted minutes are unmetered)
+- Secret scanning + push protection: enabled.
+- Vulnerability alerts + Dependabot security updates: enabled; dependency graph
+  already publishing (`Graph Update: pip in /backend`).
+- Fork tracking: `seed-os-fork-watch.py` on a 6-hourly schedule, silent unless a new
+  fork appears or a known fork pushes new commits. Logic verified against a stub
+  `gh`; the repository currently has no forks.
+- The seed-os self-hosted runner was deregistered and its install removed from
+  golden-eye once hosted runners were proven.
+
+**Secrets:** `SEED_ADMIN_PASSWORD` and `SEED_SESSION_SECRET` exist only in the
+encrypted vault and in `/opt/seed/.env` (mode 600, owner `deploy`). They are not in
+the repository, the workflow logs, or any chat transcript.
+
+**Not tested**
+- No rollback has been exercised. The documented path (set `SEED_TAG` to an earlier
+  `sha-…` and `docker compose up -d` in `/opt/seed`) is untried.
+- Multi-user auth, CSRF tokens and everything in M2+ do not exist yet, so the only
+  account is the bootstrap admin.
