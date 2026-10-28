@@ -1,22 +1,5 @@
-import { Activity, Bot, Boxes, Cpu, FolderKanban, ListChecks, Wrench } from "lucide-react";
+import { Activity, Bot, Boxes, Cpu, FolderKanban, Wrench } from "lucide-react";
 import { PlannedPage } from "./Planned";
-
-export const TasksPage = () => (
-  <PlannedPage
-    title="Tasks"
-    description="Durable work that survives refreshes, disconnects, and restarts."
-    icon={ListChecks}
-    emptyTitle="No tasks"
-    emptyBody="Tasks are created from chat once SEED Flow is running. Pause, resume, cancel, and retry will appear only where the execution state supports them."
-    milestone="M3 · Durable task infrastructure"
-    scope={[
-      "Draft, queued, running, waiting, paused, completed, failed, canceled",
-      "List, detail, and execution timeline views",
-      "Dependencies, checkpoints, and deliverables",
-      "Verification results and cost accounting",
-    ]}
-  />
-);
 
 export const AgentsPage = () => (
   <PlannedPage
