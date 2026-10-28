@@ -1,12 +1,48 @@
-# SEED OS — local/self-hosted stack (Milestone 1: API + web).
-# Database, worker, and sandbox services are added with the milestones that use them.
+# SEED OS — local/self-hosted stack: API, worker, Postgres, web.
+# The sandbox service is added with the milestone that uses it.
 name: seed
+x-seed-env: &seed-env
+  SEED_COOKIE_SECURE: ${SEED_COOKIE_SECURE:-false}
+  SEED_DATABASE_URL: postgresql://seed:${SEED_POSTGRES_PASSWORD:?set SEED_POSTGRES_PASSWORD in .env}@db:5432/seed
 services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: seed
+      POSTGRES_DB: seed
+      POSTGRES_PASSWORD: ${SEED_POSTGRES_PASSWORD:?set SEED_POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U seed -d seed"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    mem_limit: 256m
   api:
     build: ./backend
     env_file: .env
-    environment:
-      SEED_COOKIE_SECURE: ${SEED_COOKIE_SECURE:-false}
+    environment: *seed-env
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+    mem_limit: 256m
+  worker:
+    build: ./backend
+    command: ["python", "-m", "seed_api.flow.worker"]
+    env_file: .env
+    environment: *seed-env
+    depends_on:
+      db:
+        condition: service_healthy
+    # The worker hands its task back on SIGTERM; give it time to do so.
+    stop_grace_period: 30s
+    healthcheck:
+      disable: true
     restart: unless-stopped
     read_only: true
     tmpfs: [/tmp]
@@ -20,3 +56,5 @@ services:
       - "${SEED_HTTP_PORT:-8080}:8080"
     restart: unless-stopped
     mem_limit: 64m
+volumes:
+  pgdata:
