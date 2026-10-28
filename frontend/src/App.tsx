@@ -6,7 +6,6 @@ import { Button } from "./components/ui/Button";
 import { useSession } from "./lib/auth";
 import {
   AgentsPage,
-  ChatPage,
   InspectorPage,
   ModelsPage,
   ProjectsPage,
@@ -14,6 +13,7 @@ import {
   TasksPage,
   ToolsPage,
 } from "./pages/areas";
+import { ChatPage } from "./pages/Chat";
 import { CommandCenterPage } from "./pages/CommandCenter";
 import { LoginPage } from "./pages/Login";
 import { NotFoundPage } from "./pages/NotFound";

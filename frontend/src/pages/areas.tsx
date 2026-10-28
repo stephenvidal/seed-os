@@ -1,32 +1,5 @@
-import {
-  Activity,
-  Bot,
-  Boxes,
-  Cpu,
-  FolderKanban,
-  ListChecks,
-  MessageSquare,
-  Wrench,
-} from "lucide-react";
+import { Activity, Bot, Boxes, Cpu, FolderKanban, ListChecks, Wrench } from "lucide-react";
 import { PlannedPage } from "./Planned";
-
-export const ChatPage = () => (
-  <PlannedPage
-    title="Chat"
-    description="One assistant by default. An entire workforce when necessary."
-    icon={MessageSquare}
-    emptyTitle="No conversations yet"
-    emptyBody="Native chat needs the agent runtime and a configured model provider. Conversations will persist and keep running when you navigate away."
-    milestone="M4 · Integrated native chat"
-    scope={[
-      "Streaming responses with Markdown and code",
-      "Attachments and artifact references",
-      "Edit, regenerate, and continue sessions",
-      "Inline approvals and expandable tool activity",
-      "Clear split between replies and durable tasks",
-    ]}
-  />
-);
 
 export const TasksPage = () => (
   <PlannedPage
