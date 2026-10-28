@@ -1,0 +1,22 @@
+# SEED OS — local/self-hosted stack (Milestone 1: API + web).
+# Database, worker, and sandbox services are added with the milestones that use them.
+name: seed
+services:
+  api:
+    build: ./backend
+    env_file: .env
+    environment:
+      SEED_COOKIE_SECURE: ${SEED_COOKIE_SECURE:-false}
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+    mem_limit: 256m
+  web:
+    build: ./frontend
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${SEED_HTTP_PORT:-8080}:8080"
+    restart: unless-stopped
+    mem_limit: 64m
