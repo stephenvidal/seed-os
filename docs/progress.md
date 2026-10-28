@@ -412,3 +412,19 @@ on 6 models × 3 trials; results and table in `docs/model-strategy.md`
 model; per-token pricing (not published by the API); larger tasks.
 
 **Open:** confirm Ollama Cloud plan limits; ADR for default model after real workloads.
+
+## Review of live model verification (2026-10-28)
+
+**Changed:** `.env.example` now sets `SEED_DEFAULT_MODEL=deepseek-v4.1-flash` per
+ADR-0007. The code default stays unset, so Chat still asks for a model when the
+variable is absent.
+
+**Correction:** the entry above lists `spikes/model-bench/bench.py`, but that file
+was never committed (merged PR #3 changed 3 docs files only). The bench script is
+not reproducible from the repo; the table in `docs/model-strategy.md` is the only
+record.
+
+**Tested:** backend and frontend checks after merging PR #3 (output in CI on PR #2).
+
+**Not tested:** `/api/v1/runs` SSE and Chat UI against a real model (this sandbox's
+proxy blocks ollama.com).
