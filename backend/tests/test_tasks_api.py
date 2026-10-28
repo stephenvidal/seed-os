@@ -1,5 +1,6 @@
 """Tasks API over a real Postgres, including persistence across an API restart."""
 
+import json
 import uuid
 from collections.abc import Iterator
 
@@ -120,3 +121,39 @@ def test_tasks_survive_an_api_restart(db_settings: Settings, db_url: str) -> Non
     with psycopg.connect(db_url) as conn:
         row = conn.execute("SELECT count(*) FROM schema_migrations").fetchone()
         assert row == (1,)  # migrations ran once, not per start
+
+
+def sse(text: str) -> list[tuple[str | None, str | None, dict]]:  # type: ignore[type-arg]
+    out = []
+    for block in text.strip().split("\n\n"):
+        fields = dict(line.split(": ", 1) for line in block.splitlines() if ": " in line)
+        if "data" in fields:
+            out.append((fields.get("id"), fields.get("event"), json.loads(fields["data"])))
+    return out
+
+
+def test_stream_replays_and_ends_for_a_finished_task(api: TestClient) -> None:
+    tid = api.post("/api/v1/tasks", json=BODY).json()["id"]
+    api.post(f"/api/v1/tasks/{tid}/cancel")
+    with api.stream("GET", f"/api/v1/tasks/{tid}/stream") as r:
+        assert r.headers["content-type"].startswith("text/event-stream")
+        body = r.read().decode()
+    assert body.startswith("retry: 2000")
+    events = sse(body)
+    assert [(i, e, d.get("type")) for i, e, d in events] == [
+        ("1", None, "task_created"),
+        ("2", None, "cancel_requested"),
+        (None, "end", None),
+    ]
+    assert events[-1][2] == {"state": "canceled"}
+
+
+def test_stream_resumes_after_last_event_id(api: TestClient) -> None:
+    tid = api.post("/api/v1/tasks", json=BODY).json()["id"]
+    api.post(f"/api/v1/tasks/{tid}/cancel")
+    with api.stream("GET", f"/api/v1/tasks/{tid}/stream", headers={"Last-Event-ID": "1"}) as r:
+        events = sse(r.read().decode())
+    assert [i for i, _, _ in events] == ["2", None]
+    with api.stream("GET", f"/api/v1/tasks/{tid}/stream?after=2") as r:
+        assert [e for _, e, _ in sse(r.read().decode())] == ["end"]
+    assert api.get(f"/api/v1/tasks/{uuid.uuid4()}/stream").status_code == 404

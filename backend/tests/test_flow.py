@@ -1,17 +1,22 @@
 """SEED Flow against a real Postgres: state machine, leases, recovery, cancellation."""
 
 import asyncio
+import json
 import uuid
 from collections.abc import AsyncIterator
 from pathlib import Path
 
+import httpx
 import pytest
+from pydantic import SecretStr
 
-from seed_api.config import Settings
+from seed_api.config import Settings, get_settings
 from seed_api.core.providers.base import ProviderError
+from seed_api.flow import api as tasks_api
 from seed_api.flow.db import Pool, make_pool, migrate
 from seed_api.flow.store import LeaseLost, Task, TaskStore
 from seed_api.flow.worker import Worker
+from seed_api.main import create_app
 
 from .fakes import ScriptedProvider, Step, calls, reply
 
@@ -271,3 +276,30 @@ async def test_idempotency_key_returns_the_same_task(store: TaskStore) -> None:
     assert created is False and again.id == first.id
     other = await new_task(store, key="k-2")
     assert other.id != first.id
+
+
+async def test_stream_delivers_events_written_after_it_opened(
+    store: TaskStore, wsettings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(tasks_api, "STREAM_POLL_S", 0.02)
+    settings = wsettings.model_copy(
+        update={"admin_password": SecretStr("pw"), "session_secret": SecretStr("s" * 32)}
+    )
+    app = create_app(settings)
+    app.dependency_overrides[get_settings] = lambda: settings
+    app.state.task_store = store
+    task = await new_task(store)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://t"
+    ) as client:
+        await client.post("/api/v1/auth/login", json={"username": "admin", "password": "pw"})
+        stream = asyncio.create_task(client.get(f"/api/v1/tasks/{task.id}/stream"))
+        await asyncio.sleep(0.1)  # the stream is open and idle before any work happens
+        assert not stream.done()
+        await worker(store, wsettings, [reply("hello")], "w").run_once()
+        body = (await asyncio.wait_for(stream, timeout=5)).text
+    types = [
+        json.loads(line[6:])["type"] for line in body.splitlines() if line.startswith('data: {"seq')
+    ]
+    assert types[0] == "task_created" and types[-1] == "run_finished"
+    assert "text_delta" in types and body.rstrip().endswith('data: {"state": "completed"}')
