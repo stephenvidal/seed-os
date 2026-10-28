@@ -42,3 +42,7 @@ var/state/
 
 # Spikes are disposable and never tracked
 spikes/
+
+# Python packaging metadata
+*.egg-info/
+*.tsbuildinfo

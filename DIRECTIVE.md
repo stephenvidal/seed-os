@@ -113,3 +113,38 @@ Iteration numbers do not advance past an open gate.
 | Version | Date | Change |
 |---|---|---|
 | 1.0 | 2026-10-28 | Initial frame: repository, Claude Code execution environment, greenfield iterative method, gate, change control. Product scope deferred. |
+| 1.1 | 2026-10-28 | Product definition: SEED OS master directive ratified (see below and `docs/product-vision.md`). |
+
+---
+
+## Directive v1.1 — SEED OS product definition
+
+**Ratified 2026-10-28** by the owner (Stephen) in the project thread. MINOR
+amendment: adds scope, invalidates no prior work. v1.0 text above is unchanged.
+
+**What changed.** The product is now defined. SEED OS is a self-hostable,
+model-agnostic autonomous agent platform ("From intention to execution"):
+native chat, durable task orchestration (SEED Flow), an independent agent
+runtime (SEED Core), artifacts (SEED Studio), memory, integrations, and
+administration, delivered through a premium web workspace.
+
+**Authoritative source.** The owner's master directive is distilled, section by section, into
+`docs/product-vision.md` (mission, identity, experience, design bar),
+`docs/requirements.md` (functional areas, runtime, flow, tools, memory, security,
+standards), and `docs/roadmap.md` (Milestones 0–9 and the mandatory end-to-end
+acceptance test). Where those documents and v1.0 §3–§5 appear to disagree, v1.0
+process rules (definition of done, gate, non-negotiables) still govern *how*
+work is done; v1.1 governs *what* is built.
+
+**Technology envelope.** Recommended architecture ratified as a starting point,
+to be validated per ADR: React + TypeScript + Vite + Tailwind; Python + FastAPI
++ Pydantic; PostgreSQL; dedicated workers; SSE; filesystem artifact storage;
+Docker Compose. See `docs/decisions/`.
+
+**Hard boundaries carried from the master directive.** Never modify
+`stephenvidal/agent-native-os` or the running Hermes Agent installation. SEED
+does not depend on Claude Code or Hermes at runtime. Hosted GitHub Actions
+minutes are unavailable; verification is local.
+
+**Prior work affected.** `CLAUDE.md` environment note updated (toolchain now
+ratified). `docs/decisions.md` open questions 1–3 are closed by D-002.

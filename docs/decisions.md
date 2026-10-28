@@ -39,3 +39,63 @@ non-goals, and the first milestone.
 2. **Technology envelope** — language/runtime/storage. Not ratifiable before (1).
 3. **Operational target** — local-first, self-hosted, or hosted. Not ratifiable
    before (1).
+
+---
+
+## D-002 — Directive v1.1 ratified; recommended stack adopted
+
+**Date:** 2026-10-28
+
+**Context:** The owner supplied the full SEED OS master directive in the project
+thread, defining the product, its milestones, and a recommended architecture.
+Open questions 1–3 above are answered by it.
+
+**Options:** (1) adopt the recommended stack as-is; (2) re-evaluate every layer
+before writing code; (3) adopt it, validating each layer with an ADR as it is
+built.
+
+**Choice:** Option 3.
+
+**Reason:** The directive says "validate choices before implementation" and also
+"do not substitute lengthy planning for implementation". ADRs 0001–0005 record
+the validated choices for what Iteration 1 builds; later layers get ADRs when
+they are built.
+
+**Consequences:** Open questions 1–3 are closed. The product scope lives in
+`docs/product-vision.md`, `docs/requirements.md`, `docs/roadmap.md`. CLAUDE.md's
+"no toolchain ratified" note is superseded. Host reality differs from CLAUDE.md
+(Node 22 / Python 3.13, not Node 20 / 3.14); code targets Python ≥ 3.12, Node ≥ 20.
+
+## Open questions (as of Iteration 1)
+
+4. **CSRF strategy** before any internet-facing deployment — double-submit token
+   vs. Origin check. Due with M3 auth.
+5. **Default model routing** (which provider/model per task class) — needs owner
+   input on budget; due M2.
+6. **Self-hosted CI runner** — hosted Actions minutes are blocked; verification is
+   local until the owner decides.
+
+---
+
+## D-003 — Reuse dustline's CI/deploy pipeline
+
+**Date:** 2026-10-28
+
+**Context:** Hosted Actions minutes are blocked (open question 6). The owner said
+seed-os may borrow deploy code from `stephenvidal/dustline`, which already runs CI
+and deploys on a self-hosted runner on golden-eye, pushes to GHCR, and deploys to
+a VPS over SSH behind a Cloudflare tunnel.
+
+**Options:** (1) keep local-only verification; (2) write a new pipeline; (3)
+adapt dustline's.
+
+**Choice:** Option 3, with deploy gated off (`DEPLOY_ENABLED`) until the owner
+prepares the runner, VPS folder, secrets, and tunnel route.
+
+**Reason:** Proven on the same account and hosts; avoids a second design. Changes:
+two images (api, web) instead of one, port 8091, required secrets checked before
+deploy, SSH config files namespaced so they do not clobber dustline's on a shared
+runner.
+
+**Consequences:** Open question 6 becomes an owner action (register a runner for
+seed-os). Production deploys stay off until explicitly enabled.

@@ -1,0 +1,35 @@
+# Production compose file for the VPS. The deploy workflow copies it to DEPLOY_PATH
+# (/opt/seed), sets SEED_TAG in .env and runs `docker compose pull && up -d`.
+# Adapted from stephenvidal/dustline (deploy/docker-compose.yml).
+#
+# Public traffic: a Cloudflare tunnel on the host maps the public hostname to
+# http://127.0.0.1:${SEED_HOST_PORT}. Cloudflare terminates TLS, so cookies are Secure.
+name: seed
+services:
+  api:
+    image: ghcr.io/stephenvidal/seed-api:${SEED_TAG:-latest}
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: true
+    environment:
+      SEED_COOKIE_SECURE: "true"
+    read_only: true
+    tmpfs: [/tmp]
+    mem_limit: 256m
+    logging: &logging
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+  web:
+    image: ghcr.io/stephenvidal/seed-web:${SEED_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    # Loopback only. Host ports 8080 (filebrowser) and 8090 (dustline) are taken.
+    ports:
+      - "127.0.0.1:${SEED_HOST_PORT:-8091}:8080"
+    mem_limit: 64m
+    logging: *logging

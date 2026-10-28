@@ -1,0 +1,129 @@
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/jetbrains-mono";
+@import "tailwindcss";
+
+/*
+ * SEED design tokens. Semantic names only; components never reference raw colors.
+ * Neutrals are a cool graphite with a faint green bias; the single accent ("seed")
+ * is a restrained jade used for focus, primary action and live state.
+ */
+:root,
+[data-theme="light"] {
+  --bg: oklch(0.985 0.002 165);
+  --surface-1: oklch(1 0 0);
+  --surface-2: oklch(0.97 0.003 165);
+  --surface-3: oklch(0.945 0.004 165);
+  --border: oklch(0.91 0.004 165);
+  --border-strong: oklch(0.84 0.006 165);
+  --fg: oklch(0.2 0.01 165);
+  --fg-muted: oklch(0.46 0.012 165);
+  --fg-subtle: oklch(0.6 0.01 165);
+  --accent: oklch(0.52 0.105 163);
+  --accent-hover: oklch(0.47 0.1 163);
+  --accent-fg: oklch(0.99 0.01 163);
+  --accent-soft: oklch(0.95 0.03 163);
+  --accent-soft-fg: oklch(0.38 0.08 163);
+  --danger: oklch(0.55 0.19 27);
+  --danger-soft: oklch(0.96 0.025 27);
+  --warning: oklch(0.62 0.13 70);
+  --warning-soft: oklch(0.96 0.04 85);
+  --ring: oklch(0.52 0.105 163 / 0.45);
+  --shadow-pop: 0 1px 2px oklch(0.2 0.01 165 / 0.06), 0 8px 24px -6px oklch(0.2 0.01 165 / 0.16);
+  --scrim: oklch(0.2 0.01 165 / 0.32);
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  --bg: oklch(0.165 0.006 165);
+  --surface-1: oklch(0.195 0.007 165);
+  --surface-2: oklch(0.225 0.008 165);
+  --surface-3: oklch(0.26 0.009 165);
+  --border: oklch(0.28 0.008 165);
+  --border-strong: oklch(0.36 0.01 165);
+  --fg: oklch(0.94 0.004 165);
+  --fg-muted: oklch(0.72 0.01 165);
+  --fg-subtle: oklch(0.58 0.01 165);
+  --accent: oklch(0.76 0.12 163);
+  --accent-hover: oklch(0.81 0.11 163);
+  --accent-fg: oklch(0.2 0.03 163);
+  --accent-soft: oklch(0.3 0.045 163);
+  --accent-soft-fg: oklch(0.85 0.09 163);
+  --danger: oklch(0.7 0.16 25);
+  --danger-soft: oklch(0.3 0.06 25);
+  --warning: oklch(0.8 0.12 80);
+  --warning-soft: oklch(0.32 0.05 80);
+  --ring: oklch(0.76 0.12 163 / 0.5);
+  --shadow-pop: 0 1px 2px oklch(0 0 0 / 0.3), 0 12px 32px -8px oklch(0 0 0 / 0.55);
+  --scrim: oklch(0 0 0 / 0.5);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
+
+  --color-bg: var(--bg);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-soft-fg: var(--accent-soft-fg);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-ring: var(--ring);
+  --color-scrim: var(--scrim);
+  --shadow-pop: var(--shadow-pop);
+
+  --radius-control: 6px;
+  --radius-panel: 10px;
+
+  --text-2xs: 11px;
+  --text-2xs--line-height: 16px;
+  --text-xs: 12px;
+  --text-xs--line-height: 16px;
+  --text-sm: 13px;
+  --text-sm--line-height: 20px;
+  --text-base: 14px;
+  --text-base--line-height: 22px;
+
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-bg font-sans text-sm text-fg antialiased;
+    font-feature-settings: "cv11", "ss01";
+  }
+  ::selection {
+    background: var(--accent-soft);
+    color: var(--accent-soft-fg);
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

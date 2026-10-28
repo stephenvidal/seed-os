@@ -1,0 +1,62 @@
+# CI on GitHub-hosted runners. The repository is public, so standard runners are
+# unmetered; while it was private this account's spending limit blocked hosted
+# minutes outright and checks ran on a self-hosted golden-eye runner instead. That
+# box is a 4-vCPU Pentium with no AVX, which is where the container-based steps in
+# the earlier revision came from — they are gone now that hosted runners are back.
+#
+# Rules: keep the fork guard (fork PRs must never execute checks that later grow
+# secrets), keep timeout-minutes, keep cancel-in-progress.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches-ignore: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    # Public repository: anyone can open a fork PR. Only build PRs whose head is
+    # this repository; a fork PR gets reviewed by hand before anything runs.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Backend checks
+        working-directory: backend
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -q -e '.[dev]'
+          .venv/bin/ruff check .
+          .venv/bin/ruff format --check .
+          .venv/bin/mypy
+          .venv/bin/pytest -q
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Frontend checks
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm run format:check
+          npm test
+          npm run build
+
+      - name: Build images (not pushed)
+        run: |
+          docker build -t seed-api:ci backend
+          docker build -t seed-web:ci frontend

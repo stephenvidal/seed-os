@@ -1,12 +1,14 @@
 # CLAUDE.md — execution rules for SEED OS
 
 You are the implementer for SEED OS. Read `DIRECTIVE.md` first; it outranks this
-file when they disagree. Directive v1.0 defines the frame only — the product is
-not yet specified, so do not build product features until Directive v1.1 lands.
+file when they disagree. Directive v1.0 defines the frame (method, gate, change
+control); v1.1 defines the product — see `docs/product-vision.md`,
+`docs/requirements.md`, `docs/roadmap.md`.
 
 ## Session protocol
 
-1. Read `DIRECTIVE.md`, this file, `docs/decisions.md`, `docs/progress.md`.
+1. Read `DIRECTIVE.md`, this file, `docs/decisions.md`, `docs/progress.md`
+   (latest entry first), and `docs/roadmap.md`.
 2. State the iteration you are working on in one sentence, plus its definition of
    done, **before** editing anything.
 3. Work in one increment. If the increment grows past a reviewable diff, stop and
@@ -53,7 +55,21 @@ not yet specified, so do not build product features until Directive v1.1 lands.
 - [ ] Diff contains no drive-by edits.
 - [ ] `main` still runs from a clean checkout.
 
-## Environment
+## Environment and commands
 
-- Node 20 / Python 3.14 available on the host; no toolchain choice is ratified
-  yet — do not select one without a directive amendment.
+- Stack ratified by Directive v1.1 / ADRs in `docs/decisions/`: React + Vite +
+  TypeScript + Tailwind (`frontend/`), Python + FastAPI (`backend/`), Docker
+  Compose. Postgres, workers, sandbox arrive in M3.
+- Backend: `cd backend && python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'`;
+  check with `.venv/bin/ruff check . && .venv/bin/mypy && .venv/bin/pytest -q`.
+- Frontend: `cd frontend && npm ci`; check with
+  `npm run typecheck && npm run lint && npm run format:check && npm test`.
+- Dev: run the API (`SEED_ADMIN_PASSWORD=… .venv/bin/uvicorn seed_api.main:app`)
+  and `npm run dev`; Vite proxies `/api` to `:8000`.
+- Hosted GitHub Actions is unavailable. CI/deploy workflows target a self-hosted
+  runner (`[self-hosted, golden-eye]`, see `docs/deployment.md`); keep `runs-on`,
+  the fork guard, and job timeouts. Until that runner exists, run the checks
+  above locally and paste output into `docs/progress.md`.
+- Never touch `stephenvidal/agent-native-os` or the Hermes Agent installation.
+- No fake data in screens: unbuilt areas show an honest empty state naming the
+  milestone.

@@ -1,0 +1,144 @@
+# Build images, push to GHCR, and (when enabled) deploy to the VPS over SSH.
+# Hosted runners: the repository is public, so standard minutes are unmetered.
+name: Build and deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io/stephenvidal
+
+jobs:
+  images:
+    name: Build and push images to GHCR
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      tag: ${{ steps.vars.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: vars
+        run: echo "tag=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: API image
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          push: true
+          platforms: ${{ vars.IMAGE_PLATFORMS || 'linux/amd64' }}
+          tags: |
+            ${{ env.REGISTRY }}/seed-api:latest
+            ${{ env.REGISTRY }}/seed-api:${{ steps.vars.outputs.tag }}
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+
+      - name: Web image
+        uses: docker/build-push-action@v6
+        with:
+          context: frontend
+          push: true
+          platforms: ${{ vars.IMAGE_PLATFORMS || 'linux/amd64' }}
+          tags: |
+            ${{ env.REGISTRY }}/seed-web:latest
+            ${{ env.REGISTRY }}/seed-web:${{ steps.vars.outputs.tag }}
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+
+  deploy:
+    name: Deploy to VPS
+    needs: images
+    # Off until the VPS is prepared (docs/deployment.md): set repo variable DEPLOY_ENABLED to "true".
+    if: vars.DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: production
+      url: ${{ vars.PUBLIC_URL }}
+    env:
+      DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/seed' }}
+      SSH_TARGET: ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}
+      SSH_PORT: ${{ secrets.VPS_PORT || '22' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pin the server's ED25519 host key by its fingerprint before trusting it.
+      - name: Set up SSH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_HOST_FINGERPRINT: ${{ secrets.VPS_HOST_FINGERPRINT }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/seed_deploy_key
+          chmod 600 ~/.ssh/seed_deploy_key
+          ssh-keyscan -T 15 -p "$SSH_PORT" -t ed25519 "$VPS_HOST" > ~/.ssh/seed_known_hosts 2>/dev/null
+          got=$(ssh-keygen -lf ~/.ssh/seed_known_hosts | awk '{print $2}')
+          if [ -z "$got" ] || [ "${got#SHA256:}" != "${VPS_HOST_FINGERPRINT#SHA256:}" ]; then
+            echo "::error::VPS host key fingerprint mismatch (got ${got:-nothing})"
+            exit 1
+          fi
+          cat > ~/.ssh/seed_config <<CFG
+          Host seed-vps
+            HostName $VPS_HOST
+            Port $SSH_PORT
+            User ${SSH_TARGET%@*}
+            IdentityFile ~/.ssh/seed_deploy_key
+            IdentitiesOnly yes
+            UserKnownHostsFile ~/.ssh/seed_known_hosts
+            HostKeyAlgorithms ssh-ed25519
+            StrictHostKeyChecking yes
+            ConnectTimeout 20
+          CFG
+
+      - name: Copy compose file to the VPS
+        run: ssh -F ~/.ssh/seed_config seed-vps "cat > '$DEPLOY_PATH/compose.yaml'" < deploy/compose.yaml
+
+      - name: Pull and restart on the VPS
+        env:
+          TAG: ${{ needs.images.outputs.tag }}
+        run: |
+          ssh -F ~/.ssh/seed_config seed-vps bash -s -- "$TAG" "$DEPLOY_PATH" "$REGISTRY" <<'REMOTE'
+          set -euo pipefail
+          TAG=$1; DEPLOY_PATH=$2; REGISTRY=$3
+          cd "$DEPLOY_PATH"
+          # .env holds secrets the owner sets by hand; refuse to start without them.
+          if ! grep -q '^SEED_ADMIN_PASSWORD=.' .env 2>/dev/null || ! grep -q '^SEED_SESSION_SECRET=.' .env; then
+            echo "::error::$DEPLOY_PATH/.env must set SEED_ADMIN_PASSWORD and SEED_SESSION_SECRET (see docs/deployment.md)"
+            exit 1
+          fi
+          if grep -q '^SEED_TAG=' .env; then sed -i "s/^SEED_TAG=.*/SEED_TAG=$TAG/" .env; else echo "SEED_TAG=$TAG" >> .env; fi
+          docker compose pull
+          docker compose up -d --remove-orphans
+          # Disk is tight: keep the running image plus two previous releases; touch only SEED images.
+          for img in seed-api seed-web; do
+            docker images "$REGISTRY/$img" --format '{{.Tag}}' | grep '^sha-' | grep -vx "$TAG" | tail -n +3 | xargs -r -I{} docker rmi "$REGISTRY/$img:{}" || true
+          done
+          REMOTE
+
+      - name: Check the public URL
+        if: vars.PUBLIC_URL != ''
+        run: |
+          for i in $(seq 1 12); do
+            if curl -fsS "${{ vars.PUBLIC_URL }}/healthz"; then exit 0; fi
+            sleep 5
+          done
+          echo "Health check failed at ${{ vars.PUBLIC_URL }}/healthz" >&2
+          exit 1
