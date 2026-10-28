@@ -218,3 +218,32 @@ For comparison, the same tree under the Tailwind-loading config: 3 errors, no te
 `Build images (not pushed)` step. Also unresolved: an earlier run ended with "The
 runner has received a shutdown signal" before any frontend command ran — that is a
 host/runner-side event (memory pressure on golden-eye), not a workflow fault.
+
+---
+
+## 2026-10-28 — Iteration 1 decision: repository public, CI back on hosted runners
+
+**Context:** the owner chose to make `stephenvidal/seed-os` public in exchange for
+unmetered standard GitHub-hosted runners, accepting the exposure and asking for fork
+tracking. Every previous CI compromise in this PR traced back to the private-repo
+spending block plus golden-eye's 4-vCPU Pentium (no AVX), so both workarounds can go.
+
+**Changed**
+- `.github/workflows/ci.yml` — `runs-on: ubuntu-latest`, `actions/setup-python@v5`
+  (3.13) and `actions/setup-node@v4` (22) restored, container wrappers removed,
+  `permissions: contents: read` added. Fork guard and timeouts kept.
+- `.github/workflows/deploy.yml` — both jobs on `ubuntu-latest`; SSH, host-key
+  pinning, `DEPLOY_ENABLED` gate and image cleanup unchanged.
+- `.github/actionlint.yaml` — deleted (it only declared the self-hosted label).
+- `docs/deployment.md` — staging status, secrets handling, tunnel/DNS detail.
+
+**Pre-public audit (observed, not asserted)**
+```
+grep -rInE '31\.187\.72\.46|100\.|192\.168\.|srv1388017|cfargotunnel|BEGIN .*PRIVATE KEY|ghp_|gho_|github_pat_|sk-' <tree>   -> no matches
+git ls-files | grep -E '^\.env$'                                  -> only .env.example
+git log -p main..HEAD | grep -E 'PRIVATE KEY|ghp_|password'      -> only test fixtures ("correct-horse")
+```
+
+**Not tested**
+- No CI or deploy run has executed on a hosted runner yet.
+- Fork monitoring is not automated yet; it is tracked separately from the repository.

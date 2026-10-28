@@ -1,7 +1,11 @@
-# Runs on a self-hosted runner on golden-eye (labels: self-hosted, golden-eye).
-# GitHub-hosted minutes for private repos are blocked by this account's spending
-# limit, so CI runs on our own hardware. Pattern borrowed from stephenvidal/dustline
-# (docs/CI.md there). Rules: keep runs-on, keep the fork guard, keep timeouts.
+# CI on GitHub-hosted runners. The repository is public, so standard runners are
+# unmetered; while it was private this account's spending limit blocked hosted
+# minutes outright and checks ran on a self-hosted golden-eye runner instead. That
+# box is a 4-vCPU Pentium with no AVX, which is where the container-based steps in
+# the earlier revision came from — they are gone now that hosted runners are back.
+#
+# Rules: keep the fork guard (fork PRs must never execute checks that later grow
+# secrets), keep timeout-minutes, keep cancel-in-progress.
 name: CI
 
 on:
@@ -9,47 +13,48 @@ on:
   push:
     branches-ignore: [main]
 
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   checks:
-    runs-on: [self-hosted, golden-eye]
+    runs-on: ubuntu-latest
     timeout-minutes: 25
-    # A self-hosted runner executes whatever the workflow says: never run fork PRs.
+    # Public repository: anyone can open a fork PR. Only build PRs whose head is
+    # this repository; a fork PR gets reviewed by hand before anything runs.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - uses: actions/checkout@v4
 
-      # Backend checks run in the same base image as production. setup-python's
-      # prebuilt CPython needs a newer CPU ISA than golden-eye has ("CPU ISA level
-      # is lower than required"). The source is copied in read-only so the
-      # container (root) never leaves root-owned files in the runner workspace.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
       - name: Backend checks
+        working-directory: backend
         run: |
-          docker run --rm -v "$PWD/backend:/src:ro" python:3.13-slim sh -euc '
-            cp -r /src /work && cd /work
-            pip install -q --root-user-action=ignore -e ".[dev]"
-            ruff check .
-            ruff format --check .
-            mypy
-            pytest -q -p no:cacheprovider
-          '
+          python -m venv .venv
+          .venv/bin/pip install -q -e '.[dev]'
+          .venv/bin/ruff check .
+          .venv/bin/ruff format --check .
+          .venv/bin/mypy
+          .venv/bin/pytest -q
 
-      # Same approach for the frontend: setup-node's tool-cache write took minutes
-      # on golden-eye and the run was cut off there. node:22-alpine is the web build image.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - name: Frontend checks
+        working-directory: frontend
         run: |
-          docker run --rm -v "$PWD/frontend:/src:ro" node:22-alpine sh -euc '
-            mkdir /work && cd /src && cp -r $(ls -A | grep -vx node_modules) /work/ && cd /work
-            npm ci --no-audit --no-fund
-            npm run typecheck
-            npm run lint
-            npm run format:check
-            npm test
-            npm run build
-          '
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm run format:check
+          npm test
+          npm run build
 
       - name: Build images (not pushed)
         run: |

@@ -1,5 +1,5 @@
 # Build images, push to GHCR, and (when enabled) deploy to the VPS over SSH.
-# Runs on the self-hosted golden-eye runner; adapted from stephenvidal/dustline.
+# Hosted runners: the repository is public, so standard minutes are unmetered.
 name: Build and deploy
 
 on:
@@ -17,7 +17,7 @@ env:
 jobs:
   images:
     name: Build and push images to GHCR
-    runs-on: [self-hosted, golden-eye]
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: read
@@ -67,7 +67,7 @@ jobs:
     needs: images
     # Off until the VPS is prepared (docs/deployment.md): set repo variable DEPLOY_ENABLED to "true".
     if: vars.DEPLOY_ENABLED == 'true'
-    runs-on: [self-hosted, golden-eye]
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     environment:
       name: production
