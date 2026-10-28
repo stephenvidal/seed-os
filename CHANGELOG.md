@@ -2,7 +2,16 @@
 
 All notable changes. Format: Keep a Changelog; versions follow the milestones.
 
-## [Unreleased] — M3 Durable tasks (increment 1)
+## [Unreleased] — M3 Durable tasks (increment 2)
+### Added
+- `GET /api/v1/tasks/{id}/stream`: live task events over SSE, resuming after
+  `Last-Event-ID` (ADR-0003).
+- Tasks screen: task list, new-task form (idempotency key per submission), task
+  detail with live timeline, cancel and retry.
+### Changed
+- Command Center lists SEED Core and SEED Flow as built.
+
+## M3 Durable tasks (increment 1)
 ### Added
 - Postgres (psycopg 3) with forward-only SQL migrations.
 - Durable tasks: state machine, leased workers with heartbeats and fenced writes,

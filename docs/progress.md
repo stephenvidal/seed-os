@@ -484,3 +484,47 @@ cancel stops a running task; checks green.
 
 **Open:** deploy Postgres on the VPS (owner sets the password); next increment is
 live task events over SSE with replay plus the Tasks UI.
+
+## Iteration 4: Milestone 3, increment 2 — live Tasks screen (2026-10-28)
+
+**Iteration:** let the owner create and follow durable tasks in the UI.
+**Definition of done:** a task event stream that resumes without gaps after a
+disconnect; a Tasks page (list, create, detail with live timeline, cancel, retry);
+a task followed in the browser through a worker crash and recovery; checks green.
+
+**Changed:**
+- `GET /api/v1/tasks/{id}/stream` (SSE, `id:` = seq, `Last-Event-ID`/`?after=`
+  resume, `event: end` when finished, 15 s keepalive, 0.5 s DB poll).
+- Frontend: `lib/tasks.ts` (client, EventSource follower, event → timeline fold),
+  `pages/Tasks.tsx` (list + new task, detail), routes `/tasks`, `/tasks/:id`.
+- Command Center component list: SEED Core and Flow now say "Built" (they said
+  "not built", which was no longer true).
+
+**Tested:**
+- Backend with Postgres: `ruff check` → `All checks passed!`; `mypy` → `Success:
+  no issues found in 20 source files`; `pytest -q` → `66 passed, 1 warning`.
+  New: replay+end for a finished task, resume after `Last-Event-ID`, and a stream
+  opened before any work that then receives the worker's events. Mutation (stream
+  ends whenever it has caught up) → `1 failed, 20 passed`.
+- Frontend: typecheck and lint clean, prettier clean, `npm test` → `Tests 21
+  passed (21)`, `npm run build` → `✓ built`. Mutation (drop the seq dedupe) →
+  `Tests 1 failed | 2 passed (3)` in Tasks.test.tsx.
+- Browser (Playwright, Chromium) against the real API, real worker processes,
+  Postgres and the Ollama-wire stub (not a model): created a task in the UI,
+  saw step 1's `write_file` live, SIGKILLed the worker, reloaded the page, started
+  a second worker. Timeline as rendered:
+  ```
+  Created | Attempt 1 started | Step 1 · 100 in / 10 out | write_file | {"path":"report.txt","content":"total 541"}
+  | Step 2 | interrupted | Attempt 2 resumed after step 1 | Step 2 · attempt 2 · 150 in / 5 out
+  | Wrote report.txt | Finished
+  details: Model stub Attempt 2 of 3 Tokens 250 in / 15 out tokens
+  ```
+  390 px detail and list: horizontal overflow `0`. Dark and light checked by
+  screenshot. Only console error: the expected 401 from `/auth/me` before sign-in.
+
+**Not tested:** a real model through the worker; the stream through nginx and
+Cloudflare in production (no database there yet); many concurrent streams (each
+polls the DB every 0.5 s).
+
+**Open:** production Postgres (owner sets `SEED_POSTGRES_PASSWORD`); next
+increment is Postgres-backed users/sessions with CSRF, then the sandbox.
