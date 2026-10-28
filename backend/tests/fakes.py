@@ -50,6 +50,7 @@ class ScriptedProvider:
     def __init__(self, script: list[Step]) -> None:
         self.script = list(script)
         self.requests: list[ChatRequest] = []
+        self.closed = False
 
     async def complete(self, request: ChatRequest) -> ChatResult:
         raise NotImplementedError
@@ -68,3 +69,6 @@ class ScriptedProvider:
 
     async def list_models(self) -> list[ModelInfo]:
         return []
+
+    async def aclose(self) -> None:
+        self.closed = True
