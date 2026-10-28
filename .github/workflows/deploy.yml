@@ -108,6 +108,20 @@ jobs:
             ConnectTimeout 20
           CFG
 
+      # .env holds secrets the owner sets by hand. Check it before touching anything
+      # on the VPS, so a missing value leaves the running release fully as it was.
+      - name: Check required settings on the VPS
+        run: |
+          ssh -F ~/.ssh/seed_config seed-vps bash -s -- "$DEPLOY_PATH" <<'REMOTE'
+          set -euo pipefail
+          for var in SEED_ADMIN_PASSWORD SEED_SESSION_SECRET SEED_POSTGRES_PASSWORD; do
+            if ! grep -q "^$var=." "$1/.env" 2>/dev/null; then
+              echo "::error::$1/.env must set $var (see docs/deployment.md)"
+              exit 1
+            fi
+          done
+          REMOTE
+
       - name: Copy compose file to the VPS
         run: ssh -F ~/.ssh/seed_config seed-vps "cat > '$DEPLOY_PATH/compose.yaml'" < deploy/compose.yaml
 
@@ -119,13 +133,6 @@ jobs:
           set -euo pipefail
           TAG=$1; DEPLOY_PATH=$2; REGISTRY=$3
           cd "$DEPLOY_PATH"
-          # .env holds secrets the owner sets by hand; refuse to start without them.
-          for var in SEED_ADMIN_PASSWORD SEED_SESSION_SECRET SEED_POSTGRES_PASSWORD; do
-            if ! grep -q "^$var=." .env 2>/dev/null; then
-              echo "::error::$DEPLOY_PATH/.env must set $var (see docs/deployment.md)"
-              exit 1
-            fi
-          done
           if grep -q '^SEED_TAG=' .env; then sed -i "s/^SEED_TAG=.*/SEED_TAG=$TAG/" .env; else echo "SEED_TAG=$TAG" >> .env; fi
           docker compose pull
           docker compose up -d --remove-orphans

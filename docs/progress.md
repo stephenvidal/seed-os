@@ -539,7 +539,8 @@ early and clearly without `SEED_POSTGRES_PASSWORD`; a missing provider key does
 not crash-loop the worker.
 
 **Changed:** `deploy/compose.yaml` (db, worker, shared env, `seed_pgdata` volume);
-`deploy.yml` checks `SEED_POSTGRES_PASSWORD` with the other required secrets;
+`deploy.yml` checks the required `.env` values (now including
+`SEED_POSTGRES_PASSWORD`) in its own step, before the compose file is copied;
 `docs/deployment.md` (VPS setup, backup/restore commands, measured resources).
 
 **Tested** (local Docker 29.9.2; API image built from this branch, web image an
@@ -556,10 +557,12 @@ earlier local build; `.env` with random secrets, provider pointed at a closed po
 - Without `SEED_OLLAMA_API_KEY`: worker `state=exited restarts=5 exit=1`, log
   `No model provider is configured. Set SEED_OLLAMA_API_KEY.`
 - `docker stats`: api 47.67 MiB, db 23.26 MiB, web 4.742 MiB.
+- The check step's script, run locally against a temp `.env`: without the
+  password `exit 1 ::error::…/.env must set SEED_POSTGRES_PASSWORD`; with it `exit 0`.
 
 **Not tested:** the deploy workflow itself (runs only on `main`); the VPS's disk
 headroom for the 424 MB Postgres image; a real model in the container.
 
 **Open:** the owner must add `SEED_POSTGRES_PASSWORD` (and the provider key) to
-`/opt/seed/.env` before merging, or the deploy job stops at the check (the running
-site is left as it is).
+`/opt/seed/.env` before merging, or the deploy job stops at the check before
+changing anything on the VPS.
