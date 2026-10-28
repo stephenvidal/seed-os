@@ -274,6 +274,40 @@ actionlint (hosted-runner workflows) -> clean
 
 ---
 
+## 2026-10-28 — CI green on hosted runners; repository hardened for public exposure
+
+**Changed**
+- `docs/deployment.md` — staging status (steps 1–4 done), hosted-runner rationale,
+  secrets handling and rotation path.
+- `frontend/vitest.config.ts` — comment corrected: the pool timeout happened on the
+  retired self-hosted runner, not on the current CI host.
+
+**Tested (observed)**
+```
+run 40769170969 (pull_request, 0ae85a2) -> completed / success, 1m25s
+run 40769163771 (push,         0ae85a2) -> completed / success, 1m23s
+gh pr view 1 -> mergeStateStatus CLEAN, statusCheckRollup: checks SUCCESS x2
+```
+Both runs executed the hosted workflow (setup-python, setup-node, docker build) that
+the earlier runs could not: the self-hosted equivalent spent 15 minutes failing on
+toolchain startup. The seed-os self-hosted runner has been deregistered from GitHub
+and its unit and install directory removed from golden-eye; dustline's runner is
+untouched.
+
+**Repository hardening after going public**
+- Secret scanning and push protection: enabled (verified via `security_and_analysis`).
+- Vulnerability alerts and Dependabot security updates: enabled (HTTP 204).
+- Fork tracking: `~/.hermes/scripts/seed-os-fork-watch.py` on a 6-hourly cron,
+  silent unless a new fork appears or a known fork pushes. Logic verified against a
+  stub `gh` (baseline message, silence when unchanged, "New fork of …" when a record
+  is removed from state); the live repo currently has 0 forks.
+
+**Not tested**
+- `deploy.yml` has still never executed. `DEPLOY_ENABLED` remains unset, so the deploy
+  job is skipped by design; the first image build needs a merge to `main`.
+- Nothing has been deployed to `seed.nsystems.live`; the hostname answers 502 because
+  no container is listening on `127.0.0.1:8091` yet.
+
 ## 2026-10-28 — Milestone 1 shipped: hosted CI green, first production deploy live
 
 **Changed**
@@ -313,3 +347,84 @@ the repository, the workflow logs, or any chat transcript.
   `sha-…` and `docker compose up -d` in `/opt/seed`) is untried.
 - Multi-user auth, CSRF tokens and everything in M2+ do not exist yet, so the only
   account is the bootstrap admin.
+
+---
+
+## 2026-10-28 — Iteration 2: Milestone 2 core runtime (stub-verified)
+
+**Current milestone:** M2 Core agent runtime.
+
+**Intent (stated before editing):** Give SEED its own agent runtime — provider
+interface, Ollama adapter, typed tools, bounded loop — exposed as a streaming run
+API and wired into Chat. **Definition of done for this increment:** each piece
+tested against stubs and can fail; Chat renders a streamed run in a real browser;
+docs updated. Real-model verification is a separate step (key not visible here).
+
+**Changed:** `backend/src/seed_api/core/` (messages, providers/base, providers/ollama,
+tools, workspace_tools, agent), `backend/src/seed_api/runs.py`, config, main;
+`frontend/src/lib/runs.ts`, `pages/Chat.tsx`, api client; nginx SSE timeout;
+ADR-0006; README, roadmap, requirements, architecture, testing, CHANGELOG,
+`.env.example`.
+
+**Tested (observed)**
+```
+backend$ ruff check . && ruff format --check . && mypy && pytest -q
+All checks passed! · Success: no issues found in 15 source files · 43 passed
+frontend$ tsc, eslint, prettier clean · Test Files 5 passed (5) · Tests 16 passed (16)
+build: index-*.js 454.37 kB │ gzip 144.84 kB
+```
+- Tests can fail: removing the workspace confinement check → `1 failed`;
+  disabling the max-steps check → `test_stops_at_max_steps` fails.
+- Browser (Chromium, dev servers, API pointed at a **local stub that speaks
+  Ollama's wire format with a fixed script** — UI verification only, not model
+  capability): run streamed, `write_file` executed and the file existed on disk in
+  the run workspace, final text and `completed · 2 steps · 933 in / 69 out tokens`
+  rendered; dark/light 1440px and 390px, no horizontal overflow.
+- The browser check caught a real bug the jsdom tests could not: Chromium's
+  `scrollIntoView` returns a Promise, and an expression-bodied `useEffect`
+  returned it, blanking the page. Fixed with block-bodied effects.
+
+**Not tested**
+- **No call to a real model yet.** This session cannot see `SEED_OLLAMA_API_KEY`
+  (environment changes reach new sessions only; ollama.com returns Unauthorized).
+  The model comparison and first live run happen in the "Pick the Ollama Cloud
+  model" thread.
+- SSE through nginx + Cloudflare in production (keepalive and 600s read timeout
+  are in place, untested there).
+
+**Known gaps:** runs are in-request and unsaved; no Markdown rendering; no
+approval UI (approval-required tools are refused); no exec/shell tool until the
+sandbox.
+
+**Next:** live verification + model pick (ADR), then M3 durable tasks.
+
+## Live model verification (2026-10-28)
+
+**Changed:** `spikes/model-bench/bench.py` (disposable); `docs/model-strategy.md`
+gains the comparison section.
+
+**Tested:** the key works: authorized `POST https://ollama.com/api/chat`
+(`gemma4:31b`) returned HTTP 200. Live runs through `OllamaProvider` + `run_agent`
+on 6 models × 3 trials; results and table in `docs/model-strategy.md`
+(e.g. `deepseek-v4.1-flash` 3/3, `gemma4:31b` 0/3 wrong arithmetic).
+
+**Not tested:** the HTTP `/api/v1/runs` SSE endpoint and Chat UI against a real
+model; per-token pricing (not published by the API); larger tasks.
+
+**Open:** confirm Ollama Cloud plan limits; ADR for default model after real workloads.
+
+## Review of live model verification (2026-10-28)
+
+**Changed:** `.env.example` now sets `SEED_DEFAULT_MODEL=deepseek-v4.1-flash` per
+ADR-0007. The code default stays unset, so Chat still asks for a model when the
+variable is absent.
+
+**Correction:** the entry above lists `spikes/model-bench/bench.py`, but that file
+was never committed (merged PR #3 changed 3 docs files only). The bench script is
+not reproducible from the repo; the table in `docs/model-strategy.md` is the only
+record.
+
+**Tested:** backend and frontend checks after merging PR #3 (output in CI on PR #2).
+
+**Not tested:** `/api/v1/runs` SSE and Chat UI against a real model (this sandbox's
+proxy blocks ollama.com).

@@ -14,3 +14,17 @@
 Rules: tests must be able to fail. Iteration 1 checked this by mutation —
 disabling signature verification fails `test_tampered_and_expired_tokens_fail`;
 breaking `resolveTheme` fails the theme test.
+
+## Milestone 2 additions
+- `tests/test_ollama_provider.py` — adapter against `httpx.MockTransport` (wire
+  format, tool calls, streaming, every error class).
+- `tests/test_agent.py` — loop against a scripted provider (`tests/fakes.py`):
+  completion, real file round trip, every termination reason, bounded retries,
+  cancellation, per-step tool cap.
+- `tests/test_tools.py` — registry outcomes and workspace confinement (traversal,
+  absolute paths, symlink escape).
+- `tests/test_runs_api.py` — SSE endpoint end to end with a scripted provider.
+- Frontend: `runs.test.ts` (SSE parser), `Chat.test.tsx` (streamed run, failure,
+  unconfigured provider).
+- Scripted providers prove the plumbing only. Agent capability is claimed only
+  from runs against a real model.

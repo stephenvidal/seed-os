@@ -3,8 +3,8 @@
 | M | Name | Scope | State |
 |---|---|---|---|
 | 0 | Discovery & Foundation | Inspect, environment, architecture, design principles, requirements, roadmap, tooling | Done in Iteration 1 |
-| 1 | Premium Application Foundation | Design system, shell, navigation, themes, auth foundation, responsive layouts, page structures; running app | In progress (Iteration 1) |
-| 2 | Core Agent Runtime | Provider adapters, conversation loop, tool registry, streaming, lifecycle, errors; real model + tool execution | Not started |
+| 1 | Premium Application Foundation | Design system, shell, navigation, themes, auth foundation, responsive layouts, page structures; running app | Done; live at seed.nsystems.live |
+| 2 | Core Agent Runtime | Provider adapters, conversation loop, tool registry, streaming, lifecycle, errors; real model + tool execution | In progress: Ollama adapter, loop, tools, streaming Chat built; live-model verification pending |
 | 3 | Durable Task Infrastructure | Persistent tasks, workers, transitions, checkpoints, cancel, retry, recovery; survive API/worker restarts | Not started |
 | 4 | Integrated Native Chat | Persistent conversations, streaming, task integration, tool activity, approvals, continuation | Not started |
 | 5 | Command Center & Inspector | Real metrics, live dashboard, timelines, agent activity, failures, cost | Not started |

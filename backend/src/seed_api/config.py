@@ -20,6 +20,19 @@ class Settings(BaseSettings):
     login_window_seconds: int = 60
     cors_origins: list[str] = []
 
+    # Model providers. Unset key => the provider is not configured.
+    ollama_api_key: SecretStr | None = None
+    ollama_base_url: str = "https://ollama.com"
+    provider_timeout_seconds: float = 120.0
+    default_model: str | None = None
+    # Agent runs (in-request until SEED Flow lands in M3).
+    max_concurrent_runs: int = 2
+    run_max_steps: int = 8
+    run_max_runtime_seconds: float = 300
+    run_max_total_tokens: int = 200_000
+    # Ephemeral per-run dirs on the container tmpfs until artifact storage (M6).
+    workspace_root: str = "/tmp/seed-workspaces"  # noqa: S108
+
 
 @lru_cache
 def get_settings() -> Settings:

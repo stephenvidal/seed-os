@@ -5,7 +5,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import __version__, auth, system
+from . import __version__, auth, runs, system
 from .config import get_settings
 from .errors import install_error_handlers
 
@@ -30,6 +30,7 @@ def create_app() -> FastAPI:
     install_error_handlers(app)
     app.include_router(auth.router)
     app.include_router(system.router)
+    app.include_router(runs.router)
 
     @app.get("/healthz", tags=["ops"])
     def healthz() -> dict[str, str]:

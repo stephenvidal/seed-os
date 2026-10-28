@@ -45,6 +45,13 @@ export type SystemInfo = {
   process_rss_bytes: number | null;
 };
 
+export type ModelInfo = { id: string; provider: string; size_bytes: number | null };
+export type ModelsResponse = {
+  provider: string;
+  default_model: string | null;
+  models: ModelInfo[];
+};
+
 export const api = {
   me: () => request<Me>("/api/v1/auth/me"),
   login: (username: string, password: string) =>
@@ -54,4 +61,5 @@ export const api = {
     }),
   logout: () => request<void>("/api/v1/auth/logout", { method: "POST" }),
   system: () => request<SystemInfo>("/api/v1/system"),
+  models: () => request<ModelsResponse>("/api/v1/models"),
 };
