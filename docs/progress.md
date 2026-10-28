@@ -31,3 +31,75 @@ execution rules for Claude Code.
 
 **Open**
 - Directive v1.1 (product definition) is the blocker for Iteration 1.
+
+---
+
+## 2026-10-28 — Iteration 1: Milestone 0 + Milestone 1 foundation
+
+**Current milestone:** M1 Premium application foundation (M0 complete).
+
+**Intent (stated before editing):** Ratify the owner's master directive as v1.1,
+record the architecture, and ship a running, signed-in SEED Workspace shell
+(design system, navigation, themes, command palette, auth foundation) backed by a
+real API — no fake data.
+
+**Definition of done:** (1) `docker compose up` serves the app and API from a
+clean build; (2) backend and frontend checks pass and can fail; (3) light, dark,
+and mobile layouts inspected in a real browser; (4) docs describe the shipped
+behaviour.
+
+**Changed**
+- `DIRECTIVE.md` — v1.1 amendment appended (v1.0 text untouched).
+- `CLAUDE.md` — v1.1 pointer, commands, environment reality.
+- `docs/` — product-vision, requirements, roadmap, architecture, design-system,
+  security, deployment, model-strategy, testing, ADRs 0001–0005, D-002.
+- `backend/` — FastAPI app: `/healthz`, auth (login/logout/me), `/api/v1/system`.
+- `frontend/` — tokens, UI primitives, shell, palette, Command Center, Settings,
+  sign-in, empty-state pages for every other area.
+- `compose.yaml`, Dockerfiles, nginx config, `.env.example`, `CHANGELOG.md`.
+
+**Tested (observed output)**
+```
+backend$ ruff check . && ruff format --check . && mypy && pytest -q
+All checks passed!
+9 files already formatted
+Success: no issues found in 6 source files
+11 passed, 1 warning in 0.13s
+
+frontend$ npm run typecheck && npm run lint && npm run format:check && npm test && npm run build
+All matched files use Prettier code style!
+ Test Files  3 passed (3)
+      Tests  12 passed (12)
+dist/assets/index-B3WYoWvz.js   446.68 kB │ gzip: 142.50 kB
+```
+- Tests can fail: forcing `valid = True` in `verify_token` → `1 failed, 10 passed`;
+  breaking `resolveTheme` → `1 failed | 11 passed`.
+- Browser (Playwright/Chromium, dev servers): wrong password shows alert; correct
+  password enters shell; palette "task"+Enter → `/tasks`; `g` `,` → `/settings`;
+  `Ctrl+B` collapses sidebar; 390px mobile: drawer opens, no horizontal overflow
+  (`scrollWidth > innerWidth` = false). Only console errors were the expected 401s.
+- Compose: `api Up (healthy)`; `/healthz` → `{"status":"ok","version":"0.1.0"}`;
+  login via nginx → `{"username":"admin","role":"admin"}`; `/api/v1/system`
+  returns host data; `/tasks` → 200 with CSP and `X-Frame-Options: DENY`;
+  `docker stats`: api 39.81 MiB, web 5.07 MiB.
+
+**Not tested / caveats**
+- Compose build was verified in a scratch copy with this sandbox's proxy CA
+  injected (pip/npm otherwise fail TLS here, and Docker Hub returned 429 so base
+  images came from `mirror.gcr.io`). The committed Dockerfiles are the same minus
+  those two lines; they have not been built on a normal host.
+- The final "Search or jump to…" label change was not re-screenshotted.
+- No CI (hosted Actions blocked). No E2E or visual-regression suite yet.
+- Contrast ratios were checked by axe in jsdom only (axe cannot compute colors
+  there); a real-browser contrast audit is still owed.
+
+**Known defects / gaps**
+- No CSRF token (SameSite=Lax mitigates); inline theme script forces CSP
+  `'unsafe-inline'`; per-process login limiter; no session revocation.
+- Resizable panels, context menus, toasts not built (no screen needs them yet).
+
+**Blockers:** none.
+
+**Next recommended actions:** M2 — provider adapter interface + first adapter,
+typed tool registry, isolated execution worker, real model + tool call shown in
+the UI. Owner input needed on default models/budget (open question 5).
