@@ -1,0 +1,65 @@
+import { AlertTriangle } from "lucide-react";
+import { Route, Routes } from "react-router-dom";
+import { AppShell } from "./components/shell/AppShell";
+import { BrandMark } from "./components/shell/BrandMark";
+import { Button } from "./components/ui/Button";
+import { useSession } from "./lib/auth";
+import {
+  AgentsPage,
+  ChatPage,
+  InspectorPage,
+  ModelsPage,
+  ProjectsPage,
+  StudioPage,
+  TasksPage,
+  ToolsPage,
+} from "./pages/areas";
+import { CommandCenterPage } from "./pages/CommandCenter";
+import { LoginPage } from "./pages/Login";
+import { NotFoundPage } from "./pages/NotFound";
+import { SettingsPage } from "./pages/Settings";
+
+export function App() {
+  const session = useSession();
+
+  if (session.isPending)
+    return (
+      <div className="grid h-full place-items-center text-fg-subtle" aria-busy="true">
+        <span className="animate-pulse">
+          <BrandMark size={28} />
+        </span>
+      </div>
+    );
+
+  if (session.isError)
+    return (
+      <div className="grid h-full place-items-center px-4">
+        <div role="alert" className="flex max-w-sm flex-col items-center gap-3 text-center">
+          <AlertTriangle className="text-danger" aria-hidden />
+          <p className="text-sm font-medium">{session.error.message}</p>
+          <p className="text-xs text-fg-muted">Check that the SEED API is running, then retry.</p>
+          <Button onClick={() => session.refetch()}>Retry</Button>
+        </div>
+      </div>
+    );
+
+  if (!session.data) return <LoginPage />;
+
+  return (
+    <Routes>
+      <Route element={<AppShell />}>
+        <Route index element={<CommandCenterPage />} />
+        <Route path="chat" element={<ChatPage />} />
+        <Route path="tasks" element={<TasksPage />} />
+        <Route path="agents" element={<AgentsPage />} />
+        <Route path="projects" element={<ProjectsPage />} />
+        <Route path="studio" element={<StudioPage />} />
+        <Route path="inspector" element={<InspectorPage />} />
+        <Route path="models" element={<ModelsPage />} />
+        <Route path="tools" element={<ToolsPage />} />
+        <Route path="settings" element={<SettingsPage />} />
+        <Route path="*" element={<NotFoundPage />} />
+      </Route>
+    </Routes>
+  );
+}

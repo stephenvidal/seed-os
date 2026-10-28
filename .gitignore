@@ -45,3 +45,4 @@ spikes/
 
 # Python packaging metadata
 *.egg-info/
+*.tsbuildinfo
