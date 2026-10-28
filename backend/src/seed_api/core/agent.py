@@ -4,7 +4,9 @@ Every run terminates for an explicit, recorded reason. Limits cap steps, wall
 time, tokens, and tool calls per step; retryable provider errors are retried a
 bounded number of times; cancellation is checked between every unit of work.
 Events are emitted in order with a sequence number so they can be persisted and
-replayed (SEED Flow, Milestone 3).
+replayed. After each step whose tool results are all recorded, the loop offers a
+checkpoint; a run resumed from one continues at the next step instead of redoing
+finished work (SEED Flow).
 """
 
 import asyncio
@@ -59,7 +61,16 @@ class RunResult(BaseModel):
     error: str | None = None
 
 
+class Checkpoint(BaseModel):
+    """A resume-safe point: every tool call the model asked for has a recorded result."""
+
+    messages: list[Message]
+    steps: int
+    usage: Usage
+
+
 EventSink = Callable[[RunEvent], Awaitable[None]]
+CheckpointSink = Callable[[Checkpoint], Awaitable[None]]
 
 
 class _Emitter:
@@ -82,14 +93,18 @@ async def run_agent(
     on_event: EventSink,
     cancel: asyncio.Event | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    on_checkpoint: CheckpointSink | None = None,
+    resume: Checkpoint | None = None,
 ) -> RunResult:
+    """Run the loop. With `resume`, `messages` is ignored and the run continues from
+    the checkpoint; the step and token limits count across the whole run."""
     emit = _Emitter(on_event)
     cancel = cancel or asyncio.Event()
-    history = list(messages)
-    usage = Usage()
+    history = list(resume.messages if resume else messages)
+    usage = resume.usage if resume else Usage()
     deadline = time.monotonic() + limits.max_runtime_s
     specs = tools.specs()
-    steps = 0
+    steps = resume.steps if resume else 0
     final_text = ""
 
     async def finish(term: Termination, error: str | None = None) -> RunResult:
@@ -109,7 +124,13 @@ async def run_agent(
             error=error,
         )
 
-    await emit("run_started", model=model, provider=provider.name, limits=limits.model_dump())
+    await emit(
+        "run_started",
+        model=model,
+        provider=provider.name,
+        limits=limits.model_dump(),
+        resumed_at_step=steps if resume else None,
+    )
 
     while True:
         if cancel.is_set():
@@ -135,7 +156,7 @@ async def run_agent(
         while result is None:
             try:
                 result = await asyncio.wait_for(
-                    _stream_step(provider, request, emit, cancel),
+                    _until_cancelled(_stream_step(provider, request, emit, cancel), cancel),
                     timeout=max(0.001, deadline - time.monotonic()),
                 )
             except TimeoutError:
@@ -188,10 +209,28 @@ async def run_agent(
                     role="tool", content=outcome_content, tool_call_id=call.id, tool_name=call.name
                 )
             )
+        if on_checkpoint is not None:
+            await on_checkpoint(Checkpoint(messages=history, steps=steps, usage=usage))
 
 
 class _Cancelled(Exception):
     pass
+
+
+async def _until_cancelled(step: Awaitable[ChatResult], cancel: asyncio.Event) -> ChatResult:
+    """Await one provider step, abandoning it as soon as `cancel` is set, even while
+    the provider is blocked mid-request."""
+    task = asyncio.ensure_future(step)
+    waiter = asyncio.ensure_future(cancel.wait())
+    try:
+        await asyncio.wait({task, waiter}, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        waiter.cancel()
+        if not task.done():
+            task.cancel()
+    if task.done() and not task.cancelled():
+        return task.result()
+    raise _Cancelled
 
 
 async def _stream_step(
