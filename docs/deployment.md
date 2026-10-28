@@ -2,13 +2,14 @@
 
 ## Docker Compose (self-hosted)
 ```bash
-cp .env.example .env     # set SEED_ADMIN_PASSWORD and SEED_SESSION_SECRET
+cp .env.example .env     # set SEED_ADMIN_PASSWORD, SEED_SESSION_SECRET, SEED_POSTGRES_PASSWORD
 docker compose up -d --build
 open http://localhost:8080
 ```
-Services: `api` (FastAPI, healthcheck `/healthz`, non-root, read-only FS,
-256 MiB limit) and `web` (nginx serving the SPA and proxying `/api`, 64 MiB
-limit). Postgres, worker, and sandbox services are added in M3.
+Services: `db` (Postgres 17, data in the `pgdata` volume), `api` (FastAPI,
+healthcheck `/healthz`, non-root, read-only FS, 256 MiB limit), `worker` (same
+image, runs tasks) and `web` (nginx serving the SPA and proxying `/api`, 64 MiB
+limit). The sandbox service is added later in M3.
 
 Put a TLS-terminating proxy (Caddy, Traefik, nginx) in front of `web` and set
 `SEED_COOKIE_SECURE=true`.
@@ -22,7 +23,7 @@ The owner approved reusing dustline's pipeline (D-003). It is in place but
 |---|---|---|
 | CI | `.github/workflows/ci.yml` | On PRs and non-main pushes: backend lint/types/tests, frontend typecheck/lint/format/tests/build, both images built (not pushed) |
 | Build and deploy | `.github/workflows/deploy.yml` | On push to `main`: push `ghcr.io/stephenvidal/seed-api` and `seed-web` tagged `latest` and `sha-<7>`; if `DEPLOY_ENABLED`, SSH to the VPS (pinned ED25519 host key), copy `deploy/compose.yaml`, set `SEED_TAG`, `docker compose pull && up -d`, keep two previous releases, check `PUBLIC_URL/healthz` |
-| Prod compose | `deploy/compose.yaml` | Images by tag, web on `127.0.0.1:${SEED_HOST_PORT:-8091}` only, `SEED_COOKIE_SECURE=true`, memory limits, logs capped 10 MB × 3 |
+| Prod compose | `deploy/compose.yaml` | `db` (Postgres 17, volume `seed_pgdata`, no published port), `api` and `worker` from the API image by tag, web on `127.0.0.1:${SEED_HOST_PORT:-8091}` only, `SEED_COOKIE_SECURE=true`, memory limits, logs capped 10 MB × 3 |
 
 Both workflows run on GitHub-hosted `ubuntu-latest` runners. The repository is
 **public**, so standard-hosted minutes are unmetered; earlier revisions used a
@@ -60,8 +61,27 @@ flip in item 5 remains.
    before that, and the first deploy needs an image, so it also needs a merge to
    `main` (the build job runs on `main` pushes).
 
+### Tasks in production (M3)
+The deploy runs Postgres and a worker next to the API. Before the first deploy
+that includes them, add to `/opt/seed/.env` on the VPS:
+
+| Variable | Value |
+|---|---|
+| `SEED_POSTGRES_PASSWORD` | Required. URL-safe random value, e.g. `python3 -c "import secrets;print(secrets.token_urlsafe(32))"` (it is embedded in the database URL, so avoid `@ : / ?`). The deploy job refuses to run without it |
+| `SEED_OLLAMA_API_KEY` | Model provider key. Without it the API refuses to create tasks and the worker exits at start (it restarts at most 5 times, then stays down) |
+| `SEED_DEFAULT_MODEL` | `deepseek-v4.1-flash` (ADR-0007) |
+
+The database is created on first start and migrated by the API and worker. The
+password only takes effect when the volume is first initialised; changing it
+later means changing it inside Postgres too.
+
+Backups are manual until M9:
+`docker compose exec -T db pg_dump -U seed seed | gzip > seed-$(date +%F).sql.gz`
+(run in `/opt/seed`). Restore into an empty database with
+`gunzip -c FILE | docker compose exec -T db psql -U seed seed`.
+
 ### Secrets handling
-`SEED_ADMIN_PASSWORD` and `SEED_SESSION_SECRET` live in the encrypted vault
+`SEED_ADMIN_PASSWORD`, `SEED_SESSION_SECRET` and `SEED_POSTGRES_PASSWORD` live in the encrypted vault
 (`vault.py get SEED_ADMIN_PASSWORD` on golden-eye) and in `/opt/seed/.env` on the
 VPS. They never appear in the repository, in workflow logs, or in chat. Rotating
 them means updating both places and restarting the stack.
@@ -70,8 +90,11 @@ Rollback: set `SEED_TAG` in `/opt/seed/.env` to an earlier `sha-…` and run
 `docker compose up -d` there.
 
 ## Requirements (measured)
-Idle: api ≈ 40 MiB, web ≈ 5 MiB RSS. 1 vCPU / 512 MiB is enough for M1. Storage:
-images only (no persistent data until M3). No GPU.
+M1 idle: api ≈ 40 MiB, web ≈ 5 MiB RSS. M3 stack, after one task (2026-10-28,
+`docker stats`): api 47.7 MiB, db 23.3 MiB, web 4.7 MiB; the worker runs the same
+image as the api. Disk: `postgres:17-alpine` is 424 MB uncompressed, plus the
+data volume (48 MB fresh). No GPU.
 
 ## Backups
-Nothing to back up until Postgres and artifact storage land (M3/M6).
+Postgres: manual `pg_dump`, see "Tasks in production" above. Artifact storage
+arrives in M6; automated backups are part of M9.
