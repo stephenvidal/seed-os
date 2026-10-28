@@ -1,0 +1,39 @@
+[project]
+name = "seed-api"
+version = "0.1.0"
+description = "SEED OS backend API (modular monolith)"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "pydantic>=2.8",
+  "pydantic-settings>=2.4",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "httpx>=0.27", "ruff>=0.6", "mypy>=1.11"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "S105", "S106"]
+
+[tool.mypy]
+strict = true
+plugins = ["pydantic.mypy"]
+files = ["src"]
