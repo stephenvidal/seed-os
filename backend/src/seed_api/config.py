@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     login_window_seconds: int = 60
     cors_origins: list[str] = []
 
+    # Model providers. Unset key => the provider is not configured.
+    ollama_api_key: SecretStr | None = None
+    ollama_base_url: str = "https://ollama.com"
+    provider_timeout_seconds: float = 120.0
+
 
 @lru_cache
 def get_settings() -> Settings:
