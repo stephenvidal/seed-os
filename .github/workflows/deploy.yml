@@ -114,7 +114,7 @@ jobs:
         run: |
           ssh -F ~/.ssh/seed_config seed-vps bash -s -- "$DEPLOY_PATH" <<'REMOTE'
           set -euo pipefail
-          for var in SEED_ADMIN_PASSWORD SEED_SESSION_SECRET SEED_POSTGRES_PASSWORD; do
+          for var in SEED_ADMIN_PASSWORD SEED_SESSION_SECRET SEED_POSTGRES_PASSWORD SEED_OLLAMA_API_KEY; do
             if ! grep -q "^$var=." "$1/.env" 2>/dev/null; then
               echo "::error::$1/.env must set $var (see docs/deployment.md)"
               exit 1

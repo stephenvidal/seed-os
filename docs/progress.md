@@ -566,3 +566,21 @@ headroom for the 424 MB Postgres image; a real model in the container.
 **Open:** the owner must add `SEED_POSTGRES_PASSWORD` (and the provider key) to
 `/opt/seed/.env` before merging, or the deploy job stops at the check before
 changing anything on the VPS.
+
+## Deploy check covers the provider key (2026-10-28)
+
+**Changed:** the deploy job's settings check also requires `SEED_OLLAMA_API_KEY`
+in `/opt/seed/.env`. Without it the deploy used to succeed while tasks could not
+run (API refuses to create them; worker exits after 5 restarts), as the owner
+pointed out after verifying the first production task.
+
+**Tested:** the check step's script, extracted from the workflow and run against
+temp `.env` files (output below).
+```
+no key line         → exit 1 ::error::/opt/seed/.env must set SEED_OLLAMA_API_KEY (see docs/deployment.md)
+SEED_OLLAMA_API_KEY= → exit 1 ::error::/opt/seed/.env must set SEED_OLLAMA_API_KEY (see docs/deployment.md)
+key set              → exit 0
+```
+
+**Not tested:** the workflow itself (runs on `main` only). The VPS already has the
+key (owner-verified), so the next deploy passes the check.

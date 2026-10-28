@@ -68,7 +68,7 @@ that includes them, add to `/opt/seed/.env` on the VPS:
 | Variable | Value |
 |---|---|
 | `SEED_POSTGRES_PASSWORD` | Required. URL-safe random value, e.g. `python3 -c "import secrets;print(secrets.token_urlsafe(32))"` (it is embedded in the database URL, so avoid `@ : / ?`). The deploy job refuses to run without it |
-| `SEED_OLLAMA_API_KEY` | Model provider key. Without it the API refuses to create tasks and the worker exits at start (it restarts at most 5 times, then stays down) |
+| `SEED_OLLAMA_API_KEY` | Required. Model provider key; the deploy job refuses to run without it. (If it were missing, the API would refuse to create tasks and the worker would exit at start, restarting at most 5 times) |
 | `SEED_DEFAULT_MODEL` | `deepseek-v4.1-flash` (ADR-0007) |
 
 The database is created on first start and migrated by the API and worker. The
