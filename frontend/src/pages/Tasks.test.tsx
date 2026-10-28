@@ -155,4 +155,32 @@ describe("Tasks", () => {
     expect(es.closed).toBe(true);
     expect(screen.getByText("interrupted")).toBeInTheDocument();
   });
+
+  it("shows a queued task's cancel even though the task finishes first", async () => {
+    let current = task({ state: "queued", attempt: 0 });
+    mockApi({
+      "GET /api/v1/auth/me": ME,
+      "GET /api/v1/tasks/t1": () => ({ status: 200, body: current }),
+      "POST /api/v1/tasks/t1/cancel": () => {
+        current = task({ state: "canceled", attempt: 0, cancel_requested: true });
+        return { status: 200, body: current };
+      },
+    });
+    vi.stubGlobal("EventSource", FakeEventSource);
+    const user = userEvent.setup();
+    renderApp(<App />, "/tasks/t1");
+    expect(await screen.findByRole("heading", { name: "Write the report" })).toBeInTheDocument();
+    const es = FakeEventSource.last!;
+    act(() => es.emit(1, "task_created", {}, 0));
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(await screen.findByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(es.closed).toBe(false); // the cancel event has not arrived yet
+    act(() => {
+      es.emit(2, "cancel_requested", { state: "canceled" }, 0);
+      es.end();
+    });
+    expect(screen.getByText("Canceled before it started")).toBeInTheDocument();
+    expect(es.closed).toBe(true);
+  });
 });
