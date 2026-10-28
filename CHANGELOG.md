@@ -2,7 +2,18 @@
 
 All notable changes. Format: Keep a Changelog; versions follow the milestones.
 
-## [Unreleased] — M2 Core agent runtime
+## [Unreleased] — M3 Durable tasks (increment 1)
+### Added
+- Postgres (psycopg 3) with forward-only SQL migrations.
+- Durable tasks: state machine, leased workers with heartbeats and fenced writes,
+  step checkpoints and resume after a worker crash, dead-letter, graceful
+  shutdown, per-task event log (ADR-0008).
+- Worker process `python -m seed_api.flow.worker`; compose gains `db` and `worker`.
+- Tasks API: create (idempotency key), list, detail, events, cancel, retry.
+### Changed
+- Cancelling a run now interrupts a provider request that is in flight.
+
+## M2 Core agent runtime
 ### Added
 - Provider interface with typed errors; Ollama adapter (chat, NDJSON streaming,
   tool calls, model list).

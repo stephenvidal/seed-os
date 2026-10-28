@@ -14,12 +14,12 @@ ratified target (Directive v1.1, ADRs in `decisions/`).
                       │   ├─ seed_api.system   host telemetry
                       │   ├─ core/      SEED Core: providers, agent loop, tools [M2: built]
                       │   ├─ seed_api.runs  /models, /runs (SSE, in-request)  [M2: built]
-                      │   ├─ flow/      SEED Flow tasks/events  [M3]
+                      │   ├─ flow/      SEED Flow tasks/events  [M3: store, API built]
                       │   ├─ memory/, studio/, connect/          [M6–M8]
                       ▼
-                    postgres (tasks, events, artifacts meta)   [M3]
+                    postgres (tasks, events, artifacts meta)   [M3: tasks, events built]
                       ▲
-                    worker(s) (lease + heartbeat, run loops)   [M3]
+                    worker(s) (lease + heartbeat, run loops)   [M3: built, ADR-0008]
                       │
                     sandbox (isolated tool execution)          [M2/M3]
 ```

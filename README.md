@@ -36,17 +36,29 @@ it — with full visibility and control.
 | GET | `/api/v1/system` | session | host/process telemetry |
 | GET | `/api/v1/models` | admin | `{provider, default_model, models[]}` from the provider; 503 `provider_not_configured`, 502 `provider_<kind>` |
 | POST | `/api/v1/runs` | admin | `{model, prompt, history[]}` → `text/event-stream` of run events (`run_id`, `run_started`, `step_started`, `text_delta`, `tool_call`, `tool_result`, `step_completed`, `provider_retry`, `run_finished`); 429 `busy` at the concurrency limit |
+| POST | `/api/v1/tasks` | admin | `{model, prompt, title?}`, optional `Idempotency-Key` header → 201 task (`queued`); 200 with the existing task on a repeated key; 409 `idempotency_conflict`; 503 `provider_not_configured` |
+| GET | `/api/v1/tasks` | admin | Newest first; `?state=queued\|running\|completed\|failed\|canceled`, `?limit=1..100` |
+| GET | `/api/v1/tasks/{id}` | admin | Task: state, attempt, termination, error, result, usage, `last_seq`, `resumable_from_step`; 404 `not_found` |
+| GET | `/api/v1/tasks/{id}/events` | admin | `{events[], last_seq, state}`; `?after=<seq>&limit=` for incremental reads. Events: `task_created`, `attempt_started`, run events, `cancel_requested`, `task_requeued`, `task_released`, `lease_expired` |
+| POST | `/api/v1/tasks/{id}/cancel` | admin | Queued → `canceled` at once; running → stops at the worker's next heartbeat; 409 `not_cancelable` |
+| POST | `/api/v1/tasks/{id}/retry` | admin | Failed/canceled → `queued` as a fresh run; 409 `not_retryable` |
+
+All `/api/v1/tasks` routes answer 503 `database_not_configured` without `SEED_DATABASE_URL`.
+Tasks are executed by the worker (`python -m seed_api.flow.worker`), not by the API.
 
 Errors are always `{"error": {"code", "message"}}`. OpenAPI at `/api/docs`.
 
 ## Run
-**Compose:** `cp .env.example .env`, set `SEED_ADMIN_PASSWORD` and
-`SEED_SESSION_SECRET`, then `docker compose up -d --build` → http://localhost:8080.
+**Compose:** `cp .env.example .env`, set `SEED_ADMIN_PASSWORD`,
+`SEED_SESSION_SECRET` and `SEED_POSTGRES_PASSWORD`, then
+`docker compose up -d --build` → http://localhost:8080. This starts Postgres, the
+API, one worker and the web server.
 
 **Development:**
 ```bash
 cd backend && python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
 SEED_ADMIN_PASSWORD=dev .venv/bin/uvicorn seed_api.main:app --reload   # :8000
+.venv/bin/python -m seed_api.flow.worker    # needs SEED_DATABASE_URL and a provider key
 cd frontend && npm ci && npm run dev                                   # :5173
 ```
 
@@ -66,7 +78,11 @@ cd frontend && npm ci && npm run dev                                   # :5173
 | `SEED_PROVIDER_TIMEOUT_SECONDS` | `120` | Per-request provider timeout |
 | `SEED_MAX_CONCURRENT_RUNS` | `2` | Concurrent agent runs |
 | `SEED_RUN_MAX_STEPS` / `SEED_RUN_MAX_RUNTIME_SECONDS` / `SEED_RUN_MAX_TOTAL_TOKENS` | `8` / `300` / `200000` | Per-run limits |
-| `SEED_WORKSPACE_ROOT` | `/tmp/seed-workspaces` | Per-run workspace dirs (ephemeral until M6) |
+| `SEED_WORKSPACE_ROOT` | `/tmp/seed-workspaces` | Per-run/per-task workspace dirs (ephemeral until M6) |
+| `SEED_DATABASE_URL` | unset | Postgres URL (`postgresql://user:pass@host/db`); unset disables tasks. Compose builds it from `SEED_POSTGRES_PASSWORD` |
+| `SEED_TASK_MAX_ATTEMPTS` | `3` | Attempts per task (and per retry) before it is dead-lettered as `failed/abandoned` |
+| `SEED_WORKER_LEASE_SECONDS` | `30` | Worker lease; renewed every third of it. A crashed worker's task is resumed after this |
+| `SEED_WORKER_POLL_SECONDS` | `2` | Idle worker poll interval |
 
 ## Repository map
 | Path | Purpose |
