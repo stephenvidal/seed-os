@@ -528,3 +528,41 @@ polls the DB every 0.5 s).
 
 **Open:** production Postgres (owner sets `SEED_POSTGRES_PASSWORD`); next
 increment is Postgres-backed users/sessions with CSRF, then the sandbox.
+
+## Iteration 5: Milestone 3, increment 3 — tasks on the production stack (2026-10-28)
+
+**Iteration:** make the production compose run Postgres and the worker so tasks
+work on the live site once the owner adds a database password.
+**Definition of done:** `deploy/compose.yaml` brings up db, api, worker and web
+from the published images; tasks persist across `down`/`up`; the deploy job fails
+early and clearly without `SEED_POSTGRES_PASSWORD`; a missing provider key does
+not crash-loop the worker.
+
+**Changed:** `deploy/compose.yaml` (db, worker, shared env, `seed_pgdata` volume);
+`deploy.yml` checks the required `.env` values (now including
+`SEED_POSTGRES_PASSWORD`) in its own step, before the compose file is copied;
+`docs/deployment.md` (VPS setup, backup/restore commands, measured resources).
+
+**Tested** (local Docker 29.9.2; API image built from this branch, web image an
+earlier local build; `.env` with random secrets, provider pointed at a closed port):
+- `docker compose config` valid with the password; without it:
+  `required variable SEED_POSTGRES_PASSWORD is missing a value`.
+- `docker compose up -d` → `api running healthy`, `db running healthy`,
+  `worker running`, `web running`.
+- Through nginx on 127.0.0.1:8091: sign-in, `POST /api/v1/tasks`, the worker
+  claimed it and failed it as expected (`failed 1 provider_error unavailable:
+  transport error: ConnectError`); the stream returned `task_created …
+  run_finished event: end`.
+- `docker compose down` then `up -d`: `tasks after down/up: ['failed']` (data kept).
+- Without `SEED_OLLAMA_API_KEY`: worker `state=exited restarts=5 exit=1`, log
+  `No model provider is configured. Set SEED_OLLAMA_API_KEY.`
+- `docker stats`: api 47.67 MiB, db 23.26 MiB, web 4.742 MiB.
+- The check step's script, run locally against a temp `.env`: without the
+  password `exit 1 ::error::…/.env must set SEED_POSTGRES_PASSWORD`; with it `exit 0`.
+
+**Not tested:** the deploy workflow itself (runs only on `main`); the VPS's disk
+headroom for the 424 MB Postgres image; a real model in the container.
+
+**Open:** the owner must add `SEED_POSTGRES_PASSWORD` (and the provider key) to
+`/opt/seed/.env` before merging, or the deploy job stops at the check before
+changing anything on the VPS.

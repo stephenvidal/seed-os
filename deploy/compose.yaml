@@ -4,24 +4,69 @@
 #
 # Public traffic: a Cloudflare tunnel on the host maps the public hostname to
 # http://127.0.0.1:${SEED_HOST_PORT}. Cloudflare terminates TLS, so cookies are Secure.
+#
+# Postgres data lives in the named volume `seed_pgdata`; it survives redeploys.
+# The deploy job refuses to run unless .env sets SEED_POSTGRES_PASSWORD.
 name: seed
+x-seed-env: &seed-env
+  SEED_COOKIE_SECURE: "true"
+  SEED_DATABASE_URL: postgresql://seed:${SEED_POSTGRES_PASSWORD:?set SEED_POSTGRES_PASSWORD in .env}@db:5432/seed
 services:
-  api:
-    image: ghcr.io/stephenvidal/seed-api:${SEED_TAG:-latest}
+  db:
+    image: postgres:17-alpine
     restart: unless-stopped
-    env_file:
-      - path: .env
-        required: true
     environment:
-      SEED_COOKIE_SECURE: "true"
-    read_only: true
-    tmpfs: [/tmp]
+      POSTGRES_USER: seed
+      POSTGRES_DB: seed
+      POSTGRES_PASSWORD: ${SEED_POSTGRES_PASSWORD:?set SEED_POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U seed -d seed"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    # No ports: only the api and worker reach it, on the compose network.
     mem_limit: 256m
     logging: &logging
       driver: json-file
       options:
         max-size: 10m
         max-file: "3"
+  api:
+    image: ghcr.io/stephenvidal/seed-api:${SEED_TAG:-latest}
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: true
+    environment: *seed-env
+    depends_on:
+      db:
+        condition: service_healthy
+    read_only: true
+    tmpfs: [/tmp]
+    mem_limit: 256m
+    logging: *logging
+  worker:
+    image: ghcr.io/stephenvidal/seed-api:${SEED_TAG:-latest}
+    command: ["python", "-m", "seed_api.flow.worker"]
+    # Exits at start when no model provider is configured; don't crash-loop on that.
+    restart: on-failure:5
+    env_file:
+      - path: .env
+        required: true
+    environment: *seed-env
+    depends_on:
+      db:
+        condition: service_healthy
+    # The worker hands its task back on SIGTERM; give it time to do so.
+    stop_grace_period: 30s
+    healthcheck:
+      disable: true
+    read_only: true
+    tmpfs: [/tmp]
+    mem_limit: 256m
+    logging: *logging
   web:
     image: ghcr.io/stephenvidal/seed-web:${SEED_TAG:-latest}
     restart: unless-stopped
@@ -33,3 +78,5 @@ services:
       - "127.0.0.1:${SEED_HOST_PORT:-8091}:8080"
     mem_limit: 64m
     logging: *logging
+volumes:
+  pgdata:
