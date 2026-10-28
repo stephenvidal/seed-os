@@ -12,7 +12,8 @@ ratified target (Directive v1.1, ADRs in `decisions/`).
                     api (FastAPI modular monolith)             [built: auth, system]
                       │   ├─ seed_api.auth     sessions, roles
                       │   ├─ seed_api.system   host telemetry
-                      │   ├─ core/      SEED Core runtime       [M2]
+                      │   ├─ core/      SEED Core: providers, agent loop, tools [M2: built]
+                      │   ├─ seed_api.runs  /models, /runs (SSE, in-request)  [M2: built]
                       │   ├─ flow/      SEED Flow tasks/events  [M3]
                       │   ├─ memory/, studio/, connect/          [M6–M8]
                       ▼

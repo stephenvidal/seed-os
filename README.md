@@ -7,7 +7,7 @@ it — with full visibility and control.
 | | |
 |---|---|
 | Directive | v1.1 — [DIRECTIVE.md](DIRECTIVE.md) |
-| Current milestone | M1 Premium application foundation (see [progress](docs/progress.md)) |
+| Current milestone | M2 Core agent runtime (see [progress](docs/progress.md)) |
 | Stack | React + Vite + TS + Tailwind · Python + FastAPI · Docker Compose |
 
 ## What works today
@@ -18,9 +18,13 @@ it — with full visibility and control.
 - **Command Center** with live host telemetry from the API (memory, load, uptime,
   API RSS) and an honest component status list.
 - **Settings:** theme selection, account, system details.
-- Chat, Tasks, Agents, Projects, Studio, Inspector, Models, Tools: page structure
-  with empty states naming the milestone that delivers each. **No agent execution
-  exists yet** (M2).
+- **Chat (M2, in progress):** pick a model from the configured provider (Ollama),
+  send a request, and watch the agent stream its answer and its tool calls. The
+  agent has list/read/write file tools confined to a per-run workspace. Runs are
+  bounded (steps, time, tokens) and **not saved**: leaving the page stops the run
+  (durable runs are M3/M4).
+- Tasks, Agents, Projects, Studio, Inspector, Models, Tools: page structure with
+  empty states naming the milestone that delivers each.
 
 ## API (as built)
 | Method | Path | Auth | Result |
@@ -30,6 +34,8 @@ it — with full visibility and control.
 | POST | `/api/v1/auth/logout` | none | 204, clears cookie |
 | GET | `/api/v1/auth/me` | session | `{username, role}`; 401 `unauthenticated` |
 | GET | `/api/v1/system` | session | host/process telemetry |
+| GET | `/api/v1/models` | admin | `{provider, default_model, models[]}` from the provider; 503 `provider_not_configured`, 502 `provider_<kind>` |
+| POST | `/api/v1/runs` | admin | `{model, prompt, history[]}` → `text/event-stream` of run events (`run_id`, `run_started`, `step_started`, `text_delta`, `tool_call`, `tool_result`, `step_completed`, `provider_retry`, `run_finished`); 429 `busy` at the concurrency limit |
 
 Errors are always `{"error": {"code", "message"}}`. OpenAPI at `/api/docs`.
 
@@ -54,6 +60,13 @@ cd frontend && npm ci && npm run dev                                   # :5173
 | `SEED_COOKIE_SECURE` | `false` | Set `true` behind HTTPS |
 | `SEED_LOGIN_MAX_FAILURES` / `SEED_LOGIN_WINDOW_SECONDS` | `5` / `60` | Sign-in rate limit |
 | `SEED_CORS_ORIGINS` | `[]` | JSON list; only needed if the UI is served from another origin |
+| `SEED_OLLAMA_API_KEY` | unset | Ollama Cloud key; unset disables Chat (typed 503) |
+| `SEED_OLLAMA_BASE_URL` | `https://ollama.com` | Point at a self-hosted Ollama to use local models |
+| `SEED_DEFAULT_MODEL` | unset | Model preselected in Chat |
+| `SEED_PROVIDER_TIMEOUT_SECONDS` | `120` | Per-request provider timeout |
+| `SEED_MAX_CONCURRENT_RUNS` | `2` | Concurrent agent runs |
+| `SEED_RUN_MAX_STEPS` / `SEED_RUN_MAX_RUNTIME_SECONDS` / `SEED_RUN_MAX_TOTAL_TOKENS` | `8` / `300` / `200000` | Per-run limits |
+| `SEED_WORKSPACE_ROOT` | `/tmp/seed-workspaces` | Per-run workspace dirs (ephemeral until M6) |
 
 ## Repository map
 | Path | Purpose |

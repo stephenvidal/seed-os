@@ -313,3 +313,53 @@ the repository, the workflow logs, or any chat transcript.
   `sha-…` and `docker compose up -d` in `/opt/seed`) is untried.
 - Multi-user auth, CSRF tokens and everything in M2+ do not exist yet, so the only
   account is the bootstrap admin.
+
+---
+
+## 2026-10-28 — Iteration 2: Milestone 2 core runtime (stub-verified)
+
+**Current milestone:** M2 Core agent runtime.
+
+**Intent (stated before editing):** Give SEED its own agent runtime — provider
+interface, Ollama adapter, typed tools, bounded loop — exposed as a streaming run
+API and wired into Chat. **Definition of done for this increment:** each piece
+tested against stubs and can fail; Chat renders a streamed run in a real browser;
+docs updated. Real-model verification is a separate step (key not visible here).
+
+**Changed:** `backend/src/seed_api/core/` (messages, providers/base, providers/ollama,
+tools, workspace_tools, agent), `backend/src/seed_api/runs.py`, config, main;
+`frontend/src/lib/runs.ts`, `pages/Chat.tsx`, api client; nginx SSE timeout;
+ADR-0006; README, roadmap, requirements, architecture, testing, CHANGELOG,
+`.env.example`.
+
+**Tested (observed)**
+```
+backend$ ruff check . && ruff format --check . && mypy && pytest -q
+All checks passed! · Success: no issues found in 15 source files · 43 passed
+frontend$ tsc, eslint, prettier clean · Test Files 5 passed (5) · Tests 16 passed (16)
+build: index-*.js 454.37 kB │ gzip 144.84 kB
+```
+- Tests can fail: removing the workspace confinement check → `1 failed`;
+  disabling the max-steps check → `test_stops_at_max_steps` fails.
+- Browser (Chromium, dev servers, API pointed at a **local stub that speaks
+  Ollama's wire format with a fixed script** — UI verification only, not model
+  capability): run streamed, `write_file` executed and the file existed on disk in
+  the run workspace, final text and `completed · 2 steps · 933 in / 69 out tokens`
+  rendered; dark/light 1440px and 390px, no horizontal overflow.
+- The browser check caught a real bug the jsdom tests could not: Chromium's
+  `scrollIntoView` returns a Promise, and an expression-bodied `useEffect`
+  returned it, blanking the page. Fixed with block-bodied effects.
+
+**Not tested**
+- **No call to a real model yet.** This session cannot see `SEED_OLLAMA_API_KEY`
+  (environment changes reach new sessions only; ollama.com returns Unauthorized).
+  The model comparison and first live run happen in the "Pick the Ollama Cloud
+  model" thread.
+- SSE through nginx + Cloudflare in production (keepalive and 600s read timeout
+  are in place, untested there).
+
+**Known gaps:** runs are in-request and unsaved; no Markdown rendering; no
+approval UI (approval-required tools are refused); no exec/shell tool until the
+sandbox.
+
+**Next:** live verification + model pick (ADR), then M3 durable tasks.

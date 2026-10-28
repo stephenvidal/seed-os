@@ -2,7 +2,16 @@
 
 All notable changes. Format: Keep a Changelog; versions follow the milestones.
 
-## [Unreleased] — M0/M1, Iteration 1
+## [Unreleased] — M2 Core agent runtime
+### Added
+- Provider interface with typed errors; Ollama adapter (chat, NDJSON streaming,
+  tool calls, model list).
+- Typed tool registry and per-run workspace file tools (list/read/write).
+- Bounded agent loop (steps, time, tokens, tool calls, retries, cancellation).
+- `GET /api/v1/models`, `POST /api/v1/runs` (SSE with keepalives).
+- Chat page: model picker, streaming answer, expandable tool activity, usage.
+
+## M0/M1, Iteration 1
 ### Added
 - Directive v1.1 (product definition) and docs set: vision, requirements,
   architecture, design system, security, deployment, model strategy, testing,
