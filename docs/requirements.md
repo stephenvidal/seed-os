@@ -9,7 +9,7 @@ as of the last `docs/progress.md` entry.
 |---|---|---|---|
 | WS-1 | Command Center | Active/queued tasks, agent activity, approvals, failures, health, resources, model usage, spend, artifacts, notifications; drill-down | Page structure only (M1); data in M5 |
 | WS-2 | Native Chat | Persistent conversations, streaming, Markdown/code, attachments, artifact refs, search, model select, edit/regenerate, approvals, tool activity, task-vs-chat distinction | Streaming, model select, tool activity, usage built (M2); not persisted, no Markdown yet (M4) |
-| WS-3 | Task Operations | States: draft, queued, running, waiting-for-input, paused, completed, failed, canceled; list/detail/timeline; pause/resume/cancel/retry/redirect only when implemented | Page structure only; M3 |
+| WS-3 | Task Operations | States: draft, queued, running, waiting-for-input, paused, completed, failed, canceled; list/detail/timeline; pause/resume/cancel/retry/redirect only when implemented | API built (M3): queued/running/completed/failed/canceled, cancel, retry, event timeline; UI next. Draft/waiting/paused not built |
 | WS-4 | Agent Workforce | Orchestrator + configurable specialists, models, tool permissions, workloads, delegation view, metrics | Page structure only; M7 |
 | WS-5 | Projects | Overview, conversations, tasks, files, artifacts, repos, instructions, knowledge, milestones, activity, permissions | Page structure only; M6 |
 | WS-6 | SEED Studio | Artifact browsing/preview/versions/downloads/metadata/validation; HTML isolated from privileged origin | Page structure only; M6 |

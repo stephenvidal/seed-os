@@ -428,3 +428,59 @@ record.
 
 **Not tested:** `/api/v1/runs` SSE and Chat UI against a real model (this sandbox's
 proxy blocks ollama.com).
+
+## Iteration 3: Milestone 3, increment 1 — durable tasks (2026-10-28)
+
+**Iteration:** make agent work durable: tasks persisted in Postgres, executed by a
+separate worker, surviving a worker crash and an API restart.
+**Definition of done:** create/list/get/cancel/retry tasks over the API; a worker
+claims and runs them; a SIGKILLed worker's task is resumed by another worker from
+its last checkpoint without redoing finished steps; a task survives an API restart;
+cancel stops a running task; checks green.
+
+**Changed:**
+- `seed_api/flow/`: `db.py` (pool, SQL migrations), `migrations/0001_tasks.sql`,
+  `store.py` (state machine, leases, fenced writes, event log), `worker.py`, `api.py`.
+- `core/agent.py`: checkpoints after each completed tool round, `resume=`; cancel
+  now interrupts a provider request in flight (it used to wait for the next chunk).
+- `compose.yaml` adds `db` (postgres:17) and `worker`; CI runs a Postgres service.
+- ADR-0008, D-004, README API/config, roadmap, requirements, CHANGELOG.
+
+**Tested:**
+- Backend with a real Postgres 16 (`SEED_TEST_DATABASE_URL` set):
+  `ruff check` → `All checks passed!`; `mypy` → `Success: no issues found in 20
+  source files`; `pytest -q` → `63 passed, 1 warning in 2.58s` (17 new DB tests,
+  2 new agent tests). Without a DB: `46 passed, 17 skipped`.
+- Mutation checks: removing the lease fence from `append_event` →
+  `1 failed, 9 passed` (test_flow); removing the checkpoint call → `3 failed`.
+- Real processes, real Postgres: uvicorn API + `python -m seed_api.flow.worker`
+  against a scripted Ollama-wire stub (not a model). Worker 1 was `kill -9`ed
+  during step 2; worker 2 resumed:
+  ```
+  --- before kill:
+  running attempt 1 resumable_from_step 1
+  worker 1 killed (SIGKILL)
+  --- after:
+  completed attempt 2 completed 'Wrote report.txt' {'input_tokens': 250, 'output_tokens': 15}
+  2 1 attempt_started {'worker': 'vm:4790:392fed', 'resumed_at_step': None}
+  6 1 tool_call {'name': 'write_file', 'step': 1}
+  8 1 step_started {'step': 2}
+  9 2 attempt_started {'worker': 'vm:4802:6a5862', 'resumed_at_step': 1}
+  10 2 run_started {'resumed_at_step': 1}
+  14 2 run_finished {'termination': 'completed'}
+  ```
+  (excerpt; `write_file` ran once, usage = 100+150 input tokens across attempts.)
+  SIGTERM on worker 2 logged `worker … stopped`.
+- `docker compose config` validates; it refuses to start without
+  `SEED_POSTGRES_PASSWORD`. The built wheel contains `migrations/0001_tasks.sql`.
+
+**Not tested:**
+- The compose stack was not brought up (images not built here); CI builds them.
+- Frontend unchanged and not re-run this iteration.
+- A real model through the worker; the run above used a stub.
+- Production: `deploy/compose.yaml` is unchanged, so the live site has no
+  database and `/api/v1/tasks` answers 503 there until Postgres is added to the
+  deploy (needs a password in `/opt/seed/.env`).
+
+**Open:** deploy Postgres on the VPS (owner sets the password); next increment is
+live task events over SSE with replay plus the Tasks UI.

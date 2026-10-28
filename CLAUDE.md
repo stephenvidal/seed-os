@@ -59,9 +59,11 @@ control); v1.1 defines the product — see `docs/product-vision.md`,
 
 - Stack ratified by Directive v1.1 / ADRs in `docs/decisions/`: React + Vite +
   TypeScript + Tailwind (`frontend/`), Python + FastAPI (`backend/`), Docker
-  Compose. Postgres, workers, sandbox arrive in M3.
+  Compose. Postgres and workers are built (M3, ADR-0008); the sandbox is next.
 - Backend: `cd backend && python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'`;
   check with `.venv/bin/ruff check . && .venv/bin/mypy && .venv/bin/pytest -q`.
+  DB tests need `SEED_TEST_DATABASE_URL` (a database they may wipe); without it
+  they skip locally, and CI sets `SEED_REQUIRE_DB_TESTS=1` so they cannot skip there.
 - Frontend: `cd frontend && npm ci`; check with
   `npm run typecheck && npm run lint && npm run format:check && npm test`.
 - Dev: run the API (`SEED_ADMIN_PASSWORD=… .venv/bin/uvicorn seed_api.main:app`)

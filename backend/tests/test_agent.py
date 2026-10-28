@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from seed_api.core.agent import RunEvent, RunLimits, run_agent
+from seed_api.core.agent import Checkpoint, RunEvent, RunLimits, run_agent
 from seed_api.core.messages import Message
 from seed_api.core.providers.base import ProviderError
 from seed_api.core.tools import ToolRegistry
@@ -20,6 +20,10 @@ def anyio_backend() -> str:
 
 
 async def no_sleep(_: float) -> None:
+    return None
+
+
+async def no_event(_: RunEvent) -> None:
     return None
 
 
@@ -127,6 +131,55 @@ async def test_cancellation_between_steps(tmp_path: Path) -> None:
         cancel=cancel,
     )
     assert result.termination == "cancelled" and len(provider.requests) == 1
+
+
+async def test_cancellation_interrupts_a_blocked_provider(tmp_path: Path) -> None:
+    cancel = asyncio.Event()
+    asyncio.get_running_loop().call_later(0.1, cancel.set)
+    result = await run_agent(
+        provider=ScriptedProvider([30.0]),  # type: ignore[list-item]
+        model="fake",
+        messages=[Message(role="user", content="go")],
+        tools=ToolRegistry(workspace_tools(tmp_path)),
+        limits=RunLimits(),
+        on_event=no_event,
+        cancel=cancel,
+    )
+    assert result.termination == "cancelled"
+
+
+async def test_checkpoints_after_tool_rounds_and_resumes_from_one(tmp_path: Path) -> None:
+    saved: list[Checkpoint] = []
+
+    async def keep(cp: Checkpoint) -> None:
+        saved.append(cp.model_copy(deep=True))
+
+    first = await run_agent(
+        provider=ScriptedProvider([calls(("list_files", {})), reply("done")]),
+        model="fake",
+        messages=[Message(role="user", content="go")],
+        tools=ToolRegistry(workspace_tools(tmp_path)),
+        limits=RunLimits(),
+        on_event=no_event,
+        on_checkpoint=keep,
+    )
+    assert first.termination == "completed"
+    assert len(saved) == 1 and saved[0].steps == 1
+    assert [m.role for m in saved[0].messages] == ["user", "assistant", "tool"]
+
+    provider = ScriptedProvider([reply("resumed")])
+    resumed = await run_agent(
+        provider=provider,
+        model="fake",
+        messages=[Message(role="user", content="ignored on resume")],
+        tools=ToolRegistry(workspace_tools(tmp_path)),
+        limits=RunLimits(max_steps=2),
+        on_event=no_event,
+        resume=saved[0],
+    )
+    assert resumed.termination == "completed" and resumed.steps == 2
+    assert resumed.usage.input_tokens == 20  # carried over from the checkpoint
+    assert provider.requests[0].messages == saved[0].messages
 
 
 async def test_excess_tool_calls_in_one_step_are_skipped(tmp_path: Path) -> None:

@@ -99,3 +99,22 @@ runner.
 
 **Consequences:** Open question 6 becomes an owner action (register a runner for
 seed-os). Production deploys stay off until explicitly enabled.
+
+## D-004 — M3 starts with durable task execution; auth migration and sandbox follow
+
+**Date:** 2026-10-28
+
+**Context:** M3 ("Durable Task Infrastructure") also carries the Postgres-backed
+auth (ADR-0004) and the sandbox. Together that is several reviewable diffs.
+
+**Options:** one large M3 PR; split by concern.
+
+**Choice:** Split. Increment 1: Postgres, task store, worker, Tasks API (ADR-0008).
+Next: live task events over SSE with replay and the Tasks UI; then Postgres-backed
+users and sessions with CSRF; then the sandbox and exec tool.
+
+**Reason:** CLAUDE.md requires reviewable increments; task durability is what the
+other parts build on.
+
+**Consequences:** Until the next increments land, tasks are API-only (no UI) and
+production has no database. Tasks answer 503 `database_not_configured` there.

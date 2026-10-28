@@ -27,6 +27,17 @@ jobs:
     # Public repository: anyone can open a fork PR. Only build PRs whose head is
     # this repository; a fork PR gets reviewed by hand before anything runs.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: seed
+          POSTGRES_PASSWORD: seed-ci-only
+          POSTGRES_DB: seed_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U seed -d seed_test"
+          --health-interval 5s --health-timeout 3s --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -35,6 +46,10 @@ jobs:
           python-version: "3.13"
       - name: Backend checks
         working-directory: backend
+        env:
+          # Throwaway CI database; the DB tests fail (not skip) if it is unreachable.
+          SEED_TEST_DATABASE_URL: postgresql://seed:seed-ci-only@localhost:5432/seed_test
+          SEED_REQUIRE_DB_TESTS: "1"
         run: |
           python -m venv .venv
           .venv/bin/pip install -q -e '.[dev]'
