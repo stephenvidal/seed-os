@@ -1,0 +1,54 @@
+# Runs on a self-hosted runner on golden-eye (labels: self-hosted, golden-eye).
+# GitHub-hosted minutes for private repos are blocked by this account's spending
+# limit, so CI runs on our own hardware. Pattern borrowed from stephenvidal/dustline
+# (docs/CI.md there). Rules: keep runs-on, keep the fork guard, keep timeouts.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches-ignore: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: [self-hosted, golden-eye]
+    timeout-minutes: 25
+    # A self-hosted runner executes whatever the workflow says: never run fork PRs.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Backend checks
+        working-directory: backend
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -q -e '.[dev]'
+          .venv/bin/ruff check .
+          .venv/bin/ruff format --check .
+          .venv/bin/mypy
+          .venv/bin/pytest -q
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Frontend checks
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm run format:check
+          npm test
+          npm run build
+
+      - name: Build images (not pushed)
+        run: |
+          docker build -t seed-api:ci backend
+          docker build -t seed-web:ci frontend

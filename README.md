@@ -61,6 +61,7 @@ cd frontend && npm ci && npm run dev                                   # :5173
 | `DIRECTIVE.md`, `CLAUDE.md` | Governing directive and implementer rules |
 | `backend/` | SEED API (FastAPI) |
 | `frontend/` | SEED Workspace (React SPA) |
-| `compose.yaml`, `.env.example` | Self-hosted deployment |
+| `compose.yaml`, `.env.example` | Local/self-hosted stack (builds from source) |
+| `deploy/compose.yaml`, `.github/workflows/` | Production stack (GHCR images) and self-hosted CI/deploy; see `docs/deployment.md` |
 | `docs/` | Vision, requirements, architecture, design system, security, deployment, model strategy, testing, roadmap, progress, decisions |
 | `docs/decisions/` | ADRs |

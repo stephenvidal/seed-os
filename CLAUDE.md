@@ -66,8 +66,10 @@ control); v1.1 defines the product — see `docs/product-vision.md`,
   `npm run typecheck && npm run lint && npm run format:check && npm test`.
 - Dev: run the API (`SEED_ADMIN_PASSWORD=… .venv/bin/uvicorn seed_api.main:app`)
   and `npm run dev`; Vite proxies `/api` to `:8000`.
-- Hosted GitHub Actions is unavailable: run the checks above locally and paste
-  output into `docs/progress.md`.
+- Hosted GitHub Actions is unavailable. CI/deploy workflows target a self-hosted
+  runner (`[self-hosted, golden-eye]`, see `docs/deployment.md`); keep `runs-on`,
+  the fork guard, and job timeouts. Until that runner exists, run the checks
+  above locally and paste output into `docs/progress.md`.
 - Never touch `stephenvidal/agent-native-os` or the Hermes Agent installation.
 - No fake data in screens: unbuilt areas show an honest empty state naming the
   milestone.

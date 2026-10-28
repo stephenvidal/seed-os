@@ -13,3 +13,5 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
   sidebar and mobile drawer, command palette, keyboard navigation, Command
   Center with live telemetry, Settings, honest empty states for unbuilt areas.
 - Docker Compose stack (api + web/nginx with security headers).
+- CI and build-and-deploy workflows for the self-hosted golden-eye runner,
+  production compose file (adapted from dustline; deploy off by default).

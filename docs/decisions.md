@@ -74,3 +74,28 @@ they are built.
    input on budget; due M2.
 6. **Self-hosted CI runner** — hosted Actions minutes are blocked; verification is
    local until the owner decides.
+
+---
+
+## D-003 — Reuse dustline's CI/deploy pipeline
+
+**Date:** 2026-10-28
+
+**Context:** Hosted Actions minutes are blocked (open question 6). The owner said
+seed-os may borrow deploy code from `stephenvidal/dustline`, which already runs CI
+and deploys on a self-hosted runner on golden-eye, pushes to GHCR, and deploys to
+a VPS over SSH behind a Cloudflare tunnel.
+
+**Options:** (1) keep local-only verification; (2) write a new pipeline; (3)
+adapt dustline's.
+
+**Choice:** Option 3, with deploy gated off (`DEPLOY_ENABLED`) until the owner
+prepares the runner, VPS folder, secrets, and tunnel route.
+
+**Reason:** Proven on the same account and hosts; avoids a second design. Changes:
+two images (api, web) instead of one, port 8091, required secrets checked before
+deploy, SSH config files namespaced so they do not clobber dustline's on a shared
+runner.
+
+**Consequences:** Open question 6 becomes an owner action (register a runner for
+seed-os). Production deploys stay off until explicitly enabled.

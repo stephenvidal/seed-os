@@ -103,3 +103,38 @@ dist/assets/index-B3WYoWvz.js   446.68 kB │ gzip: 142.50 kB
 **Next recommended actions:** M2 — provider adapter interface + first adapter,
 typed tool registry, isolated execution worker, real model + tool call shown in
 the UI. Owner input needed on default models/budget (open question 5).
+
+---
+
+## 2026-10-28 — Iteration 1 addendum: CI/deploy pipeline from dustline
+
+**Intent:** Adopt the owner-approved dustline CI/deploy pattern (D-003) without
+enabling any production deploy.
+
+**Changed:** `.github/workflows/ci.yml`, `.github/workflows/deploy.yml`,
+`.github/actionlint.yaml`, `deploy/compose.yaml`, OCI source labels in both
+Dockerfiles, `docs/deployment.md`, `docs/decisions.md` (D-003), `CLAUDE.md`,
+`README.md`, `CHANGELOG.md`.
+
+**Tested**
+```
+$ actionlint            # with golden-eye declared as a self-hosted label
+ACTIONLINT_OK
+$ docker compose config (deploy/, sample .env)
+image: ghcr.io/stephenvidal/seed-api:sha-abc1234
+image: ghcr.io/stephenvidal/seed-web:sha-abc1234
+host_ip: 127.0.0.1   published: "8091"   SEED_COOKIE_SECURE: "true"
+$ docker compose up (deploy/compose.yaml, locally built images retagged sha-test)
+api Up (healthy) · web 127.0.0.1:8091->8080/tcp
+/healthz -> {"status":"ok","version":"0.1.0"}
+login -> HTTP/1.1 200 OK; set-cookie: seed_session=…; HttpOnly; …; SameSite=lax; Secure
+```
+Both images rebuilt and carry `org.opencontainers.image.source=https://github.com/stephenvidal/seed-os`.
+
+**Not tested**
+- The workflows have not run: no runner is registered for seed-os yet. GHCR push,
+  SSH deploy, `gha` cache, and `setup-python` on golden-eye are unverified.
+- shellcheck was not available to actionlint, so inline shell was not linted.
+
+**Blockers (owner actions):** register a seed-os runner on golden-eye; prepare
+`/opt/seed/.env`, tunnel route, repo secrets/variables (`docs/deployment.md`).
