@@ -180,3 +180,41 @@ read-only-mount-and-copy pattern as the backend; no tool-cache writes.
 
 **Not tested:** on golden-eye. If the runner shuts down again without a heavy
 step, the cause is on the host (runner service/watchdog), not the workflow.
+
+---
+
+## 2026-10-28 — Iteration 1 correction: vitest must not load Tailwind
+
+**Context:** with checks now containerised (see above), the remaining unverified step
+was `npm test`. Reproduced the failure outside Actions, on golden-eye, against a clean
+`npm ci`:
+
+```
+Error [vitest-pool]: Failed to start forks worker for .../src/lib/api.test.ts
+Caused by: Error: [vitest-pool-runner]: Timeout waiting for worker to respond
+Test Files  no tests      Tests  no tests      Errors  3 errors
+```
+
+**Cause:** `vitest` inherited `vite.config.ts`, which loads the Tailwind v4 plugin.
+On a loaded 4-vCPU box with a rotational disk, worker startup exceeded vitest's
+60s pool timeout, so no test file was ever collected. Not a test defect — the same
+tree passes when the plugin is not in the way.
+
+**Changed:** `frontend/vitest.config.ts` (test-only config, `react()` only, no
+Tailwind, `pool: threads` + `singleThread: true`); `frontend/tsconfig.json` includes
+it. `vite.config.ts` is untouched, so dev/build still compile Tailwind.
+
+**Tested (golden-eye, host toolchain, clean `npm ci`)**
+```
+tsc -b --noEmit            -> clean
+eslint .                   -> clean
+prettier --check           -> clean
+npm test                   -> Test Files 3 passed (3) | Tests 12 passed (12) | 67s
+npm run build              -> dist/assets/index-*.js 446.67 kB | gzip 142.50 kB
+```
+For comparison, the same tree under the Tailwind-loading config: 3 errors, no tests.
+
+**Not tested:** the corrected `npm test` inside `node:22-alpine` in Actions, and the
+`Build images (not pushed)` step. Also unresolved: an earlier run ended with "The
+runner has received a shutdown signal" before any frontend command ran — that is a
+host/runner-side event (memory pressure on golden-eye), not a workflow fault.
