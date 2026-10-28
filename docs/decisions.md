@@ -118,3 +118,28 @@ other parts build on.
 
 **Consequences:** Until the next increments land, tasks are API-only (no UI) and
 production has no database. Tasks answer 503 `database_not_configured` there.
+
+## D-005 — Auth moves to Postgres; CSRF uses a session-bound token (closes open question 4)
+
+**Date:** 2026-10-28
+
+**Context:** Production has Postgres since PR #6, and Stephen confirmed the
+multi-user auth and CSRF increment could start. Open question 4 asked for a CSRF
+strategy (double-submit vs. Origin check).
+
+**Options:** double-submit cookie; Origin check alone; synchronizer token stored
+with a server-side session.
+
+**Choice:** Server-side sessions with a synchronizer CSRF token, argon2 users,
+audit log and a per-username rate limit, as recorded in ADR-0009 (supersedes
+ADR-0004).
+
+**Reason:** Server-side sessions were needed anyway for revocation; storing the
+CSRF token with them costs nothing and, unlike plain double-submit, is not
+defeated by a cookie planted from a sibling subdomain of nsystems.live.
+
+**Consequences:** Open question 4 is closed. `SEED_SESSION_SECRET` is no longer
+used. Sign-in requires the database. New open questions: roles beyond `admin`
+(the requirements ask for RBAC but name no roles), a per-client sign-in limit
+(needs a trusted client address through the tunnel), and audit log retention.
+

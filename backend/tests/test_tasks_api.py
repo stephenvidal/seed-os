@@ -9,50 +9,37 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
-from seed_api import auth
-from seed_api.config import Settings, get_settings
-from seed_api.main import create_app
+from seed_api.config import Settings
 
-LOGIN = {"username": "admin", "password": "correct-horse"}
+from .conftest import sign_in, start
+
 BODY = {"model": "deepseek-v4.1-flash", "prompt": "Summarise  the\\nrepo"}
 
 
 @pytest.fixture
-def db_settings(settings: Settings, db_url: str) -> Settings:
-    return settings.model_copy(
-        update={"database_url": SecretStr(db_url), "ollama_api_key": SecretStr("unused")}
-    )
-
-
-def start(settings: Settings) -> TestClient:
-    auth.limiter.reset()
-    app = create_app(settings)
-    app.dependency_overrides[get_settings] = lambda: settings
-    return TestClient(app)
+def db_settings(db_settings: Settings) -> Settings:
+    return db_settings.model_copy(update={"ollama_api_key": SecretStr("unused")})
 
 
 @pytest.fixture
 def api(db_settings: Settings) -> Iterator[TestClient]:
     with start(db_settings) as c:  # runs the lifespan: pool + migrations
-        c.post("/api/v1/auth/login", json=LOGIN)
-        yield c
+        yield sign_in(c)
 
 
-def test_tasks_need_a_database(client: TestClient) -> None:
-    client.post("/api/v1/auth/login", json=LOGIN)
-    r = client.get("/api/v1/tasks")
-    assert r.status_code == 503 and r.json()["error"]["code"] == "database_not_configured"
-
-
-def test_tasks_require_auth(db_settings: Settings) -> None:
+def test_tasks_require_auth_and_csrf(db_settings: Settings) -> None:
     with start(db_settings) as c:
         assert c.get("/api/v1/tasks").status_code == 401
         assert c.post("/api/v1/tasks", json=BODY).status_code == 401
+        sign_in(c)
+        del c.headers["X-CSRF-Token"]
+        assert c.post("/api/v1/tasks", json=BODY).json()["error"]["code"] == "csrf_failed"
+        assert c.get("/api/v1/tasks").json() == []
 
 
 def test_create_needs_a_provider(db_settings: Settings) -> None:
     with start(db_settings.model_copy(update={"ollama_api_key": None})) as c:
-        c.post("/api/v1/auth/login", json=LOGIN)
+        sign_in(c)
         r = c.post("/api/v1/tasks", json=BODY)
         assert r.status_code == 503 and r.json()["error"]["code"] == "provider_not_configured"
 
@@ -88,7 +75,7 @@ def test_idempotency_key(api: TestClient) -> None:
     assert len(api.get("/api/v1/tasks").json()) == 1
 
 
-def test_cancel_and_retry_transitions(api: TestClient) -> None:
+def test_cancel_and_retry_transitions_are_audited(api: TestClient, db_url: str) -> None:
     tid = api.post("/api/v1/tasks", json=BODY).json()["id"]
     assert api.post(f"/api/v1/tasks/{tid}/retry").json()["error"]["code"] == "not_retryable"
     canceled = api.post(f"/api/v1/tasks/{tid}/cancel")
@@ -99,6 +86,15 @@ def test_cancel_and_retry_transitions(api: TestClient) -> None:
     assert retried.status_code == 200 and retried.json()["state"] == "queued"
     types = [e["type"] for e in api.get(f"/api/v1/tasks/{tid}/events").json()["events"]]
     assert types == ["task_created", "cancel_requested", "task_requeued"]
+    with psycopg.connect(db_url) as conn:
+        audit = conn.execute(
+            "SELECT actor, action, target FROM audit_log WHERE action LIKE 'task_%' ORDER BY id"
+        ).fetchall()
+    assert audit == [
+        ("admin", "task_created", tid),
+        ("admin", "task_canceled", tid),
+        ("admin", "task_retried", tid),
+    ]
 
 
 def test_unknown_and_malformed_ids(api: TestClient) -> None:
@@ -112,15 +108,15 @@ def test_unknown_and_malformed_ids(api: TestClient) -> None:
 
 def test_tasks_survive_an_api_restart(db_settings: Settings, db_url: str) -> None:
     with start(db_settings) as first:
-        first.post("/api/v1/auth/login", json=LOGIN)
+        sign_in(first)
         tid = first.post("/api/v1/tasks", json=BODY).json()["id"]
     # The first app and its pool are gone; a new process sees the same task.
     with start(db_settings) as second:
-        second.post("/api/v1/auth/login", json=LOGIN)
+        sign_in(second)
         assert second.get(f"/api/v1/tasks/{tid}").json()["state"] == "queued"
     with psycopg.connect(db_url) as conn:
         row = conn.execute("SELECT count(*) FROM schema_migrations").fetchone()
-        assert row == (1,)  # migrations ran once, not per start
+        assert row == (2,)  # migrations ran once, not per start
 
 
 def sse(text: str) -> list[tuple[str | None, str | None, dict]]:  # type: ignore[type-arg]

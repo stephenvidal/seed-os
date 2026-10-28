@@ -5,7 +5,7 @@
 | 0 | Discovery & Foundation | Inspect, environment, architecture, design principles, requirements, roadmap, tooling | Done in Iteration 1 |
 | 1 | Premium Application Foundation | Design system, shell, navigation, themes, auth foundation, responsive layouts, page structures; running app | Done; live at seed.nsystems.live |
 | 2 | Core Agent Runtime | Provider adapters, conversation loop, tool registry, streaming, lifecycle, errors; real model + tool execution | Done (PR #2); live model comparison in ADR-0007 |
-| 3 | Durable Task Infrastructure | Persistent tasks, workers, transitions, checkpoints, cancel, retry, recovery; survive API/worker restarts | In progress: task store, worker, Tasks API (ADR-0008), live SSE with replay and Tasks UI built; next Postgres auth, sandbox |
+| 3 | Durable Task Infrastructure | Persistent tasks, workers, transitions, checkpoints, cancel, retry, recovery; survive API/worker restarts | In progress: task store, worker, Tasks API (ADR-0008), live SSE with replay and Tasks UI built; Postgres users, revocable sessions, CSRF and audit log built (ADR-0009); next sandbox |
 | 4 | Integrated Native Chat | Persistent conversations, streaming, task integration, tool activity, approvals, continuation | Not started |
 | 5 | Command Center & Inspector | Real metrics, live dashboard, timelines, agent activity, failures, cost | Not started |
 | 6 | Projects, Memory, Artifacts | Workspaces, memory, artifact storage, preview, versions | Not started |

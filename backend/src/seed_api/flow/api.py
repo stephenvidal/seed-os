@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from ..auth import Principal, require_role
+from ..auth import AuthStoreDep, Principal, client_ip, require_role
 from ..config import Settings, get_settings
 from ..core.messages import Usage
 from ..errors import ApiError
@@ -89,9 +89,11 @@ async def _task(store: TaskStore, task_id: uuid.UUID) -> Task:
 @router.post("", response_model=TaskView, status_code=201)
 async def create_task(
     body: CreateTask,
+    request: Request,
     response: Response,
     principal: AdminOnly,
     store: StoreDep,
+    audit: AuthStoreDep,
     settings: SettingsDep,
     idempotency_key: Annotated[
         str | None, Header(min_length=1, max_length=200, pattern=r"^[\x21-\x7e]+$")
@@ -119,6 +121,10 @@ async def create_task(
                 "This Idempotency-Key was already used for a different task.",
             )
         response.status_code = 200
+    else:
+        await audit.audit(
+            "task_created", actor=principal.username, target=str(task.id), ip=client_ip(request)
+        )
     return TaskView.of(task)
 
 
@@ -151,24 +157,37 @@ async def task_events(
 
 
 @router.post("/{task_id}/cancel", response_model=TaskView)
-async def cancel_task(task_id: uuid.UUID, _: AdminOnly, store: StoreDep) -> TaskView:
+async def cancel_task(
+    task_id: uuid.UUID, request: Request, principal: AdminOnly, store: StoreDep, audit: AuthStoreDep
+) -> TaskView:
     """Queued tasks cancel at once; a running task stops at its worker's next heartbeat."""
     await _task(store, task_id)
     task = await store.request_cancel(task_id)
     if task is None:
         raise ApiError(409, "not_cancelable", "The task has already finished.")
+    await audit.audit(
+        "task_canceled", actor=principal.username, target=str(task_id), ip=client_ip(request)
+    )
     return TaskView.of(task)
 
 
 @router.post("/{task_id}/retry", response_model=TaskView)
 async def retry_task(
-    task_id: uuid.UUID, _: AdminOnly, store: StoreDep, settings: SettingsDep
+    task_id: uuid.UUID,
+    request: Request,
+    principal: AdminOnly,
+    store: StoreDep,
+    audit: AuthStoreDep,
+    settings: SettingsDep,
 ) -> TaskView:
     """Re-queue a failed or canceled task as a fresh run."""
     await _task(store, task_id)
     task = await store.retry(task_id, extra_attempts=settings.task_max_attempts)
     if task is None:
         raise ApiError(409, "not_retryable", "Only failed or canceled tasks can be retried.")
+    await audit.audit(
+        "task_retried", actor=principal.username, target=str(task_id), ip=client_ip(request)
+    )
     return TaskView.of(task)
 
 

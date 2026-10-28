@@ -1,5 +1,5 @@
 /** Client for POST /api/v1/runs: streams Server-Sent Events from an agent run. */
-import { ApiError } from "./api";
+import { ApiError, csrfHeaders } from "./api";
 
 export type RunEventType =
   | "run_id"
@@ -47,7 +47,7 @@ export async function streamRun(
     res = await fetch("/api/v1/runs", {
       method: "POST",
       credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...csrfHeaders() },
       body: JSON.stringify(body),
       signal,
     });

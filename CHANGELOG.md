@@ -2,7 +2,26 @@
 
 All notable changes. Format: Keep a Changelog; versions follow the milestones.
 
-## [Unreleased] — M3 Durable tasks (increment 2)
+## [Unreleased] — M3 Users, sessions and CSRF (increment 4)
+### Added
+- Users in Postgres with argon2id passwords; the first admin is created from
+  `SEED_ADMIN_PASSWORD` when no users exist (ADR-0009).
+- Revocable server-side sessions; sign-out revokes, password change and
+  disabling a user end all their sessions.
+- CSRF token per session, required in `X-CSRF-Token` on state-changing requests.
+- `audit_log` of sign-ins, sign-outs, user management and task actions.
+- `python -m seed_api.users`: add, set-password, disable, enable,
+  revoke-sessions, list.
+### Changed
+- Sign-in rate limit is per username and stored in Postgres (was in-memory per
+  client address). Sign-in needs `SEED_DATABASE_URL`.
+- `SEED_SESSION_SECRET` is no longer used; the deploy check no longer requires it.
+### Fixed
+- Signing out now returns to the sign-in page (the app stayed on screen until a
+  reload).
+- A queued task's cancel note now appears in the live timeline without a reload.
+
+## M3 Durable tasks (increment 2)
 ### Added
 - `GET /api/v1/tasks/{id}/stream`: live task events over SSE, resuming after
   `Last-Event-ID` (ADR-0003).

@@ -48,10 +48,11 @@ before emission, so a reconnecting client sends `Last-Event-ID` and replays
 missed events from Postgres. WebSockets are not needed: client→server actions
 are ordinary POSTs.
 
-## Auth (ADR-0004)
-M1: one bootstrap admin from env; HMAC-SHA256-signed, expiring, HttpOnly,
-SameSite=Lax cookie; role claim enforced by backend dependencies
-(`require_role`). M3 moves users/roles/sessions into Postgres with revocation.
+## Auth (ADR-0009, superseding ADR-0004)
+Users, sessions and the audit log live in Postgres. The session cookie holds a
+random token whose SHA-256 keys a revocable session row; each session carries a
+CSRF token the SPA echoes in `X-CSRF-Token`. Roles are enforced by backend
+dependencies (`require_role`).
 
 ## Resource envelope (measured, Iteration 1)
 `docker stats` after start: api 39.8 MiB, web 5.1 MiB. Production JS bundle
