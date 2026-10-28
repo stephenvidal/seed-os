@@ -138,3 +138,25 @@ Both images rebuilt and carry `org.opencontainers.image.source=https://github.co
 
 **Blockers (owner actions):** register a seed-os runner on golden-eye; prepare
 `/opt/seed/.env`, tunnel route, repo secrets/variables (`docs/deployment.md`).
+
+---
+
+## 2026-10-28 — CI fix: backend checks in a container
+
+**Context:** First CI run on the new seed-os runner on golden-eye failed in
+`actions/setup-python@v5`: `./python: CPU ISA level is lower than required`
+(the prebuilt CPython for that OS needs a newer x86-64 level than the host CPU).
+
+**Changed:** `.github/workflows/ci.yml` runs backend checks inside
+`python:3.13-slim` (the production base image) instead of setup-python; source is
+mounted read-only and copied, so no root-owned files land in the runner workspace.
+
+**Tested:** the exact step script, run locally in `python:3.13-slim`
+(sandbox-only additions: proxy CA and host network for pip):
+```
+11 passed, 1 warning in 0.12s
+```
+(ruff check, ruff format --check, mypy ran first under `set -e` and passed.)
+`actionlint` → clean.
+
+**Not tested:** the step on golden-eye itself; the re-run on the PR will show it.

@@ -22,18 +22,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
+      # Backend checks run in the same base image as production. setup-python's
+      # prebuilt CPython needs a newer CPU ISA than golden-eye has ("CPU ISA level
+      # is lower than required"). The source is copied in read-only so the
+      # container (root) never leaves root-owned files in the runner workspace.
       - name: Backend checks
-        working-directory: backend
         run: |
-          python -m venv .venv
-          .venv/bin/pip install -q -e '.[dev]'
-          .venv/bin/ruff check .
-          .venv/bin/ruff format --check .
-          .venv/bin/mypy
-          .venv/bin/pytest -q
+          docker run --rm -v "$PWD/backend:/src:ro" python:3.13-slim sh -euc '
+            cp -r /src /work && cd /work
+            pip install -q --root-user-action=ignore -e ".[dev]"
+            ruff check .
+            ruff format --check .
+            mypy
+            pytest -q -p no:cacheprovider
+          '
 
       - uses: actions/setup-node@v4
         with:
