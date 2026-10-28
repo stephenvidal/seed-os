@@ -397,3 +397,18 @@ approval UI (approval-required tools are refused); no exec/shell tool until the
 sandbox.
 
 **Next:** live verification + model pick (ADR), then M3 durable tasks.
+
+## Live model verification (2026-10-28)
+
+**Changed:** `spikes/model-bench/bench.py` (disposable); `docs/model-strategy.md`
+gains the comparison section.
+
+**Tested:** the key works: authorized `POST https://ollama.com/api/chat`
+(`gemma4:31b`) returned HTTP 200. Live runs through `OllamaProvider` + `run_agent`
+on 6 models × 3 trials; results and table in `docs/model-strategy.md`
+(e.g. `deepseek-v4.1-flash` 3/3, `gemma4:31b` 0/3 wrong arithmetic).
+
+**Not tested:** the HTTP `/api/v1/runs` SSE endpoint and Chat UI against a real
+model; per-token pricing (not published by the API); larger tasks.
+
+**Open:** confirm Ollama Cloud plan limits; ADR for default model after real workloads.
