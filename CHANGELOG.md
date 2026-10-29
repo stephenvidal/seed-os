@@ -4,6 +4,12 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
 
 ## [Unreleased]
 ### Added
+- Rendered output (D-019): chat answers, task results and Studio files show
+  Markdown, tables and HTML rendered first, with a Rendered / Source switch.
+  Fenced `html`, `svg` and `markdown` blocks and whole-page HTML answers appear in a
+  sandboxed frame (no scripts, no network) that opens at the viewer's device width,
+  with a Phone / Desktop switch. Studio's HTML preview starts on open and uses the
+  same frame; Markdown files render. The system prompt asks for responsive HTML.
 - Project memory (M6, D-018): the `remember` tool (in a project's turns only)
   proposes a note; the owner approves, edits or rejects it on the project page,
   and can add, edit and delete notes. Approved notes are copied into each turn and

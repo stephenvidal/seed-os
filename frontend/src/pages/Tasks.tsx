@@ -18,6 +18,7 @@ import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { EmptyState } from "../components/ui/EmptyState";
 import { PageHeader } from "../components/ui/PageHeader";
+import { Markdown } from "../components/ui/Markdown";
 import { Panel } from "../components/ui/Panel";
 import { Spinner } from "../components/ui/Spinner";
 import { ApiError, api } from "../lib/api";
@@ -377,9 +378,9 @@ export function TaskDetailPage() {
           )}
           {t.state === "completed" && t.result_text && (
             <Panel title="Result">
-              <p className="px-4 py-3 text-sm leading-6 whitespace-pre-wrap text-fg">
-                {t.result_text}
-              </p>
+              <div className="px-4 py-3">
+                <Markdown text={t.result_text} toggle />
+              </div>
             </Panel>
           )}
           {t.state === "failed" && (

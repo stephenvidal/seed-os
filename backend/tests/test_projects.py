@@ -244,3 +244,9 @@ def test_studio_lists_a_projects_files(api: TestClient, db_url: str) -> None:
     rows = api.get("/api/v1/artifacts", params={"project_id": p["id"]}).json()
     assert [r["path"] for r in rows] == ["in.txt"]
     assert len(api.get("/api/v1/artifacts").json()) == 2
+
+
+def test_system_prompt_asks_for_responsive_self_contained_html() -> None:
+    assert "viewport" in SYSTEM_PROMPT
+    assert "media queries" in SYSTEM_PROMPT
+    assert "no network" in SYSTEM_PROMPT

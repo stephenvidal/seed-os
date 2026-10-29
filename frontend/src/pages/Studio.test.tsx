@@ -84,7 +84,7 @@ describe("Studio", () => {
     expect(screen.queryByText(/Arrives in|M6 ·/)).toBeNull(); // built: no milestone note
   });
 
-  it("shows a file's versions, its source, and runs HTML only in a sandbox", async () => {
+  it("previews HTML first in a sandbox, with its source and versions one switch away", async () => {
     const user = userEvent.setup();
     const preview = vi.fn(() => ({
       status: 201,
@@ -102,7 +102,12 @@ describe("Studio", () => {
     });
     const { container } = renderApp(<App />, "/studio/a1");
 
-    expect(await screen.findByText("<h1>new</h1>")).toBeInTheDocument(); // source, not rendered
+    // Rendered first: the preview starts by itself, and the source is not shown yet.
+    const frame = await screen.findByTitle("Preview of site/index.html");
+    expect(preview).toHaveBeenCalledTimes(1);
+    expect(frame).toHaveAttribute("src", "/api/v1/previews/tok/site/index.html");
+    expect(frame.getAttribute("sandbox")).toBe("allow-scripts allow-modals");
+    expect(screen.queryByText("<h1>new</h1>")).toBeNull();
     expect(screen.getByRole("heading", { level: 1, name: "site/index.html" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Download v2/ })).toHaveAttribute(
       "href",
@@ -113,14 +118,11 @@ describe("Studio", () => {
       "href",
       "/inspector/task-1",
     );
-    expect(await axe(container)).toHaveNoViolations();
 
-    await user.click(screen.getByRole("button", { name: /Run preview/ }));
-    const frame = await screen.findByTitle("Preview of site/index.html");
-    expect(preview).toHaveBeenCalledTimes(1);
-    expect(frame).toHaveAttribute("src", "/api/v1/previews/tok/site/index.html");
-    expect(frame.getAttribute("sandbox")).toBe("allow-scripts allow-modals");
-
+    await user.click(screen.getByRole("button", { name: "Source" }));
+    expect(await screen.findByText("<h1>new</h1>")).toBeInTheDocument();
+    expect(screen.queryByTitle("Preview of site/index.html")).toBeNull();
+    expect(await axe(container)).toHaveNoViolations(); // axe cannot enter the frame
     await user.click(within(versions).getByRole("button", { name: "Show v1" }));
     expect(await screen.findByText("<h1>old</h1>")).toBeInTheDocument();
     // Previews run the latest files only: no frame and no button for an old version.

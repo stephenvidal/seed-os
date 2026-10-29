@@ -1490,4 +1490,37 @@ errors: the 401 from the sign-in check before login
 **Not tested:** a real model choosing to call `remember` (the stub calls it on
 cue); the compose stack (no compose or nginx change); Firefox and Safari.
 
+## 2026-10-29 — Increment 16: rendered output by default
+
+**Iteration:** outside the roadmap, requested by the owner (D-019). Definition of
+done: Markdown, tables and HTML in chat answers, task results and Studio show
+rendered first with a switch to the source; HTML is responsive and opens at the
+viewer's device width with a switch to the other; Studio's frame keeps its
+isolation.
+
+**Changed**
+- `lib/render.ts` (fence kinds, HTML preparation, frame layout),
+  `components/ui/Rendered.tsx` (switches, `HtmlFrame`), `Markdown` (fenced blocks,
+  whole-page HTML, `toggle`, `live`); Chat and Tasks results use it; Studio's HTML
+  preview starts on open and Markdown files render.
+- System prompt asks for responsive, self-contained HTML. D-019, README, CHANGELOG.
+
+**Tested**
+```
+backend: ruff check → All checks passed! · ruff format --check → 58 files already formatted
+         mypy → Success: no issues found in 40 source files
+         pytest tests/test_projects.py (no DB here) → 1 passed, 5 skipped
+frontend: typecheck ok · lint ok · format ok · vitest → Test Files 13 passed (13), Tests 81 passed (81)
+```
+Mutation checks (each made, tests run, reverted), all caught:
+```
+inline frame gets allow-same-origin → 1 failed   CSP drops default-src 'none' → 2 failed
+device default inverted             → 2 failed   streaming answer still renders frames → 1 failed
+```
+
+**Not tested:** the DB-backed backend suite (no database in this session; the only
+backend change is a prompt string); a real browser, so the phone/desktop scaling
+and iframe look are unchecked beyond unit tests; whether the model follows the new
+prompt; Firefox and Safari.
+
 **Open questions:** none new.
