@@ -25,6 +25,7 @@ from ..core.tools import ToolRegistry
 from ..core.workspace_tools import workspace_tools
 from ..errors import ApiError
 from ..runs import SYSTEM_PROMPT, make_provider
+from ..sandbox.client import SandboxClient, sandbox_tools
 from .db import make_pool, migrate
 from .store import Lease, LeaseLost, Task, TaskStore
 
@@ -49,9 +50,11 @@ class Worker:
         settings: Settings,
         provider_factory: ProviderFactory,
         *,
+        sandbox: SandboxClient | None = None,
         worker_id: str | None = None,
     ) -> None:
         self.store = store
+        self.sandbox = sandbox
         self.settings = settings
         self.provider_factory = provider_factory
         self.worker_id = worker_id or f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:6]}"
@@ -107,7 +110,12 @@ class Worker:
         async def on_checkpoint(cp: Checkpoint) -> None:
             await self.store.save_checkpoint(lease, cp)
 
-        workspace = Path(self.settings.workspace_root) / str(task.id)
+        if self.sandbox is not None:
+            tools = sandbox_tools(
+                self.sandbox, task.id, self.settings.sandbox_command_timeout_seconds
+            )
+        else:  # no sandbox configured: file tools on local disk, no commands
+            tools = workspace_tools(Path(self.settings.workspace_root) / str(task.id))
         provider = self.provider_factory()
         beat = asyncio.create_task(heartbeat())
         try:
@@ -118,7 +126,7 @@ class Worker:
                     Message(role="system", content=SYSTEM_PROMPT),
                     Message(role="user", content=task.prompt),
                 ],
-                tools=ToolRegistry(workspace_tools(workspace)),
+                tools=ToolRegistry(tools),
                 limits=RunLimits(
                     max_steps=self.settings.run_max_steps,
                     max_runtime_s=self.settings.run_max_runtime_seconds,
@@ -165,17 +173,25 @@ async def main(settings: Settings | None = None) -> None:
         await make_provider(settings).aclose()
     except ApiError as e:
         raise SystemExit(e.message) from e
+    sandbox = None
+    if settings.sandbox_url:
+        timeout = settings.sandbox_command_timeout_seconds + 30
+        sandbox = SandboxClient.connect(settings.sandbox_url, timeout)
+    else:
+        log.warning("SEED_SANDBOX_URL unset: tasks get file tools only, no commands")
     pool = make_pool(settings.database_url.get_secret_value(), max_size=4)
     await pool.open(wait=True)
     try:
         await migrate(pool)
-        worker = Worker(TaskStore(pool), settings, lambda: make_provider(settings))
+        worker = Worker(TaskStore(pool), settings, lambda: make_provider(settings), sandbox=sandbox)
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(sig, worker.stop.set)
         await worker.run_forever()
     finally:
         await pool.close()
+        if sandbox is not None:
+            await sandbox.aclose()
 
 
 if __name__ == "__main__":

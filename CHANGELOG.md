@@ -2,7 +2,17 @@
 
 All notable changes. Format: Keep a Changelog; versions follow the milestones.
 
-## [Unreleased] — M3 Users, sessions and CSRF (increment 4)
+## [Unreleased] — M3 Sandbox (increment 5)
+### Added
+- `sandbox` service: runs the agent's shell commands and task file operations in a
+  container with no network, no secrets and dropped capabilities; each task as
+  its own user, with time, memory, CPU, process, file-size and output limits
+  (ADR-0010).
+- `run_command` tool for tasks; task file tools go through the sandbox.
+- CI runs the per-task user tests as root and checks the sandbox container's
+  isolation (`backend/scripts/sandbox_smoke.py`).
+
+## M3 Users, sessions and CSRF (increment 4)
 ### Added
 - Users in Postgres with argon2id passwords; the first admin is created from
   `SEED_ADMIN_PASSWORD` when no users exist (ADR-0009).

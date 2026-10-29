@@ -57,6 +57,11 @@ jobs:
           .venv/bin/ruff format --check .
           .venv/bin/mypy
           .venv/bin/pytest -q
+      - name: Sandbox per-task user tests (need root, as in the sandbox container)
+        working-directory: backend
+        env:
+          SEED_REQUIRE_ROOT_TESTS: "1"
+        run: sudo -E .venv/bin/pytest -q -p no:cacheprovider tests/test_sandbox.py
 
       - uses: actions/setup-node@v4
         with:
@@ -75,3 +80,12 @@ jobs:
         run: |
           docker build -t seed-api:ci backend
           docker build -t seed-web:ci frontend
+
+      - name: Sandbox container isolation check
+        env:
+          SEED_POSTGRES_PASSWORD: ci-unused
+        run: |
+          touch .env
+          docker compose up -d --wait sandbox
+          docker compose exec -T sandbox python - < backend/scripts/sandbox_smoke.py
+          docker compose down

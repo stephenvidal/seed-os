@@ -9,7 +9,8 @@ open http://localhost:8080
 Services: `db` (Postgres 17, data in the `pgdata` volume), `api` (FastAPI,
 healthcheck `/healthz`, non-root, read-only FS, 256 MiB limit), `worker` (same
 image, runs tasks) and `web` (nginx serving the SPA and proxying `/api`, 64 MiB
-limit). The sandbox service is added later in M3.
+limit), and `sandbox` (same image, runs the agent's commands; internal network
+only, no secrets, dropped capabilities, 768 MiB limit; ADR-0010).
 
 Put a TLS-terminating proxy (Caddy, Traefik, nginx) in front of `web` and set
 `SEED_COOKIE_SECURE=true`.
@@ -98,7 +99,8 @@ Rollback: set `SEED_TAG` in `/opt/seed/.env` to an earlier `sha-…` and run
 ## Requirements (measured)
 M1 idle: api ≈ 40 MiB, web ≈ 5 MiB RSS. M3 stack, after one task (2026-10-28,
 `docker stats`): api 47.7 MiB, db 23.3 MiB, web 4.7 MiB; the worker runs the same
-image as the api. Disk: `postgres:17-alpine` is 424 MB uncompressed, plus the
+image as the api. The sandbox adds up to 768 MiB under load (its workspaces are
+a 256 MiB tmpfs); idle it is about the size of the api. Disk: `postgres:17-alpine` is 424 MB uncompressed, plus the
 data volume (48 MB fresh). No GPU.
 
 ## Backups

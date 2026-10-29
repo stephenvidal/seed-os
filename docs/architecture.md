@@ -21,7 +21,7 @@ ratified target (Directive v1.1, ADRs in `decisions/`).
                       ▲
                     worker(s) (lease + heartbeat, run loops)   [M3: built, ADR-0008]
                       │
-                    sandbox (isolated tool execution)          [M2/M3]
+                    sandbox (commands + task files, a user per task) [M3: built, ADR-0010]
 ```
 
 Subsystem names (Core, Flow, Studio, Memory, Connect, Control) are **packages in

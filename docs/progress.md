@@ -670,3 +670,85 @@ cookies) stop working after the deploy, so everyone signs in once more.
 
 **Open questions:** roles beyond `admin`; a per-client sign-in limit (needs
 `CF-Connecting-IP` passed through nginx); audit log retention (D-005).
+
+## M3 increment 5 — Sandbox for the agent's commands (2026-10-29)
+
+**Iteration:** give task agents a shell, run only in an isolated sandbox
+(requirements: "model-generated shell never runs in the API process"; fs, net,
+CPU, memory, time bounds). The owner picked the isolation model: one locked-down
+sandbox container, not a container per command (D-006, ADR-0010). **Done when:**
+the worker's tasks can run commands and use files only through the sandbox; the
+sandbox has no network, no secrets and minimal privileges; tasks cannot reach
+each other's files or leave processes behind; limits hold; CI checks it.
+
+**Changed**
+- `seed_api/sandbox/`: `runner` (limits, user switch, cleanup of the process
+  group and every process of the task's uid), `server` (HTTP service, per-task
+  workspace 0700 owned by the task's uid), `fileops` (file tools run as the task
+  user), `client` (`run_command` + file tools for the worker), `protocol`.
+- File operations in `core/workspace_tools.py` split out so the local tools and
+  the sandbox share them.
+- Worker uses sandbox tools when `SEED_SANDBOX_URL` is set.
+- Both compose files: `sandbox` service (internal network only, no env file,
+  `cap_drop: ALL` + SETUID/SETGID/CHOWN/KILL, no-new-privileges, read-only root,
+  256 MiB tmpfs workspaces, 768 MiB / 1 CPU / 256 pids); worker joins its network.
+- CI: root-only tests under sudo; container isolation check via
+  `backend/scripts/sandbox_smoke.py`.
+- Settings page: account hint no longer says multi-user arrives later.
+- ADR-0010, D-006, README, architecture, security, deployment, roadmap, CHANGELOG.
+
+**Tested**
+```
+backend: ruff check → All checks passed! · mypy → Success: no issues found in 27 source files
+         pytest (DB + SEED_REQUIRE_ROOT_TESTS=1, as root) → 90 passed, 1 skipped
+         (the skip is the "refuses to start without root" test, which runs only as non-root)
+frontend: typecheck ok · lint ok · format ok · 25 passed
+```
+Found while testing and fixed: commands that left a background process behind
+kept the output pipes open (now the group and the uid are killed when the
+command ends); uvloop rejects `user=` (the service runs with `--loop asyncio`
+and refuses to start under uvloop); the server could not `chdir` into a task's
+0700 directory without `DAC_OVERRIDE` (it now changes directory after switching
+user, so the server keeps no way to read workspaces).
+
+Mutation checks (each made in `runner.py`/`server.py`, suite run, reverted):
+```
+no cleanup after a command    → 4 failed
+no sweep of the task's uid    → 1 failed
+no user switch                → 2 failed
+no process limit              → 1 failed
+no memory limit               → 1 failed
+no CPU limit                  → 1 failed
+no file-size limit            → 1 failed
+environment inherited         → 1 failed
+server ignores timeout cap    → 1 failed
+```
+Real container, from `compose.yaml` with a locally built image
+(`docker compose exec -T sandbox python - < backend/scripts/sandbox_smoke.py`):
+```
+ok   commands run as an unprivileged per-task user
+ok   commands have no capabilities
+ok   no network route out
+ok   no DNS resolution of outside names
+ok   file write
+ok   another task cannot read the file
+ok   workspace root cannot be listed
+ok   server's environment is unreadable
+ok   root filesystem is read-only
+ok   process count is capped
+ok   background processes end with the command
+```
+Full stack (db, api, worker, sandbox):
+```
+worker -> sandbox: 0 hi from 28773232
+api -> sandbox: unreachable URLError
+sandbox env has secrets: False
+sandbox -> db: unreachable gaierror
+```
+
+**Not tested:** a real model choosing to call `run_command` (the flow test uses
+a scripted model through the real sandbox app); the VPS deploy; the new CI steps
+themselves until this PR's run.
+
+**Open questions:** per-task disk quota; gVisor or similar before any
+multi-tenant use; which tools beyond Python and coreutils the image should carry.
