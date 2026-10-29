@@ -8,6 +8,10 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
   they now render (D-020). The per-step output cap is 16,384 tokens, up from 4,096.
 
 ### Added
+- Lasting delegation links (M7): a finished turn lists its agents' tasks under
+  "Show activity"; an agent's task page names the agent and links back to the task
+  that handed it over; a task's page lists the agent tasks it handed work to.
+  Moving between tasks no longer carries the earlier task's events over.
 - Parallel delegation (M7, D-026): the delegate calls of one step start
   together, up to `SEED_DELEGATION_MAX_PARALLEL` working at once; at most
   `SEED_DELEGATION_MAX_PER_TASK` per run, the rest refused with the reason;

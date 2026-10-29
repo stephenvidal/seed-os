@@ -12,6 +12,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { AgentTaskLinks } from "../components/tasks/AgentTaskLinks";
 import { ApprovalPrompt } from "../components/tasks/ApprovalPrompt";
 import { StateBadge } from "../components/tasks/StateBadge";
 import { Badge } from "../components/ui/Badge";
@@ -23,7 +24,14 @@ import { Panel } from "../components/ui/Panel";
 import { Spinner } from "../components/ui/Spinner";
 import { ApiError, api } from "../lib/api";
 import { PROJECTS, projectsApi } from "../lib/projects";
-import { followTask, isFinished, pendingApproval, tasksApi, toTimeline } from "../lib/tasks";
+import {
+  delegatedTasks,
+  followTask,
+  isFinished,
+  pendingApproval,
+  tasksApi,
+  toTimeline,
+} from "../lib/tasks";
 import type { Task, TaskEvent, TimelineItem } from "../lib/tasks";
 
 const when = (iso: string) =>
@@ -294,7 +302,14 @@ function Timeline({ items, live }: { items: TimelineItem[]; live: boolean }) {
   );
 }
 
+/** One task's page. Keyed by id: moving between tasks (a link to an agent's task or
+ * back to its parent) must not carry the earlier task's events over. */
 export function TaskDetailPage() {
+  const { id = "" } = useParams();
+  return <TaskDetail key={id} />;
+}
+
+function TaskDetail() {
   const { id = "" } = useParams();
   const qc = useQueryClient();
   const task = useQuery({ queryKey: ["task", id], queryFn: () => tasksApi.get(id), retry: false });
@@ -303,6 +318,13 @@ export function TaskDetailPage() {
     queryFn: projectsApi.list,
     retry: false,
     enabled: Boolean(task.data?.project_id),
+  });
+  const parentId = task.data?.parent_task_id ?? null;
+  const parent = useQuery({
+    queryKey: ["task", parentId],
+    queryFn: () => tasksApi.get(parentId ?? ""),
+    retry: false,
+    enabled: parentId !== null,
   });
   const [events, setEvents] = useState<TaskEvent[]>([]);
   const lastSeq = useRef(0);
@@ -366,6 +388,7 @@ export function TaskDetailPage() {
   const t = task.data;
   const timeline = toTimeline(events);
   const asking = pendingApproval(events);
+  const agents = delegatedTasks(events);
   return (
     <>
       <Link
@@ -426,6 +449,11 @@ export function TaskDetailPage() {
               </p>
             </Panel>
           )}
+          {agents.length > 0 && (
+            <Panel title="Handed to agents">
+              <AgentTaskLinks agents={agents} className="px-4 py-3" />
+            </Panel>
+          )}
           <Panel title="Timeline" action={live ? <Badge tone="accent">live</Badge> : undefined}>
             <Timeline items={timeline} live={live} />
           </Panel>
@@ -446,6 +474,22 @@ export function TaskDetailPage() {
                 <dd className="truncate">
                   <Link to={`/projects/${t.project_id}`} className="text-accent hover:underline">
                     {projects.data?.find((p) => p.id === t.project_id)?.name ?? "Open project"}
+                  </Link>
+                </dd>
+              </>
+            )}
+            {t.agent && (
+              <>
+                <dt className="text-fg-muted">Agent</dt>
+                <dd className="truncate text-fg">{t.agent.name}</dd>
+              </>
+            )}
+            {parentId && (
+              <>
+                <dt className="text-fg-muted">Handed over by</dt>
+                <dd className="truncate">
+                  <Link to={`/tasks/${parentId}`} className="text-accent hover:underline">
+                    {parent.data?.title ?? "the task that delegated it"}
                   </Link>
                 </dd>
               </>

@@ -1957,3 +1957,46 @@ answer: Researcher (started 21:39:13, finished 21:39:19) / Coder (21:39:15–21:
 All three overlap. Full backend suite: 177 passed, 1 skipped; mypy and format clean.
 
 **Not tested:** the live site after deploy (the coordinator re-checks it).
+
+## Increment 23 — Lasting delegation links (M7 step 4a)
+
+**Iteration:** M7 step 4a, asked for by the live check of #30. **Done when:** after a
+run ends, the chat and the task page still link to each agent's task and say how
+it ended, and an agent's task links back to the task that handed it over — each
+shown by a test that fails when it breaks, and in a browser.
+
+**Changed (frontend only; the API already carries `parent_task_id`, `agent` and the
+`delegated` and `delegation_finished` events)**
+- `delegatedTasks(events)`: every agent task handed work to and its end state.
+- `AgentTaskLinks`, used under a finished turn's "Show activity" and in a "Handed to
+  agents" panel on the task page.
+- Task page: "Agent" and "Handed over by" (the parent's title, linking to it).
+- Fix found by the browser run: the task page kept the earlier task's events when
+  moving to another task, so following a link from an agent's task to its parent
+  showed no delegations. The page is now keyed by task id.
+
+**Tested**
+```
+frontend: typecheck ok · lint ok · format ok · vitest → Test Files 14 passed (14), Tests 108 passed (108)
+```
+Breakage checks, frontend 10/10 caught: state never set; state set on every agent;
+the activity list hidden when only agents ran; links not rendered; agents panel,
+parent link, parent target, and agent row removed; end state always "reported
+back"; link target wrong. The new "starts afresh" test fails (1 failed) with the
+key removed and passes with it.
+
+Browser (Chromium), real API, workers and Postgres, stub agents; after a reload
+of a finished turn:
+```
+chat links after the run: Researcher's task | reported back | Coder's task | reported back | Reviewer's task | reported back
+back link: team look over the release plan /tasks/b85bc4c9-…
+parent panel: Researcher's task | reported back | Coder's task | reported back | Reviewer's task | reported back
+overflow at 390: 0
+errors: the 401 from the sign-in check before login
+```
+The first run failed at the parent panel: that was the stale-events bug above.
+
+**Not tested:** the live site; links for agents of agents (depth above 1; the
+panel lists a task's own children only).
+
+**Open questions:** none new. 4b (Inspector) and 4c (Command Center) remain.

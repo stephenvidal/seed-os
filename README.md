@@ -46,7 +46,7 @@ it — with full visibility and control.
   to their task) and carries on with the agent's report when that task ends,
   however it ends. Canceling SEED's turn cancels its agents' tasks. Several
   agents asked for in one step work at once, up to a limit (D-026); agents do
-  not delegate further unless `SEED_DELEGATION_MAX_DEPTH` allows it.
+  not delegate further unless `SEED_DELEGATION_MAX_DEPTH` allows it. After the run, "Show activity" under a turn lists links to each agent's task and how it ended; an agent's task page names its agent and links back to the task that handed it over, and a task's page lists the agent tasks it handed work to.
 - **Projects (M6):** group chats under a name with instructions SEED follows in
   every one of them (D-017). A project's page edits its name and instructions and
   lists its chats and the files they saved; "New chat" starts one in the project,

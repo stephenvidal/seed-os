@@ -376,3 +376,27 @@ export function pendingDelegations(
   }
   return open;
 }
+
+export type DelegatedTask = {
+  id: string;
+  agent: string;
+  taskId: string;
+  /** The agent task's end state, once it has reported back; unset while it works. */
+  state?: TaskState;
+};
+
+/**
+ * Every agent task a task handed work to, read from its events, in the order they
+ * started. Unlike pendingDelegations this lasts after the task ends (D-026).
+ */
+export function delegatedTasks(events: TaskEvent[]): DelegatedTask[] {
+  const all: DelegatedTask[] = [];
+  for (const e of events) {
+    const d = e.data;
+    if (e.type === "delegated")
+      all.push({ id: String(d.id), agent: String(d.agent), taskId: String(d.task_id) });
+    else if (e.type === "delegation_finished")
+      for (const a of all) if (a.id === String(d.id)) a.state = d.state as TaskState;
+  }
+  return all;
+}
