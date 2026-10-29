@@ -51,6 +51,14 @@ it — with full visibility and control.
   agent has a `search_knowledge` tool that returns the five best matching passages
   (Postgres full-text search, English stemming; "quoted phrases" and -excluded
   words work). Documents are split into passages of up to 1,500 characters.
+- **Session summaries (M6):** a chat message carries the last 20 answered turns
+  in full (`SEED_CHAT_CONTEXT_TURNS`); the turns before them reach the model as a
+  summary of up to 250 words instead of being dropped (D-022). The worker makes it
+  with the turn's model just before the run, rolling the previous summary forward,
+  and stores it, so a new version of a message reuses it. Its tokens count toward
+  that turn. The chat shows "The model now sees the messages above as a summary"
+  where the cut is, with the summary inside. If summarizing fails the turn still
+  runs, without it, and the timeline says so.
 - **Approvals (M4):** before the agent runs a shell command, the task stops as
   "needs you" and Chat and the task page show the exact command with Approve and
   Deny. The run carries on from where it stopped; a denied command is reported
@@ -127,8 +135,8 @@ it — with full visibility and control.
 | POST | `/api/v1/artifacts/{id}/preview` | admin | 201 `{url, expires_in}`: a link, valid 1 h, that serves the latest saved files of the file's workspace; 410 `deleted` |
 | GET | `/api/v1/previews/{token}/{path}` | link | A previewed file, sandboxed (scripts run; no same-origin access, no network); 404 for an unknown path or an expired link |
 | GET | `/api/v1/tasks` | admin | Newest first; `?state=queued\|running\|waiting\|completed\|failed\|canceled`, `?limit=1..100` |
-| GET | `/api/v1/tasks/{id}` | admin | Task: state, attempt, termination, error, result, usage, `last_seq`, `resumable_from_step`, `awaiting_approval` (`{id, name, arguments}` while `waiting`), and for a chat turn `conversation_id` and `turn`; 404 `not_found` |
-| GET | `/api/v1/tasks/{id}/events` | admin | `{events[], last_seq, state}`; `?after=<seq>&limit=` for incremental reads. Events: `task_created`, `attempt_started`, run events, `checkpoint_saved` (`{steps, pending}`), `artifacts_saved` (`{saved[{path, version, deleted}], skipped[{path, reason}], truncated}`), `workspace_restored` (`{files}`), `artifacts_failed` (`{stage, error}`), `cancel_requested`, `task_requeued`, `task_released`, `lease_expired` |
+| GET | `/api/v1/tasks/{id}` | admin | Task: state, attempt, termination, error, result, usage, `last_seq`, `resumable_from_step`, `awaiting_approval` (`{id, name, arguments}` while `waiting`), and for a chat turn `conversation_id`, `turn`, `summary_of` (the newest earlier turn its model saw only in summary) and `summary` (the summary of the chat through this turn, once made); 404 `not_found` |
+| GET | `/api/v1/tasks/{id}/events` | admin | `{events[], last_seq, state}`; `?after=<seq>&limit=` for incremental reads. Events: `task_created`, `attempt_started`, run events, `checkpoint_saved` (`{steps, pending}`), `artifacts_saved` (`{saved[{path, version, deleted}], skipped[{path, reason}], truncated}`), `workspace_restored` (`{files}`), `artifacts_failed` (`{stage, error}`), `context_summarized` (`{through, turns, usage}`), `summary_failed` (`{error}`), `cancel_requested`, `task_requeued`, `task_released`, `lease_expired` |
 | GET | `/api/v1/tasks/{id}/stream` | admin | `text/event-stream`: each stored event as `id: <seq>` + JSON data, then `event: end` once the task is finished. Resumes after `Last-Event-ID` (or `?after=`); 404 `not_found` |
 | POST | `/api/v1/tasks/{id}/cancel` | admin | Queued or waiting → `canceled` at once; running → stops at the worker's next heartbeat; 409 `not_cancelable` |
 | POST | `/api/v1/tasks/{id}/decision` | admin | `{call_id, approve}` for the call in the task's `awaiting_approval` → task `queued` to resume; event `approval_decided`; audited as `tool_approved`/`tool_denied` with the tool and its arguments; 409 `not_waiting` |
@@ -184,7 +192,7 @@ docker compose exec api python -m seed_api.users list    # in the compose stack
 | `SEED_DEFAULT_MODEL` | unset | Model preselected in Chat |
 | `SEED_PROVIDER_TIMEOUT_SECONDS` | `120` | Per-request provider timeout |
 | `SEED_RUN_MAX_STEPS` / `SEED_RUN_MAX_RUNTIME_SECONDS` / `SEED_RUN_MAX_TOTAL_TOKENS` | `8` / `300` / `200000` | Per-run limits (each task attempt, chat turns included). The last allowed step gets no tools and is told to answer with what it has |
-| `SEED_CHAT_CONTEXT_TURNS` | `20` | How many earlier completed turns a new chat message carries |
+| `SEED_CHAT_CONTEXT_TURNS` | `20` | How many earlier completed turns a new chat message carries in full; older ones reach the model as a summary (D-022) |
 | `SEED_APPROVAL_REQUIRED_TOOLS` | `["run_command"]` | JSON list of tools that wait for a person's approval before each call; `[]` turns approvals off |
 | `SEED_WORKSPACE_ROOT` | `/tmp/seed-workspaces` | Worker without a sandbox: workspace dirs (one per task, or per conversation for chat); scratch space, kept as artifacts when `SEED_ARTIFACT_ROOT` is set |
 | `SEED_ARTIFACT_ROOT` | unset | Where saved task files live (compose: the `artifacts` volume; the worker writes it, the API reads it). Unset on the worker: files are not saved; on the API: Studio lists files but cannot show them (ADR-0014) |

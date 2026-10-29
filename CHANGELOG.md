@@ -8,6 +8,10 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
   they now render (D-020). The per-step output cap is 16,384 tokens, up from 4,096.
 
 ### Added
+- Session summaries (M6, D-022): completed turns older than the chat context
+  window reach the model as a rolling summary instead of being dropped; the chat
+  marks where the summary starts. `summary_of` and `summary` on tasks, events
+  `context_summarized` and `summary_failed`; migration 0011.
 - Project knowledge (M6, D-021): text documents on a project's page, split into
   passages and indexed with Postgres full-text search; the `search_knowledge` tool
   in the project's turns. API `/api/v1/projects/{id}/documents`, `documents` on
