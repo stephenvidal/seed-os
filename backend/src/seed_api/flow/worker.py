@@ -26,6 +26,7 @@ from ..core.tools import ToolFailure, ToolRegistry
 from ..core.workspace_tools import workspace_tools
 from ..errors import ApiError
 from ..models import make_provider, system_prompt
+from ..projects.knowledge import KnowledgeStore, knowledge_tool
 from ..projects.memory import MemoryStore, remember_tool
 from ..sandbox.client import SandboxClient, sandbox_tools
 from ..studio.capture import restore, save_changes
@@ -136,6 +137,9 @@ class Worker:
                     task_id=task.id,
                     conversation_id=task.conversation_id,
                 )
+            )
+            tools.append(
+                knowledge_tool(KnowledgeStore(self.store.pool), project_id=task.project_id)
             )
         gated = set(self.settings.approval_required_tools)
         tools = [
