@@ -1,22 +1,5 @@
-import { Bot, Cpu, Wrench } from "lucide-react";
+import { Cpu, Wrench } from "lucide-react";
 import { PlannedPage } from "./Planned";
-
-export const AgentsPage = () => (
-  <PlannedPage
-    title="Agents"
-    description="The orchestrator and the specialists it delegates to."
-    icon={Bot}
-    emptyTitle="No agents defined"
-    emptyBody="Agent definitions are configurable, not a fixed workforce. Each specialist runs in its own execution context with explicit inputs, outputs, and completion criteria."
-    milestone="M7 · Multi-agent orchestration"
-    scope={[
-      "Roles, model assignments, and tool permissions",
-      "Availability and current workload",
-      "Delegation relationships and history",
-      "Performance metrics",
-    ]}
-  />
-);
 
 export const ModelsPage = () => (
   <PlannedPage
