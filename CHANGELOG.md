@@ -14,6 +14,11 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
   /api/v1/conversations/{id}`, `GET /api/v1/conversations?q=`, a search box in
   the conversation list and rename/delete in the conversation header (D-010).
   Audit actions `conversation_renamed`/`conversation_deleted`.
+- Message versions (ADR-0013): `POST /api/v1/conversations/{id}/turns/{turn_id}/versions`
+  edits or regenerates any message as a new version, keeping the old ones;
+  `PUT /api/v1/conversations/{id}/shown` switches versions; turns carry `versions`.
+  Migration 0005 (`tasks.parent_id`, `conversations.head_id`). In Chat: Edit
+  under each message, Regenerate under each answer, and version arrows.
 ### Changed
 - A waiting task cancels at once; a chat turn waiting for approval blocks the
   next message like any unfinished turn.

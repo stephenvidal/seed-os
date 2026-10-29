@@ -4,12 +4,14 @@ import {
   ArrowLeft,
   ArrowUp,
   CheckCircle2,
+  ChevronLeft,
   ChevronRight,
   Cpu,
   ListChecks,
   MessageSquare,
   Pencil,
   Plus,
+  RefreshCw,
   RotateCcw,
   Search,
   Square,
@@ -30,7 +32,7 @@ import { Spinner } from "../components/ui/Spinner";
 import { cn } from "../components/ui/cn";
 import { ApiError, api } from "../lib/api";
 import { chatApi } from "../lib/chat";
-import type { Conversation, ConversationDetail } from "../lib/chat";
+import type { Conversation, ConversationDetail, Turn } from "../lib/chat";
 import { followTask, isFinished, pendingApproval, tasksApi, toTimeline } from "../lib/tasks";
 import type { Task, TaskEvent, TimelineItem, ToolActivity } from "../lib/tasks";
 
@@ -178,26 +180,129 @@ function PastActivity({ task }: { task: Task }) {
   );
 }
 
+function Versions({
+  turn,
+  locked,
+  onShow,
+}: {
+  turn: Turn;
+  locked: boolean;
+  onShow: (id: string) => void;
+}) {
+  const at = turn.versions.indexOf(turn.id);
+  if (turn.versions.length < 2 || at < 0) return null;
+  const prev = turn.versions[at - 1];
+  const next = turn.versions[at + 1];
+  return (
+    <span className="flex items-center gap-0.5 text-xs text-fg-muted">
+      <button
+        type="button"
+        aria-label="Previous version"
+        disabled={locked || prev === undefined}
+        onClick={() => prev && onShow(prev)}
+        className="rounded p-0.5 hover:text-fg disabled:opacity-40"
+      >
+        <ChevronLeft size={14} aria-hidden />
+      </button>
+      <span className="tabular-nums" aria-label={`Version ${at + 1} of ${turn.versions.length}`}>
+        {at + 1} / {turn.versions.length}
+      </span>
+      <button
+        type="button"
+        aria-label="Next version"
+        disabled={locked || next === undefined}
+        onClick={() => next && onShow(next)}
+        className="rounded p-0.5 hover:text-fg disabled:opacity-40"
+      >
+        <ChevronRight size={14} aria-hidden />
+      </button>
+    </span>
+  );
+}
+
 function TurnView({
-  task,
+  turn: task,
   last,
+  locked,
   onEnd,
   onRetry,
-  retrying,
+  onVersion,
+  onShow,
 }: {
-  task: Task;
+  turn: Turn;
   last: boolean;
+  /** Something is being answered or changed: no new versions or switching. */
+  locked: boolean;
   onEnd: () => void;
   onRetry: () => void;
-  retrying: boolean;
+  /** A new version of this message: edited with `prompt`, asked again without. */
+  onVersion: (prompt?: string) => Promise<unknown>;
+  onShow: (id: string) => void;
 }) {
   const finished = isFinished(task.state);
   const tokens = task.usage.input_tokens + task.usage.output_tokens;
+  const [draft, setDraft] = useState<string | null>(null);
+
+  async function sendEdit(e: FormEvent) {
+    e.preventDefault();
+    if (draft === null || !draft.trim()) return;
+    if (draft === task.prompt) return setDraft(null);
+    try {
+      await onVersion(draft);
+      setDraft(null);
+    } catch {
+      // The conversation's error line says why; the draft stays for another try.
+    }
+  }
+
   return (
     <div className="flex flex-col gap-3">
-      <div className="ml-auto max-w-[80%] rounded-panel bg-surface-3 px-3.5 py-2.5 text-sm whitespace-pre-wrap break-words text-fg">
-        {task.prompt}
-      </div>
+      {draft !== null ? (
+        <form onSubmit={sendEdit} className="ml-auto flex w-full max-w-[80%] flex-col gap-2">
+          <textarea
+            aria-label="Edit message"
+            value={draft}
+            maxLength={20_000}
+            rows={3}
+            autoFocus
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setDraft(null);
+            }}
+            className="w-full resize-y rounded-panel border border-border bg-surface-1 px-3.5 py-2.5 text-sm text-fg outline-none focus:border-accent"
+          />
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <span className="mr-auto text-2xs text-fg-subtle">
+              Sent as a new version; this one is kept.
+            </span>
+            <Button size="sm" variant="ghost" onClick={() => setDraft(null)}>
+              Cancel
+            </Button>
+            <Button type="submit" size="sm" variant="primary" disabled={locked || !draft.trim()}>
+              Send edit
+            </Button>
+          </div>
+        </form>
+      ) : (
+        <div className="ml-auto flex max-w-[80%] flex-col items-end gap-1">
+          <div className="rounded-panel bg-surface-3 px-3.5 py-2.5 text-sm whitespace-pre-wrap break-words text-fg">
+            {task.prompt}
+          </div>
+          <div className="flex items-center gap-2">
+            <Versions turn={task} locked={locked} onShow={onShow} />
+            {finished && (
+              <button
+                type="button"
+                onClick={() => setDraft(task.prompt)}
+                disabled={locked}
+                className="flex items-center gap-1 text-xs text-fg-muted hover:text-fg disabled:opacity-40"
+              >
+                <Pencil size={12} aria-hidden /> Edit
+              </button>
+            )}
+          </div>
+        </div>
+      )}
       {!finished ? (
         <LiveReply task={task} onEnd={onEnd} />
       ) : (
@@ -225,10 +330,20 @@ function TurnView({
               <button
                 type="button"
                 onClick={onRetry}
-                disabled={retrying}
+                disabled={locked}
                 className="flex items-center gap-1 font-sans text-xs text-fg-muted hover:text-fg"
               >
                 <RotateCcw size={12} aria-hidden /> Try again
+              </button>
+            )}
+            {task.state === "completed" && (
+              <button
+                type="button"
+                onClick={() => void onVersion().catch(() => undefined)}
+                disabled={locked}
+                className="flex items-center gap-1 font-sans text-xs text-fg-muted hover:text-fg disabled:opacity-40"
+              >
+                <RefreshCw size={12} aria-hidden /> Regenerate
               </button>
             )}
           </div>
@@ -543,7 +658,7 @@ function ConversationView({ id }: { id: string }) {
       ),
     onSuccess: (task) => {
       qc.setQueryData<ConversationDetail>(conversationKey(id), (d) =>
-        d ? { ...d, turns: [...d.turns, task] } : d,
+        d ? { ...d, turns: [...d.turns, { ...task, versions: [task.id] }] } : d,
       );
       refresh();
     },
@@ -553,6 +668,33 @@ function ConversationView({ id }: { id: string }) {
       action === "cancel" ? tasksApi.cancel(task.id) : tasksApi.retry(task.id),
     onSettled: refresh,
   });
+  const version = useMutation({
+    mutationFn: ({ turn, prompt }: { turn: Turn; prompt?: string }) =>
+      chatApi.addVersion(
+        id,
+        turn.id,
+        {
+          ...(prompt !== undefined && { prompt }),
+          ...(current !== detail.data?.conversation.model && { model: current }),
+        },
+        crypto.randomUUID(),
+      ),
+    // Stays pending until the conversation is refetched with the new version as
+    // the shown path's end, so nothing else can be sent in between.
+    onSuccess: () =>
+      Promise.all([
+        qc.invalidateQueries({ queryKey: conversationKey(id) }),
+        qc.invalidateQueries({ queryKey: CONVERSATIONS }),
+      ]),
+  });
+  const show = useMutation({
+    mutationFn: (turnId: string) => chatApi.show(id, turnId),
+    onSuccess: (d) => {
+      qc.setQueryData(conversationKey(id), d);
+      void qc.invalidateQueries({ queryKey: CONVERSATIONS });
+    },
+  });
+  const locked = answering || act.isPending || version.isPending || show.isPending;
 
   // Braces matter: Chromium's scrollIntoView returns a Promise, and an effect that
   // returns a non-function crashes React on cleanup.
@@ -579,7 +721,7 @@ function ConversationView({ id }: { id: string }) {
       </div>
     );
 
-  const failure = send.error ?? act.error;
+  const failure = send.error ?? act.error ?? version.error ?? show.error;
   return (
     <>
       <ConversationHeader
@@ -592,11 +734,13 @@ function ConversationView({ id }: { id: string }) {
           {turns.map((t, i) => (
             <TurnView
               key={t.id}
-              task={t}
+              turn={t}
               last={i === turns.length - 1}
+              locked={locked}
               onEnd={refresh}
               onRetry={() => act.mutate({ task: t, action: "retry" })}
-              retrying={act.isPending}
+              onVersion={(prompt) => version.mutateAsync({ turn: t, prompt })}
+              onShow={(turnId) => show.mutate(turnId)}
             />
           ))}
           <div ref={endRef} />
