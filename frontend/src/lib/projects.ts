@@ -12,7 +12,24 @@ export type Project = {
   conversations: number;
   /** Memory notes the agent proposed that wait for the owner. */
   proposed_memories: number;
+  documents: number;
 };
+
+/** A text document the agent can search in the project's chats. */
+export type KnowledgeDocument = {
+  id: string;
+  project_id: string;
+  name: string;
+  chars: number;
+  /** Passages it was split into for search. */
+  chunks: number;
+  created_by: string;
+  created_at: string;
+};
+
+export const MAX_DOCUMENT_CHARS = 256 * 1024;
+export const DOCUMENT_TYPES = [".md", ".markdown", ".txt", ".csv", ".json"];
+export const documentsKey = (projectId: string) => ["documents", projectId] as const;
 
 export type Memory = {
   id: string;
@@ -61,4 +78,19 @@ export const memoryApi = {
   /** Deletes a note, or rejects a proposal. */
   remove: (projectId: string, id: string) =>
     request<void>(`${notes(projectId)}/${id}`, { method: "DELETE" }),
+};
+
+const docs = (projectId: string) => `/api/v1/projects/${projectId}/documents`;
+
+/** Project knowledge: text documents, by name. */
+export const knowledgeApi = {
+  list: (projectId: string) => request<KnowledgeDocument[]>(docs(projectId)),
+  /** 409 name_taken when the project has a document by that name. */
+  add: (projectId: string, name: string, content: string) =>
+    request<KnowledgeDocument>(docs(projectId), {
+      method: "POST",
+      body: JSON.stringify({ name, content }),
+    }),
+  remove: (projectId: string, id: string) =>
+    request<void>(`${docs(projectId)}/${id}`, { method: "DELETE" }),
 };

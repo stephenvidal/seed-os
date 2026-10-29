@@ -1546,3 +1546,62 @@ Mutation check: HTML_START narrowed to doctype/html only → fragment tests fail
 the two answers' text was not available to me); a real browser.
 
 **Open questions:** none.
+
+## 2026-10-29 — Increment 16: M6 step 3, project knowledge
+
+**Iteration:** M6 step 3. Definition of done: the owner adds text documents to a
+project and deletes them on its page; in that project's chats (and only there) the
+agent can search them and gets the best matching passages with their document
+name; another project's or another owner's documents are never reachable.
+
+**Changed**
+- Migration `0010_knowledge` (`knowledge_documents`, `knowledge_chunks` with a
+  generated `tsvector` and GIN index); `projects/knowledge.py` (chunking, store,
+  `search_knowledge` tool); endpoints under `/api/v1/projects/{id}/documents`;
+  `documents` count on projects; the worker offers the tool in project turns.
+- nginx: `client_max_body_size 2m` on `/api/` (the default 1 MiB could refuse a
+  256 KiB document once JSON-escaped).
+- Web: Knowledge panel on the project page (add several files, list, delete).
+- D-021 (D-019 and D-020 were taken by another thread meanwhile), README,
+  CHANGELOG, roadmap, requirements WS-5.
+
+**Tested**
+```
+backend: ruff check → All checks passed! · ruff format --check → 62 files already formatted
+         mypy → Success: no issues found in 42 source files
+         pytest (DB) → 151 passed, 1 skipped (test_sandbox.py:208: checks the non-root refusal)
+frontend: typecheck ok · lint ok · format ok · vitest → Test Files 13 passed (13), Tests 91 passed (91)
+nginx -t (nginx:1.27-alpine, committed config) → syntax is ok, test is successful
+```
+Mutation checks (each made, tests run, reverted), backend 15/15 caught (the first
+run had two survivors: ranking, because the test query matched one passage only,
+and hard cuts, because the test's words divided the chunk size exactly; both tests
+were tightened):
+```
+search crosses projects                    → CAUGHT   results not ranked                    → CAUGHT
+long paragraphs not split                  → CAUGHT   chunks packed past the size           → CAUGHT
+long words not cut on spaces               → CAUGHT   add reaches another owner's project   → CAUGHT
+delete ignores the owner                   → CAUGHT   list ignores the owner                → CAUGHT
+tool missing from project turns            → CAUGHT   any file type accepted                → CAUGHT
+NUL bytes accepted                         → CAUGHT   paths accepted as names               → CAUGHT
+no stemming                                → CAUGHT   chunks outlive their document         → CAUGHT
+documents count missing                    → CAUGHT
+```
+Frontend 6/6 caught: size check skipped; content altered before upload; upload
+errors hidden; wrong document deleted; passage count missing; content not sent.
+
+Browser (Chromium) on the Vite dev server with the real API, worker and Postgres,
+and an Ollama-wire stub that calls `search_knowledge` on "search …" and repeats the
+result:
+```
+documents: guide.md | 107 characters · 1 passage
+in project: Found: {"results": [{"document": "guide.md", "part": 1, "text": "# Garden guide\n\nTomatoes need full sun and deep watering twice a week.\n\nBasil grows well next to tomatoes."}]}
+outside project: No search tool. tools: list_files,read_file,write_file
+overflow at 390: 0
+errors: the 401 from the sign-in check before login
+```
+
+**Not tested:** a real model choosing to search; an upload through the deployed
+nginx (config checked with `nginx -t` only); Firefox and Safari.
+
+**Open questions:** none new. Session summaries are next.

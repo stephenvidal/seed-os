@@ -24,6 +24,7 @@ const project = (over: Record<string, unknown> = {}) => ({
   updated_at: "2026-10-29T10:00:00Z",
   conversations: 1,
   proposed_memories: 0,
+  documents: 0,
   ...over,
 });
 
@@ -87,6 +88,7 @@ const PROJECT_ROUTES = {
   },
   "GET /api/v1/artifacts?limit=500&project_id=p1": { status: 200, body: [file] },
   "GET /api/v1/projects/p1/memories": { status: 200, body: [] },
+  "GET /api/v1/projects/p1/documents": { status: 200, body: [] },
 };
 
 const note = (over: Record<string, unknown> = {}) => ({
@@ -121,6 +123,7 @@ describe("Projects", () => {
       "GET /api/v1/projects/p2": () => ({ status: 200, body: list[0] }),
       "GET /api/v1/conversations?limit=200&project_id=p2": { status: 200, body: [] },
       "GET /api/v1/projects/p2/memories": { status: 200, body: [] },
+      "GET /api/v1/projects/p2/documents": { status: 200, body: [] },
       "GET /api/v1/artifacts?limit=500&project_id=p2": { status: 200, body: [] },
     });
     const user = userEvent.setup();
@@ -350,6 +353,74 @@ describe("Projects", () => {
     await user.click(within(waiting).getByRole("button", { name: "Reject" }));
     expect(await screen.findByText("Nothing remembered yet.")).toBeInTheDocument();
     expect(spy.mock.calls.some((c) => c[1]?.method === "PATCH")).toBe(false);
+  });
+
+  it("adds text documents to the project's knowledge and deletes them", async () => {
+    const doc = (id: string, name: string, chars: number, chunks: number) => ({
+      id,
+      project_id: "p1",
+      name,
+      chars,
+      chunks,
+      created_by: "admin",
+      created_at: "2026-10-29T10:00:00Z",
+    });
+    let docs = [doc("d1", "guide.md", 12345, 9)];
+    const spy = mockApi({
+      ...PROJECT_ROUTES,
+      "GET /api/v1/projects/p1": { status: 200, body: project({ documents: 1 }) },
+      "GET /api/v1/projects": { status: 200, body: [project()] },
+      "GET /api/v1/projects/p1/documents": () => ({ status: 200, body: docs }),
+      "POST /api/v1/projects/p1/documents": () => {
+        const body = JSON.parse(
+          String(spy.mock.calls.filter((c) => c[1]?.method === "POST").at(-1)?.[1]?.body),
+        ) as { name: string; content: string };
+        if (body.name === "guide.md")
+          return {
+            status: 409,
+            body: {
+              error: {
+                code: "name_taken",
+                message: "This project already has a document with that name.",
+              },
+            },
+          };
+        docs = [...docs, doc("d2", body.name, body.content.length, 1)];
+        return { status: 201, body: docs.at(-1) };
+      },
+      "DELETE /api/v1/projects/p1/documents/d1": () => {
+        docs = docs.filter((d) => d.id !== "d1");
+        return { status: 204 };
+      },
+    });
+    const user = userEvent.setup();
+    const { container } = renderApp(<App />, "/projects/p1");
+    const list = await screen.findByRole("list", { name: "Documents" });
+    expect(list).toHaveTextContent("guide.md");
+    expect(list).toHaveTextContent("12,345 characters · 9 passages");
+    expect(await axe(container)).toHaveNoViolations();
+
+    const input = screen.getByLabelText("Add documents");
+    await user.upload(input, new File(["Water twice a week."], "care.txt", { type: "text/plain" }));
+    expect(await within(list).findByText("care.txt")).toBeInTheDocument();
+    expect(sent(spy, "POST", "/api/v1/projects/p1/documents")).toEqual({
+      name: "care.txt",
+      content: "Water twice a week.",
+    });
+
+    await user.upload(input, new File(["again"], "guide.md", { type: "text/markdown" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "This project already has a document with that name.",
+    );
+
+    const posts = () => spy.mock.calls.filter((c) => c[1]?.method === "POST").length;
+    const before = posts();
+    await user.upload(input, new File(["x".repeat(256 * 1024 + 1)], "huge.txt"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("huge.txt is too long");
+    expect(posts()).toBe(before); // never sent
+
+    await user.click(within(list).getByRole("button", { name: "Delete guide.md" }));
+    await waitFor(() => expect(list).not.toHaveTextContent("guide.md"));
   });
 });
 
