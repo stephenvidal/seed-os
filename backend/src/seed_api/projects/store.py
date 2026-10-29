@@ -24,13 +24,17 @@ class ProjectSummary(Project):
     # Memory notes the agent proposed that wait for the owner.
     proposed_memories: int
     documents: int
+    # Tasks started in the project outside a chat (D-023).
+    tasks: int
 
 
 _SUMMARY = """
 SELECT p.*, (SELECT count(*) FROM conversations c WHERE c.project_id = p.id) AS conversations,
        (SELECT count(*) FROM project_memories m
         WHERE m.project_id = p.id AND m.status = 'proposed') AS proposed_memories,
-       (SELECT count(*) FROM knowledge_documents d WHERE d.project_id = p.id) AS documents
+       (SELECT count(*) FROM knowledge_documents d WHERE d.project_id = p.id) AS documents,
+       (SELECT count(*) FROM tasks t
+        WHERE t.project_id = p.id AND t.conversation_id IS NULL) AS tasks
 FROM projects p
 """
 
@@ -43,7 +47,8 @@ class ProjectStore:
         async with self.pool.connection() as conn:
             cur = await conn.execute(
                 "INSERT INTO projects (id, owner, name, instructions) VALUES (%s, %s, %s, %s) "
-                "RETURNING *, 0 AS conversations, 0 AS proposed_memories, 0 AS documents",
+                "RETURNING *, 0 AS conversations, 0 AS proposed_memories, 0 AS documents, "
+                "0 AS tasks",
                 (uuid.uuid4(), owner, name, instructions),
             )
             row = await cur.fetchone()
@@ -89,8 +94,9 @@ class ProjectStore:
         return await self.get(owner, project_id)
 
     async def delete(self, project_id: uuid.UUID, *, owner: str) -> int | None:
-        """Delete a project. Its conversations stay and leave the project; returns
-        how many there were, or None when there is no such project."""
+        """Delete a project. Its conversations and its tasks started outside a chat
+        stay and leave the project; returns how many conversations there were, or
+        None when there is no such project."""
         async with self.pool.connection() as conn, conn.transaction():
             cur = await conn.execute(
                 "SELECT count(*) AS n FROM conversations WHERE project_id = %s", (project_id,)
@@ -102,4 +108,9 @@ class ProjectStore:
             )
             if await cur.fetchone() is None:
                 return None
+            await conn.execute(
+                "UPDATE tasks SET project_id = NULL "
+                "WHERE project_id = %s AND conversation_id IS NULL",
+                (project_id,),
+            )
         return int(counted["n"]) if counted else 0

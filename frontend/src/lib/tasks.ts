@@ -28,6 +28,8 @@ export type Task = {
   /** Set when the task is a chat turn. */
   conversation_id: string | null;
   turn: number | null;
+  /** The project the task ran in, if any. */
+  project_id: string | null;
   /** The newest earlier turn the model saw only in summary (chat turns). */
   summary_of: string | null;
   /** The summary of the chat through this turn, once a later turn needed it. */
@@ -49,8 +51,11 @@ export const isFinished = (s: TaskState) => s === "completed" || s === "failed" 
 export const tasksApi = {
   list: () => request<Task[]>("/api/v1/tasks?limit=100"),
   get: (id: string) => request<Task>(`/api/v1/tasks/${id}`),
+  /** A project's tasks started outside a chat, newest first. */
+  inProject: (projectId: string) =>
+    request<Task[]>(`/api/v1/tasks?limit=100&project_id=${encodeURIComponent(projectId)}`),
   /** The key makes a double-submitted form create one task, not two. */
-  create: (body: { model: string; prompt: string }, idempotencyKey: string) =>
+  create: (body: { model: string; prompt: string; project_id?: string }, idempotencyKey: string) =>
     request<Task>("/api/v1/tasks", {
       method: "POST",
       body: JSON.stringify(body),

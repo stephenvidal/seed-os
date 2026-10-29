@@ -1697,3 +1697,52 @@ checkpoint (the code skips summarizing then; no test drives it); Firefox and
 Safari.
 
 **Open questions:** none new. M6 has lone tasks in projects left.
+
+## Increment 18 — Tasks in projects (M6 step 5)
+
+**Iteration:** M6 step 5, lone tasks in projects. **Done when:** a task created
+from the Tasks page can name a project, copies its instructions and memory, gets
+its memory and knowledge tools, is listed on the project page, links back to the
+project, and leaves the project when it is deleted — each shown by a test that
+fails when the behavior breaks, and in a browser.
+
+**Changed**
+- `POST /api/v1/tasks` takes `project_id` (404 `project_not_found` for a missing
+  or someone else's project; the idempotency check includes it);
+  `GET /api/v1/tasks?project_id=`; `project_id` in the task view; `tasks` on
+  projects; deleting a project takes its lone tasks out of it.
+- `chat/store.py`: `_project` is now `project_context`, shared with tasks.
+- Web: Project picker on Tasks (preselected from `?project=`), project link in
+  the task's details, Tasks panel on the project page.
+- D-023, README, CHANGELOG, roadmap (M6 built), requirements WS-5.
+
+**Tested**
+```
+backend: ruff check → All checks passed! · ruff format --check → 65 files already formatted
+         mypy → Success: no issues found in 43 source files
+         pytest (DB) → 158 passed, 1 skipped
+frontend: typecheck ok · lint ok · format ok · vitest → Test Files 13 passed (13), Tests 96 passed (96)
+```
+Mutation checks (each made, tests run, reverted), backend 9/9 caught: project not
+stored on the task; project not copied by the API; idempotency ignores the
+project; project filter includes chat turns; project filter ignored; project
+missing from the view; `tasks` counts chat turns; delete keeps tasks in the
+project; `project_id` ignored. Frontend 6/6 caught: project not sent; `?project=`
+not preselected; no project link; no Tasks panel; New task loses the project;
+list not filtered.
+
+Browser (Chromium) on the Vite dev server with the real API, worker and Postgres,
+and the knowledge stub (calls `search_knowledge` on "search …"):
+```
+tasks panel: Tasks | New task | No tasks yet. A task started here runs in the background with the project's instructions, memory and knowledge.
+project picked: Garden
+result: Found: {"results": [{"document": "guide.md", "part": 1, "text": "# Garden guide\n\nTomatoes need full sun and deep water…
+details project link: /projects/baf58196-85b8-45f8-ad8f-1a5e4ffe4a19
+project tasks: search watering tomato | completed
+overflow at 390: 0
+errors: the 401 from the sign-in check before login
+```
+
+**Not tested:** a real model in a project task; Firefox and Safari.
+
+**Open questions:** none new. M6's planned steps are done; M7 is next.

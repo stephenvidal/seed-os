@@ -5,13 +5,14 @@ import json
 import uuid
 from collections.abc import AsyncIterator
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from ..auth import AuthStoreDep, Principal, client_ip, require_role
+from ..chat.store import ChatError, project_context
 from ..config import Settings, get_settings
 from ..core.messages import ToolCall, Usage
 from ..errors import ApiError
@@ -62,6 +63,8 @@ class TaskView(BaseModel):
     # Set when the task is a chat turn: its conversation and position in it.
     conversation_id: uuid.UUID | None
     turn: int | None
+    # The project the task ran in, when it had one (D-017, D-023).
+    project_id: uuid.UUID | None
     # Session summaries (D-022): the newest earlier turn this turn's model saw
     # only in summary, and this turn's own summary of the chat through it.
     summary_of: uuid.UUID | None
@@ -81,6 +84,9 @@ class CreateTask(BaseModel):
     model: str = Field(min_length=1, max_length=200)
     prompt: str = Field(min_length=1, max_length=20_000)
     title: str | None = Field(default=None, min_length=1, max_length=200)
+    # The task runs in this project: it gets the project's instructions, memory
+    # and knowledge like a chat turn does (D-023).
+    project_id: uuid.UUID | None = None
 
 
 class EventsPage(BaseModel):
@@ -115,6 +121,13 @@ async def create_task(
             "provider_not_configured",
             "No model provider is configured. Set SEED_OLLAMA_API_KEY.",
         )
+    project: dict[str, Any] = {}
+    if body.project_id is not None:
+        async with store.pool.connection() as conn:
+            try:
+                project = await project_context(conn, principal.username, body.project_id)
+            except ChatError as e:
+                raise ApiError(404, e.code, e.message) from e
     task, created = await store.create(
         created_by=principal.username,
         title=body.title or " ".join(body.prompt.split())[:80],
@@ -122,9 +135,11 @@ async def create_task(
         prompt=body.prompt,
         max_attempts=settings.task_max_attempts,
         idempotency_key=idempotency_key,
+        **project,
     )
     if not created:
-        if (task.model, task.prompt, task.conversation_id) != (body.model, body.prompt, None):
+        sent = (body.model, body.prompt, None, body.project_id)
+        if (task.model, task.prompt, task.conversation_id, task.project_id) != sent:
             raise ApiError(
                 409,
                 "idempotency_conflict",
@@ -143,9 +158,12 @@ async def list_tasks(
     _: AdminOnly,
     store: StoreDep,
     state: TaskState | None = None,
+    project_id: uuid.UUID | None = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
 ) -> list[TaskView]:
-    return [TaskView.of(t) for t in await store.list_tasks(limit=limit, state=state)]
+    """Newest first. `project_id` lists a project's tasks started outside a chat."""
+    tasks = await store.list_tasks(limit=limit, state=state, project_id=project_id)
+    return [TaskView.of(t) for t in tasks]
 
 
 @router.get("/{task_id}", response_model=TaskView)

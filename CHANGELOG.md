@@ -8,6 +8,10 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
   they now render (D-020). The per-step output cap is 16,384 tokens, up from 4,096.
 
 ### Added
+- Tasks in projects (M6, D-023): `project_id` on `POST /api/v1/tasks` and as a
+  filter on `GET /api/v1/tasks`; such a task gets the project's instructions,
+  memory and knowledge tools. A Project picker on Tasks, a Tasks panel on the
+  project page, the project on the task page, `tasks` on projects.
 - Session summaries (M6, D-022): completed turns older than the chat context
   window reach the model as a rolling summary instead of being dropped; the chat
   marks where the summary starts. `summary_of` and `summary` on tasks, events

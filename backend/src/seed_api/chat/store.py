@@ -127,7 +127,7 @@ def _busy(rows: list[DictRow]) -> None:
         )
 
 
-async def _project(
+async def project_context(
     conn: AsyncConnection[DictRow], owner: str, project_id: uuid.UUID | None
 ) -> dict[str, Any]:
     """What a new turn copies from its project (insert_task arguments): the
@@ -189,7 +189,7 @@ class ChatStore:
                         if conv is None:  # pragma: no cover - the turn's FK holds it
                             raise RuntimeError("turn without a conversation")
                         return conv, task, False
-                project = await _project(conn, owner, project_id)
+                project = await project_context(conn, owner, project_id)
                 cur = await conn.execute(
                     "INSERT INTO conversations (id, owner, title, model, project_id) "
                     "VALUES (%s, %s, %s, %s, %s) RETURNING *",
@@ -365,7 +365,7 @@ class ChatStore:
             parent_id=parent,
             context=context,
             summary_of=summary_of,
-            **await _project(conn, owner, conv["project_id"]),
+            **await project_context(conn, owner, conv["project_id"]),
         )
         if row is None:  # pragma: no cover - the key was checked under the lock
             raise RuntimeError("idempotency key taken under the conversation lock")
@@ -398,7 +398,7 @@ class ChatStore:
         now on get the new project's instructions. Not counted as activity. Raises
         ChatError not_found or project_not_found."""
         async with self.pool.connection() as conn, conn.transaction():
-            await _project(conn, owner, project_id)  # the project must be the owner's
+            await project_context(conn, owner, project_id)  # the project must be the owner's
             cur = await conn.execute(
                 "UPDATE conversations SET project_id = %s WHERE id = %s AND owner = %s RETURNING *",
                 (project_id, conversation_id, owner),

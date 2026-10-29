@@ -25,6 +25,7 @@ const project = (over: Record<string, unknown> = {}) => ({
   conversations: 1,
   proposed_memories: 0,
   documents: 0,
+  tasks: 1,
   ...over,
 });
 
@@ -89,6 +90,10 @@ const PROJECT_ROUTES = {
   "GET /api/v1/artifacts?limit=500&project_id=p1": { status: 200, body: [file] },
   "GET /api/v1/projects/p1/memories": { status: 200, body: [] },
   "GET /api/v1/projects/p1/documents": { status: 200, body: [] },
+  "GET /api/v1/tasks?limit=100&project_id=p1": {
+    status: 200,
+    body: [{ ...turn, id: "t9", title: "Audit links", conversation_id: null, turn: null }],
+  },
 };
 
 const note = (over: Record<string, unknown> = {}) => ({
@@ -171,6 +176,15 @@ describe("Projects", () => {
     const chat = await within(chats).findByRole("link", { name: /Hero copy/ });
     expect(chat).toHaveAttribute("href", "/chat/c1");
     expect(chat).toHaveTextContent("3 messages");
+    const tasks = screen.getByRole("region", { name: "Tasks" });
+    expect(await within(tasks).findByRole("link", { name: /Audit links/ })).toHaveAttribute(
+      "href",
+      "/tasks/t9",
+    );
+    expect(within(tasks).getByRole("link", { name: "New task" })).toHaveAttribute(
+      "href",
+      "/tasks?project=p1",
+    );
     const files = screen.getByRole("region", { name: "Files" });
     expect(await within(files).findByRole("link", { name: /index\.html/ })).toHaveAttribute(
       "href",
