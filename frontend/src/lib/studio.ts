@@ -50,6 +50,9 @@ export const sourceHref = (a: Artifact) =>
 
 export const studioApi = {
   list: () => request<Artifact[]>("/api/v1/artifacts?limit=500"),
+  /** The files of a project's chats. */
+  inProject: (projectId: string) =>
+    request<Artifact[]>(`/api/v1/artifacts?limit=500&project_id=${projectId}`),
   get: (id: string) => request<ArtifactDetail>(`/api/v1/artifacts/${id}`),
   preview: (id: string) =>
     request<{ url: string; expires_in: number }>(`/api/v1/artifacts/${id}/preview`, {

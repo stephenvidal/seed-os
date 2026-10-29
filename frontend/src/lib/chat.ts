@@ -7,6 +7,7 @@ export type Conversation = {
   owner: string;
   title: string;
   model: string;
+  project_id: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -22,9 +23,11 @@ export const chatApi = {
     request<ConversationSummary[]>(
       `/api/v1/conversations?limit=200${query ? `&q=${encodeURIComponent(query)}` : ""}`,
     ),
+  inProject: (projectId: string) =>
+    request<ConversationSummary[]>(`/api/v1/conversations?limit=200&project_id=${projectId}`),
   get: (id: string) => request<ConversationDetail>(`/api/v1/conversations/${id}`),
   /** The key makes a double-submitted message count once. */
-  start: (body: { model: string; prompt: string }, idempotencyKey: string) =>
+  start: (body: { model: string; prompt: string; project_id?: string }, idempotencyKey: string) =>
     request<ConversationDetail>("/api/v1/conversations", {
       method: "POST",
       body: JSON.stringify(body),
@@ -52,6 +55,12 @@ export const chatApi = {
     request<Conversation>(`/api/v1/conversations/${id}`, {
       method: "PATCH",
       body: JSON.stringify({ title }),
+    }),
+  /** Into a project, or out of one with null; applies from the next message. */
+  move: (id: string, projectId: string | null) =>
+    request<Conversation>(`/api/v1/conversations/${id}/project`, {
+      method: "PUT",
+      body: JSON.stringify({ project_id: projectId }),
     }),
   /** Deletes the conversation with all its turns; refused while one is unfinished. */
   remove: (id: string) => request<void>(`/api/v1/conversations/${id}`, { method: "DELETE" }),

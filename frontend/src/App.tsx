@@ -5,7 +5,8 @@ import { AppShell } from "./components/shell/AppShell";
 import { BrandMark } from "./components/shell/BrandMark";
 import { Button } from "./components/ui/Button";
 import { useSession } from "./lib/auth";
-import { AgentsPage, ModelsPage, ProjectsPage, ToolsPage } from "./pages/areas";
+import { AgentsPage, ModelsPage, ToolsPage } from "./pages/areas";
+import { ProjectPage, ProjectsPage } from "./pages/Projects";
 import { StudioArtifactPage, StudioPage } from "./pages/Studio";
 import { CommandCenterPage } from "./pages/CommandCenter";
 import { InspectorPage, InspectorTaskPage } from "./pages/Inspector";
@@ -58,6 +59,7 @@ export function App() {
         <Route path="tasks/:id" element={<TaskDetailPage />} />
         <Route path="agents" element={<AgentsPage />} />
         <Route path="projects" element={<ProjectsPage />} />
+        <Route path="projects/:id" element={<ProjectPage />} />
         <Route path="studio" element={<StudioPage />} />
         <Route path="studio/:id" element={<StudioArtifactPage />} />
         <Route path="inspector" element={<InspectorPage />} />

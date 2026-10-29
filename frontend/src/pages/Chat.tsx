@@ -7,6 +7,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Cpu,
+  FolderKanban,
   ListChecks,
   MessageSquare,
   Pencil,
@@ -21,7 +22,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ApprovalPrompt } from "../components/tasks/ApprovalPrompt";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
@@ -33,6 +34,7 @@ import { cn } from "../components/ui/cn";
 import { ApiError, api } from "../lib/api";
 import { chatApi } from "../lib/chat";
 import type { Conversation, ConversationDetail, Turn } from "../lib/chat";
+import { PROJECTS, projectKey, projectsApi } from "../lib/projects";
 import { followTask, isFinished, pendingApproval, tasksApi, toTimeline } from "../lib/tasks";
 import type { Task, TaskEvent, TimelineItem, ToolActivity } from "../lib/tasks";
 
@@ -460,17 +462,49 @@ function NewConversation() {
   const [model, setModel] = useState("");
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const projectId = params.get("project") ?? undefined;
+  const project = useQuery({
+    queryKey: projectKey(projectId ?? ""),
+    queryFn: () => projectsApi.get(projectId ?? ""),
+    enabled: projectId !== undefined,
+    retry: false,
+  });
   const start = useMutation({
     mutationFn: (prompt: string) =>
-      chatApi.start({ model: model || fallback, prompt }, crypto.randomUUID()),
+      chatApi.start(
+        { model: model || fallback, prompt, ...(projectId && { project_id: projectId }) },
+        crypto.randomUUID(),
+      ),
     onSuccess: (detail) => {
       qc.setQueryData(conversationKey(detail.conversation.id), detail);
       void qc.invalidateQueries({ queryKey: CONVERSATIONS });
+      if (projectId) void qc.invalidateQueries({ queryKey: PROJECTS });
       navigate(`/chat/${detail.conversation.id}`);
     },
   });
   return (
     <>
+      {projectId && (
+        <p className="flex items-center gap-1.5 pb-3 text-xs text-fg-muted">
+          <FolderKanban size={13} aria-hidden />
+          {project.isError ? (
+            <span role="alert" className="text-danger">
+              {errorText(project.error)}
+            </span>
+          ) : (
+            <>
+              New chat in{" "}
+              <Link to={`/projects/${projectId}`} className="text-accent hover:underline">
+                {project.data?.name ?? "…"}
+              </Link>
+              <Link to="/chat" className="ml-auto hover:text-fg">
+                Start outside it
+              </Link>
+            </>
+          )}
+        </p>
+      )}
       <div className="min-h-0 flex-1 overflow-y-auto rounded-panel border border-border bg-surface-1">
         <EmptyState icon={MessageSquare} title="Ask SEED to do something">
           Every message runs as a task in the background, so the answer keeps coming if you leave
@@ -528,7 +562,18 @@ function ConversationHeader({
       navigate("/chat");
     },
   });
-  const failure = rename.error ?? remove.error;
+  const projects = useQuery({ queryKey: PROJECTS, queryFn: projectsApi.list, retry: false });
+  const move = useMutation({
+    mutationFn: (projectId: string | null) => chatApi.move(conversation.id, projectId),
+    onSuccess: (conv) => {
+      qc.setQueryData<ConversationDetail>(conversationKey(conv.id), (d) =>
+        d ? { ...d, conversation: conv } : d,
+      );
+      void qc.invalidateQueries({ queryKey: CONVERSATIONS });
+      void qc.invalidateQueries({ queryKey: PROJECTS });
+    },
+  });
+  const failure = rename.error ?? remove.error ?? move.error;
 
   function save(e: FormEvent) {
     e.preventDefault();
@@ -595,6 +640,31 @@ function ConversationHeader({
           >
             <Trash2 size={14} aria-hidden />
           </Button>
+        </div>
+      )}
+      {projects.data && (projects.data.length > 0 || conversation.project_id) && (
+        <div className="mt-1 flex items-center gap-1.5 text-xs text-fg-muted">
+          <FolderKanban size={13} aria-hidden />
+          <label htmlFor="conversation-project">Project</label>
+          <select
+            id="conversation-project"
+            value={conversation.project_id ?? ""}
+            disabled={move.isPending}
+            onChange={(e) => move.mutate(e.target.value || null)}
+            className="h-7 max-w-48 min-w-0 truncate rounded-control border border-border bg-surface-1 px-1.5 text-xs text-fg outline-none focus:border-accent"
+          >
+            <option value="">None</option>
+            {projects.data.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          {conversation.project_id && (
+            <Link to={`/projects/${conversation.project_id}`} className="hover:text-fg">
+              Open project
+            </Link>
+          )}
         </div>
       )}
       {mode === "delete" && (

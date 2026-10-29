@@ -1,4 +1,4 @@
-import { Bot, Cpu, FolderKanban, Wrench } from "lucide-react";
+import { Bot, Cpu, Wrench } from "lucide-react";
 import { PlannedPage } from "./Planned";
 
 export const AgentsPage = () => (
@@ -14,23 +14,6 @@ export const AgentsPage = () => (
       "Availability and current workload",
       "Delegation relationships and history",
       "Performance metrics",
-    ]}
-  />
-);
-
-export const ProjectsPage = () => (
-  <PlannedPage
-    title="Projects"
-    description="Related work that stays understandable after weeks away."
-    icon={FolderKanban}
-    emptyTitle="No projects"
-    emptyBody="Projects group conversations, tasks, files, artifacts, repositories, instructions, and knowledge under one scope and permission boundary."
-    milestone="M6 · Projects, memory, and artifacts"
-    scope={[
-      "Overview, milestones, and activity history",
-      "Project instructions and knowledge",
-      "Files, repositories, and artifacts",
-      "Project-specific permissions",
     ]}
   />
 );
