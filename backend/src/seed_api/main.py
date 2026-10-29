@@ -17,6 +17,8 @@ from .flow import api as tasks_api
 from .flow import overview
 from .flow.db import make_pool, migrate
 from .flow.store import TaskStore
+from .projects import api as projects_api
+from .projects.store import ProjectStore
 from .studio import api as studio_api
 from .studio.store import ArtifactStore
 
@@ -42,6 +44,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await migrate(pool)
             app.state.task_store = TaskStore(pool)
             app.state.chat_store = ChatStore(pool)
+            app.state.project_store = ProjectStore(pool)
             app.state.auth_store = auth.AuthStore(pool)
             root = settings.artifact_root
             app.state.artifact_store = ArtifactStore(pool, Path(root) if root else None)
@@ -71,6 +74,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(models.router)
     app.include_router(tasks_api.router)
     app.include_router(chat_api.router)
+    app.include_router(projects_api.router)
     app.include_router(overview.router)
     app.include_router(studio_api.router)
     app.include_router(studio_api.previews)

@@ -23,6 +23,15 @@ SYSTEM_PROMPT = (
     "When you create files, say what you made and where."
 )
 
+
+def system_prompt(instructions: str | None) -> str:
+    """The system prompt, with the project's instructions when the turn has them.
+    They come from the owner, so unlike tool results they are instructions."""
+    if not instructions:
+        return SYSTEM_PROMPT
+    return f"{SYSTEM_PROMPT}\n\nThe owner's instructions for this project:\n{instructions}"
+
+
 AdminOnly = Annotated[Principal, Depends(require_role("admin"))]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 

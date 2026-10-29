@@ -31,6 +31,7 @@ class Conversation(BaseModel):
     owner: str
     title: str
     model: str
+    project_id: uuid.UUID | None
     created_at: datetime
     updated_at: datetime
 
@@ -118,6 +119,22 @@ def _busy(rows: list[DictRow]) -> None:
         )
 
 
+async def _instructions(
+    conn: AsyncConnection[DictRow], owner: str, project_id: uuid.UUID | None
+) -> str | None:
+    """The project's instructions to copy into a new turn: None outside a project
+    or when they are empty. Raises ChatError project_not_found."""
+    if project_id is None:
+        return None
+    cur = await conn.execute(
+        "SELECT instructions FROM projects WHERE id = %s AND owner = %s", (project_id, owner)
+    )
+    row = await cur.fetchone()
+    if row is None:
+        raise ChatError("project_not_found", "No such project.")
+    return row["instructions"] or None
+
+
 def _same_turn(task: Task, conversation_id: uuid.UUID | None, prompt: str) -> Task:
     """An idempotent replay must repeat the original request exactly."""
     if (
@@ -143,9 +160,11 @@ class ChatStore:
         prompt: str,
         max_attempts: int,
         idempotency_key: str | None,
+        project_id: uuid.UUID | None = None,
     ) -> tuple[Conversation, Task, bool]:
-        """Create a conversation with its first turn. A replayed idempotency key
-        returns the original conversation and turn, and False."""
+        """Create a conversation with its first turn, in a project when
+        `project_id` is given. A replayed idempotency key returns the original
+        conversation and turn, and False. Raises ChatError project_not_found."""
         title = " ".join(prompt.split())[:80]
         try:
             async with self.pool.connection() as conn, conn.transaction():
@@ -157,10 +176,11 @@ class ChatStore:
                         if conv is None:  # pragma: no cover - the turn's FK holds it
                             raise RuntimeError("turn without a conversation")
                         return conv, task, False
+                instructions = await _instructions(conn, owner, project_id)
                 cur = await conn.execute(
-                    "INSERT INTO conversations (id, owner, title, model) "
-                    "VALUES (%s, %s, %s, %s) RETURNING *",
-                    (uuid.uuid4(), owner, title, model),
+                    "INSERT INTO conversations (id, owner, title, model, project_id) "
+                    "VALUES (%s, %s, %s, %s, %s) RETURNING *",
+                    (uuid.uuid4(), owner, title, model, project_id),
                 )
                 conv_row = await cur.fetchone()
                 assert conv_row is not None  # noqa: S101 - RETURNING always yields the row
@@ -174,6 +194,7 @@ class ChatStore:
                     idempotency_key=idempotency_key,
                     conversation_id=conv_row["id"],
                     turn=1,
+                    instructions=instructions,
                 )
                 if row is None:
                     raise _KeyTaken  # roll back the conversation just inserted
@@ -189,6 +210,7 @@ class ChatStore:
                 prompt=prompt,
                 max_attempts=max_attempts,
                 idempotency_key=idempotency_key,
+                project_id=project_id,
             )
 
     async def send(
@@ -325,6 +347,7 @@ class ChatStore:
             turn=turn,
             parent_id=parent,
             context=context,
+            instructions=await _instructions(conn, owner, conv["project_id"]),
         )
         if row is None:  # pragma: no cover - the key was checked under the lock
             raise RuntimeError("idempotency key taken under the conversation lock")
@@ -348,6 +371,23 @@ class ChatStore:
             await conn.execute(
                 "UPDATE tasks SET title = %s WHERE conversation_id = %s", (title, conversation_id)
             )
+            return Conversation.model_validate(row)
+
+    async def move(
+        self, conversation_id: uuid.UUID, *, owner: str, project_id: uuid.UUID | None
+    ) -> Conversation:
+        """Put a conversation in a project, or take it out (None). Turns sent from
+        now on get the new project's instructions. Not counted as activity. Raises
+        ChatError not_found or project_not_found."""
+        async with self.pool.connection() as conn, conn.transaction():
+            await _instructions(conn, owner, project_id)  # the project must be the owner's
+            cur = await conn.execute(
+                "UPDATE conversations SET project_id = %s WHERE id = %s AND owner = %s RETURNING *",
+                (project_id, conversation_id, owner),
+            )
+            row = await cur.fetchone()
+            if row is None:
+                raise ChatError("not_found", "No such conversation.")
             return Conversation.model_validate(row)
 
     async def delete(self, conversation_id: uuid.UUID, *, owner: str) -> int:
@@ -404,10 +444,16 @@ class ChatStore:
         return [Turn(task=Task.model_validate(r), versions=siblings[r["parent_id"]]) for r in path]
 
     async def list(
-        self, owner: str, *, limit: int, query: str | None = None
+        self,
+        owner: str,
+        *,
+        limit: int,
+        query: str | None = None,
+        project_id: uuid.UUID | None = None,
     ) -> list[ConversationSummary]:
         """Most recently active first. With `query`, only conversations whose title,
-        or any message or answer, contains it (case-insensitive)."""
+        or any message or answer, contains it (case-insensitive). With `project_id`,
+        only that project's."""
         pattern = None if query is None else _like(query)
         async with self.pool.connection() as conn:
             cur = await conn.execute(
@@ -415,6 +461,7 @@ class ChatStore:
                 SELECT c.*, coalesce(h.turn, 0) AS turns, h.state AS last_state
                 FROM conversations c LEFT JOIN tasks h ON h.id = c.head_id
                 WHERE c.owner = %(owner)s
+                  AND (%(project)s::uuid IS NULL OR c.project_id = %(project)s)
                   AND (%(pattern)s::text IS NULL
                        OR c.title ILIKE %(pattern)s
                        OR EXISTS (SELECT 1 FROM tasks m WHERE m.conversation_id = c.id
@@ -423,7 +470,7 @@ class ChatStore:
                 ORDER BY c.updated_at DESC, c.id
                 LIMIT %(limit)s
                 """,
-                {"owner": owner, "pattern": pattern, "limit": limit},
+                {"owner": owner, "pattern": pattern, "limit": limit, "project": project_id},
             )
             rows = await cur.fetchall()
         return [ConversationSummary.model_validate(r) for r in rows]

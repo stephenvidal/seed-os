@@ -25,7 +25,7 @@ from ..core.providers.base import Provider
 from ..core.tools import ToolFailure, ToolRegistry
 from ..core.workspace_tools import workspace_tools
 from ..errors import ApiError
-from ..models import SYSTEM_PROMPT, make_provider
+from ..models import make_provider, system_prompt
 from ..sandbox.client import SandboxClient, sandbox_tools
 from ..studio.capture import restore, save_changes
 from ..studio.store import ArtifactStore
@@ -139,7 +139,7 @@ class Worker:
                 provider=provider,
                 model=task.model,
                 messages=[
-                    Message(role="system", content=SYSTEM_PROMPT),
+                    Message(role="system", content=system_prompt(task.instructions)),
                     *(Message(role=m.role, content=m.content) for m in task.context),
                     Message(role="user", content=task.prompt),
                 ],

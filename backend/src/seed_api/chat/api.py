@@ -20,7 +20,12 @@ SettingsDep = Annotated[Settings, Depends(get_settings)]
 IdempotencyKey = Annotated[
     str | None, Header(min_length=1, max_length=200, pattern=r"^[\x21-\x7e]+$")
 ]
-_STATUS = {"not_found": 404, "turn_in_progress": 409, "idempotency_conflict": 409}
+_STATUS = {
+    "not_found": 404,
+    "project_not_found": 404,
+    "turn_in_progress": 409,
+    "idempotency_conflict": 409,
+}
 
 
 def get_chat(request: Request) -> ChatStore:
@@ -51,6 +56,8 @@ def _api_error(e: ChatError) -> ApiError:
 class StartConversation(BaseModel):
     model: str = Field(min_length=1, max_length=200)
     prompt: str = Field(min_length=1, max_length=20_000)
+    # Start the conversation in this project (D-017).
+    project_id: uuid.UUID | None = None
 
 
 class SendMessage(BaseModel):
@@ -82,6 +89,11 @@ class NewVersion(BaseModel):
 
 class Show(BaseModel):
     turn_id: uuid.UUID
+
+
+class Move(BaseModel):
+    # None takes the conversation out of its project.
+    project_id: uuid.UUID | None
 
 
 class TurnView(TaskView):
@@ -120,6 +132,7 @@ async def start_conversation(
             prompt=body.prompt,
             max_attempts=settings.task_max_attempts,
             idempotency_key=idempotency_key,
+            project_id=body.project_id,
         )
     except ChatError as e:
         raise _api_error(e) from e
@@ -141,10 +154,12 @@ async def list_conversations(
     chat: ChatDep,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     q: Annotated[str | None, Query(min_length=1, max_length=200)] = None,
+    project_id: uuid.UUID | None = None,
 ) -> list[ConversationSummary]:
     """The signed-in user's conversations, most recently active first. `q` keeps
-    those whose title, messages or answers contain it, ignoring case."""
-    return await chat.list(principal.username, limit=limit, query=q)
+    those whose title, messages or answers contain it, ignoring case;
+    `project_id` keeps one project's."""
+    return await chat.list(principal.username, limit=limit, query=q, project_id=project_id)
 
 
 @router.get("/{conversation_id}", response_model=ConversationDetail)
@@ -184,6 +199,33 @@ async def rename_conversation(
         target=str(conversation_id),
         ip=client_ip(request),
         detail={"title": conv.title},
+    )
+    return conv
+
+
+@router.put("/{conversation_id}/project", response_model=Conversation)
+async def move_conversation(
+    conversation_id: uuid.UUID,
+    body: Move,
+    request: Request,
+    principal: AdminOnly,
+    chat: ChatDep,
+    audit: AuthStoreDep,
+) -> Conversation:
+    """Put a conversation in a project, or take it out with `null`. Messages sent
+    from now on get that project's instructions."""
+    try:
+        conv = await chat.move(
+            conversation_id, owner=principal.username, project_id=body.project_id
+        )
+    except ChatError as e:
+        raise _api_error(e) from e
+    await audit.audit(
+        "conversation_moved",
+        actor=principal.username,
+        target=str(conversation_id),
+        ip=client_ip(request),
+        detail={"project_id": None if body.project_id is None else str(body.project_id)},
     )
     return conv
 
