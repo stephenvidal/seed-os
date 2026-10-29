@@ -1430,3 +1430,64 @@ errors: the 401 from the sign-in check before login
 this increment); Firefox and Safari.
 
 **Open questions:** none new. Memory follows (agent proposes, owner approves).
+
+## 2026-10-29 — Increment 15: M6 step 2 (part 2), project memory
+
+**Iteration:** M6 step 2, part 2. Definition of done: in a project's chats the
+agent can propose a memory note but not save one; the owner approves, edits or
+rejects proposals and adds, edits and deletes notes on the project page; only
+approved notes reach the model, in that project only, within a budget; a retried
+run proposes nothing twice; the owner can see that proposals wait.
+
+**Changed**
+- Migration `0009_memory` (`project_memories`, `tasks.project_id`, `tasks.memory`);
+  `projects/memory.py` (store, `remember` tool, prompt budget); owner endpoints
+  under `/api/v1/projects/{id}/memories`; `proposed_memories` on projects; turns
+  copy approved notes; the worker offers `remember` in project turns and adds the
+  notes to the system prompt.
+- Web: Memory panel on the project page, "to review" badge on the projects list,
+  "Memory to review" link in a project chat's header.
+- D-018, README, CHANGELOG, roadmap, requirements WS-5.
+
+**Tested**
+```
+backend: ruff check → All checks passed! · ruff format --check → 60 files already formatted
+         mypy → Success: no issues found in 41 source files
+         pytest (DB) → 145 passed, 1 skipped (test_sandbox.py:208: checks the non-root refusal)
+frontend: typecheck ok · lint ok · format ok · vitest → Test Files 11 passed (11), Tests 67 passed (67)
+```
+Mutation checks (each made, tests run, reverted), backend 16/16 caught:
+```
+proposals reach the model                  → CAUGHT   prompt budget ignored                 → CAUGHT
+no per-task proposal limit                 → CAUGHT   duplicate proposals stored            → CAUGHT
+agent notes saved as approved              → CAUGHT   agent note whitespace not tidied      → CAUGHT
+owner adds to another owner's project      → CAUGHT   delete reaches other projects' notes  → CAUGHT
+any edit approves                          → CAUGHT   proposals not listed first            → CAUGHT
+remember offered outside projects          → CAUGHT   worker leaves memory out              → CAUGHT
+turns copy no memory                       → CAUGHT   proposal count includes approved      → CAUGHT
+approval audited as an update              → CAUGHT   owner note whitespace not tidied      → CAUGHT
+```
+Frontend 10/10 caught: Approve sends nothing; "Save and approve" does not approve;
+proposals hidden; Approve shown on approved notes; added note not tidied; input
+not cleared; "to review" badge missing; provenance line missing; chat header link
+missing; Reject sends PATCH instead of DELETE.
+
+Browser (Chromium) on the Vite dev server with the real API, worker and Postgres,
+and an Ollama-wire stub that calls `remember` on "remember …" and otherwise
+answers with the memory notes and tools it was sent:
+```
+turn 1: Tool said: {"status": "proposed", "note": "Waiting for the owner to approve it on the project page."}
+chat header shows: Memory to review
+turn 2 (before approval): Memory seen: none | tools: list_files,read_file,write_file,remember
+waiting: Waiting for you (1) | The site uses plain CSS. | Proposed by SEED in its chat | Approve | Edit | Reject
+remembered: Stephen prefers short answers. | Added by admin | Edit | Delete | The site uses plain CSS. | Proposed by SEED in its chat | Edit | Delete
+turn 3 (after approval): Memory seen: - Stephen prefers short answers. - The site uses plain CSS. | tools: list_files,read_file,write_file,remember
+chat outside project: Memory seen: none | tools: list_files,read_file,write_file
+overflow at 390 on project page: 0
+errors: the 401 from the sign-in check before login
+```
+
+**Not tested:** a real model choosing to call `remember` (the stub calls it on
+cue); the compose stack (no compose or nginx change); Firefox and Safari.
+
+**Open questions:** none new.
