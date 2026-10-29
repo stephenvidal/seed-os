@@ -273,3 +273,29 @@ earlier line of the conversation stays one click away.
 **Consequences:** Built as two commits (the tree and its API, then the Chat
 controls) in one PR, since both were ready together. Workspace files are shared by all versions. Open question: whether the Tasks list
 should group a message's versions.
+
+## D-012 — What the Command Center shows, and what it does not
+
+**Date:** 2026-10-29
+
+**Context:** M5 asks for real metrics: active and queued tasks, approvals,
+failures, model usage, spend. Everything SEED has run is a task row with its
+state, times and token usage.
+
+**Options:** a metrics store fed by the worker; or reading the task table on
+each request.
+
+**Choice:** `GET /api/v1/overview` reads the task table: counts, short lists and
+tokens by model for tasks that finished in a window (24 h by default). The page
+polls every 10 s. It covers every user's tasks, like the Tasks list (D-007), and
+is admin-only. Spend is not shown: no model prices are configured, and SEED does
+not guess them.
+
+**Reason:** The task table already holds the truth; a second store would be one
+more thing to keep in step. A handful of aggregate queries over one person's
+tasks is cheap, and polling every 10 s is light next to the task stream.
+
+**Consequences:** Spend needs prices per model (and the monthly budget, still an
+open owner question). Long histories may need an index on `finished_at`.
+Agent activity, artifacts and notifications stay as their milestones (M7, M6, M8).
+

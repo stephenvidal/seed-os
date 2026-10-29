@@ -13,6 +13,7 @@ import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApprovalPrompt } from "../components/tasks/ApprovalPrompt";
+import { StateBadge } from "../components/tasks/StateBadge";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { EmptyState } from "../components/ui/EmptyState";
@@ -21,31 +22,7 @@ import { Panel } from "../components/ui/Panel";
 import { Spinner } from "../components/ui/Spinner";
 import { ApiError, api } from "../lib/api";
 import { followTask, isFinished, pendingApproval, tasksApi, toTimeline } from "../lib/tasks";
-import type { Task, TaskEvent, TaskState, TimelineItem } from "../lib/tasks";
-
-const STATE_TONE: Record<TaskState, "neutral" | "accent" | "warning" | "danger"> = {
-  queued: "neutral",
-  running: "accent",
-  waiting: "warning",
-  completed: "accent",
-  failed: "danger",
-  canceled: "neutral",
-};
-
-function StateBadge({ task }: { task: Task }) {
-  const label =
-    task.state === "running" && task.cancel_requested
-      ? "canceling"
-      : task.state === "waiting"
-        ? "needs you"
-        : task.state;
-  return (
-    <Badge tone={STATE_TONE[task.state]}>
-      {task.state === "running" && <Spinner label="Running" />}
-      {label}
-    </Badge>
-  );
-}
+import type { Task, TaskEvent, TimelineItem } from "../lib/tasks";
 
 const when = (iso: string) =>
   new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });

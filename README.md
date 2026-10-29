@@ -15,8 +15,12 @@ it — with full visibility and control.
   HttpOnly session cookie, server-side role checks, and failed-login rate limiting.
 - **SEED Workspace shell:** collapsible sidebar, mobile drawer, command palette
   (`Ctrl/⌘+K`), `G`-then-key navigation, light/dark/system theme with persistence.
-- **Command Center** with live host telemetry from the API (memory, load, uptime,
-  API RSS) and an honest component status list.
+- **Command Center (M5):** live from the task store, refreshed every 10 s:
+  counts of running, queued and waiting tasks and of tasks completed or failed in
+  the last 24 hours; what needs you (commands waiting for approval, recent
+  failures), what is in progress, what finished recently, and tokens by model.
+  Spend is not shown because no model prices are configured. Also host telemetry
+  (memory, load, uptime, API RSS) and an honest component status list.
 - **Settings:** theme selection, account, system details.
 - **Chat (M4):** saved conversations, listed newest first. Each message you send
   runs as a task with the conversation so far, so the answer keeps coming if you
@@ -64,6 +68,7 @@ it — with full visibility and control.
 | DELETE | `/api/v1/conversations/{id}` | admin | 204; removes the conversation, its turns and their events; 409 `turn_in_progress` while a turn is queued, running or waiting; 404 `not_found` |
 | POST | `/api/v1/conversations/{id}/turns` | admin | `{prompt, model?}`, optional `Idempotency-Key` → 201 task continuing the shown path, carrying its completed turns as context; `model` switches the conversation's model; 409 `turn_in_progress` while a turn is unfinished; 404 `not_found` |
 | POST | `/api/v1/tasks` | admin | `{model, prompt, title?}`, optional `Idempotency-Key` header → 201 task (`queued`); 200 with the existing task on a repeated key; 409 `idempotency_conflict`; 503 `provider_not_configured` |
+| GET | `/api/v1/overview` | admin | `?hours=1..720` (default 24) → `{window_hours, generated_at, counts, attention[], active[], recent[], usage[]}`: queued/running/waiting now; completed/failed/canceled, recent work and per-model tokens for tasks finished in the window; `attention` is every waiting task then failures in the window (10 max), `active` running then queued (10 max), `recent` 5 max; all users' tasks |
 | GET | `/api/v1/tasks` | admin | Newest first; `?state=queued\|running\|waiting\|completed\|failed\|canceled`, `?limit=1..100` |
 | GET | `/api/v1/tasks/{id}` | admin | Task: state, attempt, termination, error, result, usage, `last_seq`, `resumable_from_step`, `awaiting_approval` (`{id, name, arguments}` while `waiting`), and for a chat turn `conversation_id` and `turn`; 404 `not_found` |
 | GET | `/api/v1/tasks/{id}/events` | admin | `{events[], last_seq, state}`; `?after=<seq>&limit=` for incremental reads. Events: `task_created`, `attempt_started`, run events, `cancel_requested`, `task_requeued`, `task_released`, `lease_expired` |

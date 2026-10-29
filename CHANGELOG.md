@@ -4,6 +4,9 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
 
 ## [Unreleased]
 ### Added
+- Command Center shows live work (M5 step 1): `GET /api/v1/overview` with task
+  counts, what needs attention, what is running and recently completed, and
+  tokens by model; the page refreshes every 10 s (D-012).
 - Approvals: shell commands wait for a person. The task shows as "needs you"
   with the exact command and Approve/Deny in Chat and on the task page; the run
   resumes from its checkpoint after the decision (ADR-0012).

@@ -1,20 +1,213 @@
+import { useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
+  BarChart3,
   CheckCircle2,
   CircleDashed,
+  Database,
   Inbox,
   ListChecks,
   ShieldCheck,
 } from "lucide-react";
+import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
+import { StateBadge } from "../components/tasks/StateBadge";
 import { Badge } from "../components/ui/Badge";
 import { EmptyState } from "../components/ui/EmptyState";
 import { PageHeader } from "../components/ui/PageHeader";
 import { Panel } from "../components/ui/Panel";
 import { Spinner } from "../components/ui/Spinner";
 import { useSession } from "../lib/auth";
+import { ApiError } from "../lib/api";
 import { formatBytes, formatDuration } from "../lib/format";
+import { overviewApi } from "../lib/overview";
+import type { Overview } from "../lib/overview";
+import type { Task } from "../lib/tasks";
 import { useSystem } from "./useSystem";
+
+const REFRESH_MS = 10_000;
+const n = new Intl.NumberFormat();
+
+/** Where a task is best followed: its conversation for a chat turn, else its page. */
+const taskHref = (t: Task) => (t.conversation_id ? `/chat/${t.conversation_id}` : `/tasks/${t.id}`);
+
+function ago(iso: string, now: string): string {
+  const s = Math.max(0, (Date.parse(now) - Date.parse(iso)) / 1000);
+  return s < 60 ? "just now" : `${formatDuration(s).split(" ")[0]} ago`;
+}
+
+function TaskRow({ task, children }: { task: Task; children?: ReactNode }) {
+  return (
+    <li>
+      <Link
+        to={taskHref(task)}
+        className="flex items-start gap-3 px-4 py-2.5 hover:bg-surface-2 focus-visible:bg-surface-2"
+      >
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm text-fg">{task.title}</p>
+          {children && <div className="mt-0.5 truncate text-xs text-fg-muted">{children}</div>}
+        </div>
+        <StateBadge task={task} />
+      </Link>
+    </li>
+  );
+}
+
+function Stats({ data }: { data: Overview }) {
+  const c = data.counts;
+  const tiles: [string, number, string?][] = [
+    ["Running", c.running],
+    ["Queued", c.queued],
+    ["Need you", c.waiting, c.waiting ? "text-warning" : undefined],
+    [`Completed (${data.window_hours}h)`, c.completed],
+    [`Failed (${data.window_hours}h)`, c.failed, c.failed ? "text-danger" : undefined],
+  ];
+  return (
+    <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+      {tiles.map(([label, value, tone]) => (
+        <div key={label} className="rounded-panel border border-border bg-surface-1 px-4 py-3">
+          <dt className="text-xs text-fg-muted">{label}</dt>
+          <dd className={`mt-1 font-mono text-xl tabular-nums ${tone ?? "text-fg"}`}>
+            {n.format(value)}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function UsageTable({ data }: { data: Overview }) {
+  if (data.usage.length === 0)
+    return (
+      <EmptyState icon={BarChart3} title="No model use yet">
+        Token counts appear here once tasks finish.
+      </EmptyState>
+    );
+  return (
+    <div className="overflow-x-auto px-4 py-3">
+      <table className="w-full text-xs">
+        <thead className="text-left text-fg-muted">
+          <tr>
+            <th className="pb-2 font-medium">Model</th>
+            <th className="pb-2 text-right font-medium">Tasks</th>
+            <th className="pb-2 text-right font-medium">In tokens</th>
+            <th className="pb-2 text-right font-medium">Out tokens</th>
+          </tr>
+        </thead>
+        <tbody className="font-mono tabular-nums text-fg">
+          {data.usage.map((u) => (
+            <tr key={u.model} className="border-t border-border">
+              <td className="py-1.5 pr-3 break-all">{u.model}</td>
+              <td className="py-1.5 text-right">{n.format(u.tasks)}</td>
+              <td className="py-1.5 text-right">{n.format(u.input_tokens)}</td>
+              <td className="py-1.5 text-right">{n.format(u.output_tokens)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="mt-3 text-2xs text-fg-subtle">
+        Spend is not shown: no model prices are configured.
+      </p>
+    </div>
+  );
+}
+
+function WorkPanels() {
+  const overview = useQuery({
+    queryKey: ["overview"],
+    queryFn: () => overviewApi.get(),
+    refetchInterval: REFRESH_MS,
+    retry: false,
+  });
+  if (overview.isPending)
+    return (
+      <div className="flex items-center gap-2 px-1 py-6 text-sm text-fg-muted">
+        <Spinner /> Reading tasks…
+      </div>
+    );
+  if (overview.isError)
+    return overview.error instanceof ApiError &&
+      overview.error.code === "database_not_configured" ? (
+      <Panel>
+        <EmptyState icon={Database} title="Tasks need a database">
+          {overview.error.message}
+        </EmptyState>
+      </Panel>
+    ) : (
+      <div className="flex items-start gap-2 px-1 py-4 text-sm text-danger" role="alert">
+        <AlertTriangle size={16} className="mt-0.5 shrink-0" aria-hidden />
+        {overview.error.message}
+      </div>
+    );
+
+  const data = overview.data;
+  const attention = data.counts.waiting + data.counts.failed;
+  return (
+    <>
+      <Stats data={data} />
+      <Panel
+        title="Needs attention"
+        action={<Badge tone={attention ? "warning" : "neutral"}>{attention}</Badge>}
+      >
+        {data.attention.length === 0 ? (
+          <EmptyState icon={ShieldCheck} title="Nothing waiting on you">
+            Commands waiting for approval and tasks that failed in the last {data.window_hours}{" "}
+            hours collect here.
+          </EmptyState>
+        ) : (
+          <ul className="divide-y divide-border">
+            {data.attention.map((t) => (
+              <TaskRow key={t.id} task={t}>
+                {t.awaiting_approval
+                  ? `Wants to run ${t.awaiting_approval.name}`
+                  : (t.error ?? "Failed")}
+              </TaskRow>
+            ))}
+          </ul>
+        )}
+      </Panel>
+      <div className="grid gap-4 md:grid-cols-2">
+        <Panel title="In progress">
+          {data.active.length === 0 ? (
+            <EmptyState icon={CircleDashed} title="No active work">
+              Running and queued tasks appear here.
+            </EmptyState>
+          ) : (
+            <ul className="divide-y divide-border">
+              {data.active.map((t) => (
+                <TaskRow key={t.id} task={t}>
+                  {t.model} · started {ago(t.started_at ?? t.created_at, data.generated_at)}
+                </TaskRow>
+              ))}
+            </ul>
+          )}
+        </Panel>
+        <Panel title="Recently completed">
+          {data.recent.length === 0 ? (
+            <EmptyState icon={Inbox} title="No completed work yet">
+              Tasks finished in the last {data.window_hours} hours land here.{" "}
+              <Link to="/tasks" className="text-accent underline-offset-2 hover:underline">
+                View tasks
+              </Link>
+            </EmptyState>
+          ) : (
+            <ul className="divide-y divide-border">
+              {data.recent.map((t) => (
+                <TaskRow key={t.id} task={t}>
+                  {t.model} · {n.format(t.usage.input_tokens + t.usage.output_tokens)} tokens ·{" "}
+                  {ago(t.finished_at ?? t.updated_at, data.generated_at)}
+                </TaskRow>
+              ))}
+            </ul>
+          )}
+        </Panel>
+      </div>
+      <Panel title={`Model usage (${data.window_hours}h)`}>
+        <UsageTable data={data} />
+      </Panel>
+    </>
+  );
+}
 
 function greeting(d = new Date()): string {
   const h = d.getHours();
@@ -117,26 +310,7 @@ export function CommandCenterPage() {
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="flex flex-col gap-4">
-          <Panel title="Needs attention" action={<Badge>0</Badge>}>
-            <EmptyState icon={ShieldCheck} title="Nothing waiting on you">
-              Approvals, failed tasks, and questions from SEED will collect here.
-            </EmptyState>
-          </Panel>
-          <div className="grid gap-4 md:grid-cols-2">
-            <Panel title="In progress">
-              <EmptyState icon={CircleDashed} title="No active work" milestone="M3">
-                Running and queued tasks appear here with live progress.
-              </EmptyState>
-            </Panel>
-            <Panel title="Recently completed">
-              <EmptyState icon={Inbox} title="No completed work yet" milestone="M3">
-                Finished tasks and their deliverables land here.{" "}
-                <Link to="/tasks" className="text-accent underline-offset-2 hover:underline">
-                  View tasks
-                </Link>
-              </EmptyState>
-            </Panel>
-          </div>
+          <WorkPanels />
         </div>
 
         <div className="flex flex-col gap-4">
