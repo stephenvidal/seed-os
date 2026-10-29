@@ -362,3 +362,23 @@ Prices change, so they are configuration, not code.
 stops (docs/model-strategy.md). The balance endpoint is rate limited, so the
 server polls it at most once a minute. Legacy plans return session and weekly
 percentages instead of USD; the code must handle both shapes.
+
+## D-015 — Which files become artifacts
+
+**Date:** 2026-10-29
+
+**Context:** M6 starts with artifacts. The agent's files live in a scratch
+workspace that a sandbox restart wipes. (D-014 is taken by the spend-tracking
+plan.)
+
+**Options:** save every file a run creates or changes; or give the agent a
+publish tool and save only what it publishes.
+
+**Choice:** Every changed file, per message (owner's choice on 2026-10-29, the
+recommended option). Design in ADR-0014.
+
+**Reason:** Nothing the agent makes is lost, it does not depend on the model
+remembering to publish, and versions line up with the messages that made them.
+
+**Consequences:** Studio may list scratch files the person does not care about;
+filtering or hiding comes with the Studio page if it is needed.

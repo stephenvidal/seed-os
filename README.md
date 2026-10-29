@@ -39,6 +39,11 @@ it — with full visibility and control.
   Deny. The run carries on from where it stopped; a denied command is reported
   to the model and never runs. The waiting chat is marked in the conversation
   list. Which tools wait is `SEED_APPROVAL_REQUIRED_TOOLS` (ADR-0012).
+- **Saved files (M6):** after every answer or task run, each file it created,
+  changed or deleted in its workspace is saved as a new version, kept on a
+  persistent volume. If the sandbox restarts and a workspace comes back empty,
+  the next run puts the saved files back first (ADR-0014). Browsing them in
+  Studio is the next step.
 - **Tasks (M3):** create a task, then follow its timeline live: steps, tool calls
   and lifecycle notes (attempts, resumes, retries, interruptions). Tasks run in
   the worker, so they keep going when the page is closed; the timeline is rebuilt
@@ -77,7 +82,7 @@ it — with full visibility and control.
 | GET | `/api/v1/overview` | admin | `?hours=1..720` (default 24) → `{window_hours, generated_at, counts, attention[], active[], recent[], usage[]}`: queued/running/waiting now; completed/failed/canceled, recent work and per-model tokens for tasks finished in the window; `attention` is every waiting task then failures in the window (10 max), `active` running then queued (10 max), `recent` 5 max; all users' tasks |
 | GET | `/api/v1/tasks` | admin | Newest first; `?state=queued\|running\|waiting\|completed\|failed\|canceled`, `?limit=1..100` |
 | GET | `/api/v1/tasks/{id}` | admin | Task: state, attempt, termination, error, result, usage, `last_seq`, `resumable_from_step`, `awaiting_approval` (`{id, name, arguments}` while `waiting`), and for a chat turn `conversation_id` and `turn`; 404 `not_found` |
-| GET | `/api/v1/tasks/{id}/events` | admin | `{events[], last_seq, state}`; `?after=<seq>&limit=` for incremental reads. Events: `task_created`, `attempt_started`, run events, `checkpoint_saved` (`{steps, pending}`), `cancel_requested`, `task_requeued`, `task_released`, `lease_expired` |
+| GET | `/api/v1/tasks/{id}/events` | admin | `{events[], last_seq, state}`; `?after=<seq>&limit=` for incremental reads. Events: `task_created`, `attempt_started`, run events, `checkpoint_saved` (`{steps, pending}`), `artifacts_saved` (`{saved[{path, version, deleted}], skipped[{path, reason}], truncated}`), `workspace_restored` (`{files}`), `artifacts_failed` (`{stage, error}`), `cancel_requested`, `task_requeued`, `task_released`, `lease_expired` |
 | GET | `/api/v1/tasks/{id}/stream` | admin | `text/event-stream`: each stored event as `id: <seq>` + JSON data, then `event: end` once the task is finished. Resumes after `Last-Event-ID` (or `?after=`); 404 `not_found` |
 | POST | `/api/v1/tasks/{id}/cancel` | admin | Queued or waiting → `canceled` at once; running → stops at the worker's next heartbeat; 409 `not_cancelable` |
 | POST | `/api/v1/tasks/{id}/decision` | admin | `{call_id, approve}` for the call in the task's `awaiting_approval` → task `queued` to resume; event `approval_decided`; audited as `tool_approved`/`tool_denied` with the tool and its arguments; 409 `not_waiting` |
@@ -134,7 +139,8 @@ docker compose exec api python -m seed_api.users list    # in the compose stack
 | `SEED_RUN_MAX_STEPS` / `SEED_RUN_MAX_RUNTIME_SECONDS` / `SEED_RUN_MAX_TOTAL_TOKENS` | `8` / `300` / `200000` | Per-run limits (each task attempt, chat turns included). The last allowed step gets no tools and is told to answer with what it has |
 | `SEED_CHAT_CONTEXT_TURNS` | `20` | How many earlier completed turns a new chat message carries |
 | `SEED_APPROVAL_REQUIRED_TOOLS` | `["run_command"]` | JSON list of tools that wait for a person's approval before each call; `[]` turns approvals off |
-| `SEED_WORKSPACE_ROOT` | `/tmp/seed-workspaces` | Worker without a sandbox: workspace dirs (one per task, or per conversation for chat; ephemeral until M6) |
+| `SEED_WORKSPACE_ROOT` | `/tmp/seed-workspaces` | Worker without a sandbox: workspace dirs (one per task, or per conversation for chat); scratch space, kept as artifacts when `SEED_ARTIFACT_ROOT` is set |
+| `SEED_ARTIFACT_ROOT` | unset | Worker: where saved task files live (compose: the `artifacts` volume). Unset: files are not saved (ADR-0014) |
 | `SEED_DATABASE_URL` | unset | Postgres URL (`postgresql://user:pass@host/db`); unset disables sign-in, tasks and chat. Compose builds it from `SEED_POSTGRES_PASSWORD` |
 | `SEED_TASK_MAX_ATTEMPTS` | `3` | Attempts per task (and per retry) before it is dead-lettered as `failed/abandoned` |
 | `SEED_WORKER_LEASE_SECONDS` | `30` | Worker lease; renewed every third of it. A crashed worker's task is resumed after this |

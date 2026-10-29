@@ -3,7 +3,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
 COPY pyproject.toml ./
 COPY src ./src
-RUN pip install --no-cache-dir . && useradd --system --uid 10001 seed
+RUN pip install --no-cache-dir . && useradd --system --uid 10001 seed \
+ && mkdir -p /var/lib/seed/artifacts && chown seed /var/lib/seed/artifacts
 USER seed
 EXPOSE 8000
 HEALTHCHECK --interval=15s --timeout=3s --retries=3 \

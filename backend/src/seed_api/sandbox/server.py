@@ -21,12 +21,12 @@ from ..config import Settings, get_settings
 from ..core.workspace_tools import MAX_FILE_BYTES
 from ..errors import ApiError, install_error_handlers
 from . import runner
-from .protocol import ExecRequest, ExecResult, FileRequest, FileResult
+from .protocol import MAX_DATA_CHARS, ExecRequest, ExecResult, FileRequest, FileResult
 
 log = logging.getLogger("seed.sandbox")
 MB = 1024 * 1024
-# A full read_file result as JSON, with room for escaping.
-FILEOPS_MAX_OUTPUT = 8 * MAX_FILE_BYTES
+# A full read_file result as JSON, with room for escaping, or a base64 artifact.
+FILEOPS_MAX_OUTPUT = max(8 * MAX_FILE_BYTES, MAX_DATA_CHARS + 64 * 1024)
 
 
 def create_sandbox_app(settings: Settings | None = None) -> FastAPI:

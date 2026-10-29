@@ -10,7 +10,9 @@ Services: `db` (Postgres 17, data in the `pgdata` volume), `api` (FastAPI,
 healthcheck `/healthz`, non-root, read-only FS, 256 MiB limit), `worker` (same
 image, runs tasks) and `web` (nginx serving the SPA and proxying `/api`, 64 MiB
 limit), and `sandbox` (same image, runs the agent's commands; internal network
-only, no secrets, dropped capabilities, 768 MiB limit; ADR-0010).
+only, no secrets, dropped capabilities, 768 MiB limit; ADR-0010). The worker
+saves every file a task makes to the `artifacts` volume (`SEED_ARTIFACT_ROOT`,
+ADR-0014).
 
 Put a TLS-terminating proxy (Caddy, Traefik, nginx) in front of `web` and set
 `SEED_COOKIE_SECURE=true`.
@@ -24,7 +26,7 @@ The owner approved reusing dustline's pipeline (D-003). It is in place but
 |---|---|---|
 | CI | `.github/workflows/ci.yml` | On PRs and non-main pushes: backend lint/types/tests, frontend typecheck/lint/format/tests/build, both images built (not pushed) |
 | Build and deploy | `.github/workflows/deploy.yml` | On push to `main`: push `ghcr.io/stephenvidal/seed-api` and `seed-web` tagged `latest` and `sha-<7>`; if `DEPLOY_ENABLED`, SSH to the VPS (pinned ED25519 host key), copy `deploy/compose.yaml`, set `SEED_TAG`, `docker compose pull && up -d`, keep two previous releases, check `PUBLIC_URL/healthz` |
-| Prod compose | `deploy/compose.yaml` | `db` (Postgres 17, volume `seed_pgdata`, no published port), `api` and `worker` from the API image by tag, web on `127.0.0.1:${SEED_HOST_PORT:-8091}` only, `SEED_COOKIE_SECURE=true`, memory limits, logs capped 10 MB × 3 |
+| Prod compose | `deploy/compose.yaml` | `db` (Postgres 17, volume `seed_pgdata`, no published port), `api` and `worker` from the API image by tag, saved task files in volume `seed_artifacts` (worker only), web on `127.0.0.1:${SEED_HOST_PORT:-8091}` only, `SEED_COOKIE_SECURE=true`, memory limits, logs capped 10 MB × 3 |
 
 Both workflows run on GitHub-hosted `ubuntu-latest` runners. The repository is
 **public**, so standard-hosted minutes are unmetered; earlier revisions used a
@@ -104,5 +106,8 @@ a 256 MiB tmpfs); idle it is about the size of the api. Disk: `postgres:17-alpin
 data volume (48 MB fresh). No GPU.
 
 ## Backups
-Postgres: manual `pg_dump`, see "Tasks in production" above. Artifact storage
-arrives in M6; automated backups are part of M9.
+Postgres: manual `pg_dump`, see "Tasks in production" above. Artifacts: the
+`seed_artifacts` volume holds file content and Postgres holds which version is
+which, so back up both together (for example, `pg_dump`, then
+`docker run --rm -v seed_artifacts:/a -v "$PWD":/b alpine tar czf /b/artifacts.tgz -C /a .`).
+Automated backups are part of M9.

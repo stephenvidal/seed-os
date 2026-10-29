@@ -1210,3 +1210,72 @@ reproduce Ollama's billed figures; the legacy-plan response shape.
 
 **Open questions:** the monthly budget; with about $12 of $60 left, whether to
 top up before heavier testing.
+
+## 2026-10-29 — Increment 12: M6 step 1 (part 1), saved files with versions
+
+**Iteration:** M6 step 1, part 1. Definition of done: after every run the worker
+saves each file the run created, changed or deleted as a new version on
+persistent storage, without touching the task's outcome when saving fails; a
+workspace that comes back empty is refilled before the next run; this works
+through the sandbox as the task's own user.
+
+**Changed**
+- `studio/` (new): `files.py` (snapshot, read/write bytes), `workspace.py`
+  (sandbox and local adapters), `store.py` (blobs by SHA-256, versions in
+  Postgres), `capture.py` (save changes, restore).
+- Migration `0006_artifacts`; worker saves after each run and restores before it;
+  sandbox file ops `snapshot`, `read_bytes`, `write_bytes`; `SEED_ARTIFACT_ROOT`.
+- Compose files: `artifacts` volume on the worker; Dockerfile creates its mount
+  point owned by the app user.
+- `workspace_tools._resolve` renamed `resolve` (now shared).
+- ADR-0014, D-015, README, CHANGELOG, roadmap, requirements WS-6, deployment.
+
+**Tested**
+```
+backend: ruff check → All checks passed! · ruff format --check → 52 files already formatted
+         mypy → Success: no issues found in 36 source files
+         pytest (DB) → 129 passed, 1 skipped (test_sandbox.py:208, the non-root check)
+```
+Mutation checks (each made, tests/test_artifacts.py run, reverted):
+```
+unchanged files saved again                 → CAUGHT   deletions never recorded                  → CAUGHT
+deletions recorded from a cut-off listing   → CAUGHT   large files saved without a report        → CAUGHT
+restore into a non-empty workspace          → CAUGHT   restore brings back deleted files         → CAUGHT
+version numbers not incremented             → CAUGHT   latest picks the oldest version           → CAUGHT
+blob stored under the wrong name            → CAUGHT   snapshot lists symlinks                   → CAUGHT
+save skipped by the worker                  → CAUGHT   restore skipped by the worker             → CAUGHT
+save failure fails the task                 → CAUGHT   write_bytes skips base64 validation       → CAUGHT
+logs an event when nothing changed          → CAUGHT
+```
+(The first run had "blob stored under the wrong name" surviving; the test now
+checks the on-disk layout.)
+
+Sandbox with real per-task users (run as root, `SEED_SANDBOX_ISOLATE_USERS=true`):
+```
+owner uid: 851968396 expected 851968396
+snapshot a: [('dir/x.bin', 6)]
+read back ok: True
+snapshot b (symlink into a): []
+read through symlink refused: Path escapes the workspace.
+```
+Docker named volume on the image's mount point, as the non-root user (uid 10001),
+read-only root filesystem:
+```
+10001
+-rw-r--r-- 1 10001 999 3 Oct 29 09:02 x
+hi            (read back through a :ro mount)
+```
+Real API + worker + Postgres with the Ollama-wire stub, local workspaces:
+```
+turn 1: completed | artifacts_saved: [{'saved': [{'path': 'a.txt', 'deleted': False, 'version': 1}, {'path': 'b.txt', 'deleted': False, 'version': 1}], 'skipped': [], 'truncated': False}]
+blobs on disk: ['8ed3f6ad685b', 'f44e64e75f39']
+workspace wiped (as a sandbox restart would)
+turn 2: completed | workspace_restored: [{'files': 2}] | artifacts_saved: []
+files now: ['a.txt', 'b.txt']
+db versions: a.txt v1 8ed3f6ad685b | b.txt v1 f44e64e75f39
+```
+
+**Not tested:** the full compose stack (the images were not built here); a real
+sandbox container restart; save time for a workspace near the 500-file cap.
+
+**Open questions:** cleanup of content left by deleted conversations (ADR-0014).

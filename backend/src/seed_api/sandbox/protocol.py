@@ -5,6 +5,10 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from ..core.workspace_tools import MAX_FILE_BYTES
+from ..studio.files import MAX_ARTIFACT_BYTES
+
+# Base64 of the largest artifact.
+MAX_DATA_CHARS = 4 * (MAX_ARTIFACT_BYTES // 3 + 1)
 
 MAX_COMMAND_CHARS = 10_000
 MAX_STDIN_BYTES = 256 * 1024
@@ -32,9 +36,12 @@ class ExecResult(BaseModel):
 
 
 class FileRequest(BaseModel):
-    op: Literal["list", "read", "write"]
+    # snapshot, read_bytes and write_bytes save and restore artifacts (ADR-0014).
+    op: Literal["list", "read", "write", "snapshot", "read_bytes", "write_bytes"]
     path: str = Field(default=".", max_length=512)
     content: str | None = Field(default=None, max_length=MAX_FILE_BYTES)
+    # Base64 file content for write_bytes.
+    data: str | None = Field(default=None, max_length=MAX_DATA_CHARS)
 
 
 class FileResult(BaseModel):

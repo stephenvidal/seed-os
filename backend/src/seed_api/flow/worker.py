@@ -22,11 +22,14 @@ from ..config import Settings, get_settings
 from ..core.agent import Checkpoint, RunEvent, RunLimits, RunResult, Termination, run_agent
 from ..core.messages import Message
 from ..core.providers.base import Provider
-from ..core.tools import ToolRegistry
+from ..core.tools import ToolFailure, ToolRegistry
 from ..core.workspace_tools import workspace_tools
 from ..errors import ApiError
 from ..models import SYSTEM_PROMPT, make_provider
 from ..sandbox.client import SandboxClient, sandbox_tools
+from ..studio.capture import restore, save_changes
+from ..studio.store import ArtifactStore
+from ..studio.workspace import LocalFiles, SandboxFiles, WorkspaceFiles
 from .db import make_pool, migrate
 from .store import Lease, LeaseLost, Task, TaskStore
 
@@ -52,10 +55,12 @@ class Worker:
         provider_factory: ProviderFactory,
         *,
         sandbox: SandboxClient | None = None,
+        artifacts: ArtifactStore | None = None,
         worker_id: str | None = None,
     ) -> None:
         self.store = store
         self.sandbox = sandbox
+        self.artifacts = artifacts
         self.settings = settings
         self.provider_factory = provider_factory
         self.worker_id = worker_id or f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:6]}"
@@ -112,12 +117,16 @@ class Worker:
             await self.store.save_checkpoint(lease, cp)
 
         # A chat turn works in its conversation's workspace, so files persist across turns.
+        files: WorkspaceFiles
         if self.sandbox is not None:
             tools = sandbox_tools(
                 self.sandbox, task.workspace, self.settings.sandbox_command_timeout_seconds
             )
+            files = SandboxFiles(self.sandbox, task.workspace)
         else:  # no sandbox configured: file tools on local disk, no commands
-            tools = workspace_tools(Path(self.settings.workspace_root) / str(task.workspace))
+            local = Path(self.settings.workspace_root) / str(task.workspace)
+            tools = workspace_tools(local)
+            files = LocalFiles(local)
         gated = set(self.settings.approval_required_tools)
         tools = [
             replace(t, requires_approval=t.requires_approval or t.name in gated) for t in tools
@@ -125,6 +134,7 @@ class Worker:
         provider = self.provider_factory()
         beat = asyncio.create_task(heartbeat())
         try:
+            await self._restore(task, lease, files)
             result = await run_agent(
                 provider=provider,
                 model=task.model,
@@ -145,6 +155,8 @@ class Worker:
                 approvals={call_id: d.approved for call_id, d in task.approvals.items()},
                 cancel=cancel,
             )
+            if not why["lost"]:
+                await self._save(task, lease, files)
             await self._settle(lease, result, why)
         except LeaseLost:
             log.warning("task %s attempt %d: lease lost; abandoning", task.id, lease.attempt)
@@ -152,6 +164,43 @@ class Worker:
             cancel.set()
             beat.cancel()
             await provider.aclose()
+
+    async def _restore(self, task: Task, lease: Lease, files: WorkspaceFiles) -> None:
+        """Refill a workspace the sandbox lost (it restarted) from saved artifacts."""
+        if self.artifacts is None:
+            return
+        try:
+            n = await restore(files, self.artifacts, task.workspace)
+        except (ToolFailure, OSError) as e:
+            log.error("task %s: restoring files failed: %s", task.id, e)
+            await self.store.append_event(
+                lease, "artifacts_failed", {"stage": "restore", "error": str(e)}
+            )
+            return
+        if n:
+            await self.store.append_event(lease, "workspace_restored", {"files": n})
+
+    async def _save(self, task: Task, lease: Lease, files: WorkspaceFiles) -> None:
+        """Save every file the run created, changed or deleted (ADR-0014). A failed
+        save is recorded and does not change how the task ended."""
+        if self.artifacts is None:
+            return
+        try:
+            report = await save_changes(
+                files,
+                self.artifacts,
+                workspace_id=task.workspace,
+                conversation_id=task.conversation_id,
+                task_id=task.id,
+            )
+        except (ToolFailure, OSError) as e:
+            log.error("task %s: saving files failed: %s", task.id, e)
+            await self.store.append_event(
+                lease, "artifacts_failed", {"stage": "save", "error": str(e)}
+            )
+            return
+        if report.saved or report.skipped or report.truncated:
+            await self.store.append_event(lease, "artifacts_saved", report.model_dump())
 
     async def _settle(self, lease: Lease, result: RunResult, why: dict[str, bool]) -> None:
         if why["lost"]:
@@ -193,9 +242,20 @@ async def main(settings: Settings | None = None) -> None:
         log.warning("SEED_SANDBOX_URL unset: tasks get file tools only, no commands")
     pool = make_pool(settings.database_url.get_secret_value(), max_size=4)
     await pool.open(wait=True)
+    artifacts = None
+    if settings.artifact_root:
+        artifacts = ArtifactStore(pool, Path(settings.artifact_root))
+    else:
+        log.warning("SEED_ARTIFACT_ROOT unset: task files are not saved as artifacts")
     try:
         await migrate(pool)
-        worker = Worker(TaskStore(pool), settings, lambda: make_provider(settings), sandbox=sandbox)
+        worker = Worker(
+            TaskStore(pool),
+            settings,
+            lambda: make_provider(settings),
+            sandbox=sandbox,
+            artifacts=artifacts,
+        )
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(sig, worker.stop.set)
