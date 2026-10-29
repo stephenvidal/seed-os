@@ -382,3 +382,23 @@ remembering to publish, and versions line up with the messages that made them.
 
 **Consequences:** Studio may list scratch files the person does not care about;
 filtering or hiding comes with the Studio page if it is needed.
+
+## D-016 — How Studio shows files without trusting them
+
+**Date:** 2026-10-29
+
+**Context:** Studio renders files the agent wrote, including HTML with scripts,
+on the app's own origin.
+
+**Options:** a separate preview origin; same origin with every file sandboxed by
+CSP; sanitised HTML in the app's DOM.
+
+**Choice:** Same origin, sandboxed by CSP. Saved versions never run; previews of
+the latest files run in an opaque origin with no network, through hour-long links.
+Details in ADR-0015.
+
+**Reason:** No new domain, tunnel route or certificate per deployment, and the
+browser enforces the boundary rather than a sanitiser.
+
+**Consequences:** A preview can draw anything, including look-alike forms, but
+cannot submit them or reach SEED. Older versions show as source only.

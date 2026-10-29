@@ -66,6 +66,38 @@ describe("toTimeline", () => {
       ["danger", "Worker stopped responding on every attempt; task failed"],
     ]);
   });
+
+  it("says which files were saved, skipped, put back or not saved", () => {
+    seq = 0;
+    const saved = Array.from({ length: 7 }, (_, i) => ({
+      path: `f${i}.txt`,
+      version: i + 1,
+      deleted: i === 1,
+    }));
+    const notes = toTimeline([
+      ev("workspace_restored", { files: 1 }),
+      ev("artifacts_saved", {
+        saved,
+        skipped: [{ path: "big.bin", reason: "too_large" }],
+        truncated: true,
+      }),
+      ev("artifacts_saved", { saved: [saved[0]], skipped: [], truncated: false }),
+      ev("artifacts_failed", { stage: "save", error: "disk full" }),
+      ev("artifacts_failed", { stage: "restore", error: "gone" }),
+    ]).map((i) => i.kind === "note" && [i.tone, i.text]);
+    expect(notes).toEqual([
+      ["neutral", "Workspace was empty; put back 1 saved file"],
+      [
+        "accent",
+        "Saved 7 files: f0.txt v1, f1.txt (deleted), f2.txt v3, f3.txt v4, f4.txt v5, and 2 more",
+      ],
+      ["warning", "Not saved: big.bin (too large)"],
+      ["warning", "Too many files to save them all"],
+      ["accent", "Saved 1 file: f0.txt v1"],
+      ["danger", "Saving files failed: disk full"],
+      ["danger", "Restoring files failed: gone"],
+    ]);
+  });
 });
 
 describe("approvals", () => {

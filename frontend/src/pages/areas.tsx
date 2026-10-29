@@ -1,4 +1,4 @@
-import { Bot, Boxes, Cpu, FolderKanban, Wrench } from "lucide-react";
+import { Bot, Cpu, FolderKanban, Wrench } from "lucide-react";
 import { PlannedPage } from "./Planned";
 
 export const AgentsPage = () => (
@@ -31,23 +31,6 @@ export const ProjectsPage = () => (
       "Project instructions and knowledge",
       "Files, repositories, and artifacts",
       "Project-specific permissions",
-    ]}
-  />
-);
-
-export const StudioPage = () => (
-  <PlannedPage
-    title="Studio"
-    description="Artifacts SEED produces, with previews and history."
-    icon={Boxes}
-    emptyTitle="No artifacts"
-    emptyBody="Generated HTML and executable content will render in an isolated origin, never inside the privileged workspace."
-    milestone="M6 · Projects, memory, and artifacts"
-    scope={[
-      "Code, HTML apps, documents, data, images, reports",
-      "Sandboxed previews",
-      "Version history and downloads",
-      "Source task and validation status",
     ]}
   />
 );
