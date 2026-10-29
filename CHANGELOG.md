@@ -3,6 +3,10 @@
 All notable changes. Format: Keep a Changelog; versions follow the milestones.
 
 ## [Unreleased]
+### Fixed
+- HTML answers that were not fenced or a whole page showed as an empty answer;
+  they now render (D-020). The per-step output cap is 16,384 tokens, up from 4,096.
+
 ### Added
 - Rendered output (D-019): chat answers, task results and Studio files show
   Markdown, tables and HTML rendered first, with a Rendered / Source switch.
@@ -65,6 +69,10 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
   asks for a tool. Found by the owner's manual tests 9 and 10.
 
 ## M4 Saved chats (increment 6)
+### Fixed
+- HTML answers that were not fenced or a whole page showed as an empty answer;
+  they now render (D-020). The per-step output cap is 16,384 tokens, up from 4,096.
+
 ### Added
 - Saved conversations (`/api/v1/conversations`). Each message runs as a task
   carrying the earlier completed turns, so replies survive leaving the page and
@@ -81,6 +89,10 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
   `SEED_MAX_CONCURRENT_RUNS`.
 
 ## M3 Sandbox (increment 5)
+### Fixed
+- HTML answers that were not fenced or a whole page showed as an empty answer;
+  they now render (D-020). The per-step output cap is 16,384 tokens, up from 4,096.
+
 ### Added
 - `sandbox` service: runs the agent's shell commands and task file operations in a
   container with no network, no secrets and dropped capabilities; each task as
@@ -91,6 +103,10 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
   isolation (`backend/scripts/sandbox_smoke.py`).
 
 ## M3 Users, sessions and CSRF (increment 4)
+### Fixed
+- HTML answers that were not fenced or a whole page showed as an empty answer;
+  they now render (D-020). The per-step output cap is 16,384 tokens, up from 4,096.
+
 ### Added
 - Users in Postgres with argon2id passwords; the first admin is created from
   `SEED_ADMIN_PASSWORD` when no users exist (ADR-0009).
@@ -110,6 +126,10 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
 - A queued task's cancel note now appears in the live timeline without a reload.
 
 ## M3 Durable tasks (increment 2)
+### Fixed
+- HTML answers that were not fenced or a whole page showed as an empty answer;
+  they now render (D-020). The per-step output cap is 16,384 tokens, up from 4,096.
+
 ### Added
 - `GET /api/v1/tasks/{id}/stream`: live task events over SSE, resuming after
   `Last-Event-ID` (ADR-0003).
@@ -119,6 +139,10 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
 - Command Center lists SEED Core and SEED Flow as built.
 
 ## M3 Durable tasks (increment 1)
+### Fixed
+- HTML answers that were not fenced or a whole page showed as an empty answer;
+  they now render (D-020). The per-step output cap is 16,384 tokens, up from 4,096.
+
 ### Added
 - Postgres (psycopg 3) with forward-only SQL migrations.
 - Durable tasks: state machine, leased workers with heartbeats and fenced writes,
@@ -130,6 +154,10 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
 - Cancelling a run now interrupts a provider request that is in flight.
 
 ## M2 Core agent runtime
+### Fixed
+- HTML answers that were not fenced or a whole page showed as an empty answer;
+  they now render (D-020). The per-step output cap is 16,384 tokens, up from 4,096.
+
 ### Added
 - Provider interface with typed errors; Ollama adapter (chat, NDJSON streaming,
   tool calls, model list).
@@ -139,6 +167,10 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
 - Chat page: model picker, streaming answer, expandable tool activity, usage.
 
 ## M0/M1, Iteration 1
+### Fixed
+- HTML answers that were not fenced or a whole page showed as an empty answer;
+  they now render (D-020). The per-step output cap is 16,384 tokens, up from 4,096.
+
 ### Added
 - Directive v1.1 (product definition) and docs set: vision, requirements,
   architecture, design system, security, deployment, model strategy, testing,

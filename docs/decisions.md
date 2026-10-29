@@ -494,3 +494,25 @@ token.
 in Studio as a file instead). Studio HTML files are not rewritten, so their
 responsiveness depends on the page; the phone view lays them out in a 390px frame so
 media queries apply. CSV and JSON are not rendered specially.
+
+## D-020 — Raw HTML answers render; the output cap is 16,384 tokens
+
+**Date:** 2026-10-29
+
+**Context:** On the live site, asking for "an html story" gave answers with the
+Rendered / Source switch and an empty body. The Markdown renderer drops raw HTML
+(`skipHtml`), and the model had answered with HTML that was not inside a fence and
+not a whole `<!doctype>` page (a fragment, or prose followed by a page), so nothing
+was left to show. A second answer stopped at exactly 4,096 output tokens, the
+per-step cap (`RunLimits.max_output_tokens_per_step`), which a full HTML page or a
+long essay can exceed.
+
+**Choice:** An answer that opens with an HTML tag renders in the frame whole; a page
+that follows prose renders as the prose, then the frame. The cap is 16,384 tokens per
+step; the 200,000-token run total still bounds a run.
+
+**Reason:** Showing nothing is the worst outcome; dropping raw HTML stays right for
+the inline Markdown path. 4,096 tokens cut off pages mid-document.
+
+**Consequences:** Raw HTML tags in the middle of a Markdown answer are still dropped.
+A step that hits the cap still ends as `length`; the page shows what arrived.

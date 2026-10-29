@@ -2,7 +2,7 @@ import { isValidElement, useState } from "react";
 import type { ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { isHtmlDocument, kindForLanguage } from "../../lib/render";
+import { isHtmlDocument, kindForLanguage, splitHtmlPage } from "../../lib/render";
 import { cn } from "./cn";
 import { HtmlFrame, Rendered, SourceView, ViewSwitch } from "./Rendered";
 import type { ViewMode } from "./Rendered";
@@ -17,6 +17,14 @@ function fence(children: ReactNode): { language?: string; text: string } | null 
 
 function Body({ text, className, live }: { text: string; className?: string; live: boolean }) {
   if (!live && isHtmlDocument(text)) return <HtmlFrame title="Rendered HTML" source={text} />;
+  const page = live ? null : splitHtmlPage(text);
+  if (page)
+    return (
+      <div className="flex flex-col gap-2">
+        {page.prose && <Body text={page.prose} className={className} live={false} />}
+        <HtmlFrame title="Rendered HTML" source={page.html} />
+      </div>
+    );
   return (
     <div className={cn("markdown text-sm leading-6 text-fg", className)}>
       <ReactMarkdown

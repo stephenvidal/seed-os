@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { frameLayout, isHtmlDocument, kindForLanguage, prepareHtml } from "./render";
+import { frameLayout, isHtmlDocument, kindForLanguage, prepareHtml, splitHtmlPage } from "./render";
 
 describe("kindForLanguage", () => {
   it("renders html, svg and markdown fences and nothing else", () => {
@@ -16,6 +16,23 @@ describe("isHtmlDocument", () => {
     expect(isHtmlDocument("\n<!DOCTYPE html><html></html>")).toBe(true);
     expect(isHtmlDocument("<html lang='en'>")).toBe(true);
     expect(isHtmlDocument("Use <html> to start a page")).toBe(false);
+  });
+  it("accepts a fragment that opens with a tag, which Markdown would drop", () => {
+    expect(isHtmlDocument("<style>body{}</style><div class='a'>x</div>")).toBe(true);
+    expect(isHtmlDocument("  <article>story</article>")).toBe(true);
+    expect(isHtmlDocument("<em>just emphasis</em> in a sentence")).toBe(false);
+  });
+});
+
+describe("splitHtmlPage", () => {
+  it("splits prose from a page that follows it", () => {
+    const r = splitHtmlPage("Here is your story:\n\n<!DOCTYPE html>\n<html><body>x</body></html>");
+    expect(r?.prose).toBe("Here is your story:");
+    expect(r?.html.startsWith("<!DOCTYPE html>")).toBe(true);
+  });
+  it("leaves a page inside a code fence to the fence", () => {
+    expect(splitHtmlPage("```html\n<!doctype html><html></html>\n```")).toBeNull();
+    expect(splitHtmlPage("Just prose")).toBeNull();
   });
 });
 
