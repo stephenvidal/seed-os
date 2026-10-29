@@ -1279,3 +1279,74 @@ db versions: a.txt v1 8ed3f6ad685b | b.txt v1 f44e64e75f39
 sandbox container restart; save time for a workspace near the 500-file cap.
 
 **Open questions:** cleanup of content left by deleted conversations (ADR-0014).
+
+## 2026-10-29 — Increment 13: M6 step 1 (part 2), Studio
+
+**Iteration:** M6 step 1, part 2. Definition of done: Studio lists saved files by
+chat or task; a file's page shows its versions (with the run that made each), its
+text or image, and downloads; HTML runs as a preview of the latest files without
+access to SEED's session, storage, page or network; saved versions opened
+directly never run; task timelines say which files were saved.
+
+**Changed**
+- `studio/api.py` (artifacts list, detail, version content, preview links,
+  preview files), `ArtifactStore` reads, migration `0007_previews`.
+- Web: `lib/studio.ts`, `pages/Studio.tsx` (list and file pages; the Studio
+  placeholder is gone), timeline notes for `artifacts_saved`,
+  `workspace_restored`, `artifacts_failed`; `mockApi` can return raw text.
+- nginx: `/api/v1/previews/` gets its own headers. Compose: the API mounts the
+  artifact volume read-only; `SEED_ARTIFACT_ROOT` moved to the shared env.
+- ADR-0015, D-016, README, CHANGELOG, roadmap, requirements WS-6, deployment.
+
+**Tested**
+```
+backend: ruff check → All checks passed! · ruff format --check → 54 files already formatted
+         mypy → Success: no issues found in 37 source files
+         pytest (DB) → 134 passed, 1 skipped (test_sandbox.py:208, the non-root check)
+frontend: typecheck ok · lint ok · format ok · vitest → Test Files 10 passed (10), Tests 56 passed (56)
+nginx -t (nginx:alpine) → syntax is ok, test is successful
+```
+Mutation checks (each made, tests run, reverted):
+```
+preview sent without its sandbox CSP            → CAUGHT   preview CSP shares SEED's origin       → CAUGHT
+version content can run scripts                 → CAUGHT   expired preview links still work       → CAUGHT
+preview reaches other workspaces                → CAUGHT   token stored in plain                  → CAUGHT
+download served inline                          → CAUGHT   deleted version served                 → CAUGHT
+listing ignores the conversation filter         → CAUGHT   listing shows the oldest as latest     → CAUGHT
+preview of a deleted file allowed               → CAUGHT   iframe shares SEED's origin            → CAUGHT
+preview offered for old versions                → CAUGHT   download link opens inline             → CAUGHT
+timeline hides deletions                        → CAUGHT   deleted version offered for download   → CAUGHT
+```
+(The first run had "preview offered for old versions" surviving: the frame from
+the earlier preview stayed up. The test now checks the frame is gone too.)
+
+Browser (Chromium) against the built app served by nginx with the committed
+config, real API, worker and Postgres, and an Ollama-wire stub that writes a
+small site (`index.html` linking `style.css` and `app.js`), then changes its
+heading. `app.js` tries to read cookies, use storage, reach its parent and fetch
+`/api/v1/auth/me`:
+```
+empty: No saved files yet
+studio list: Build a garden planner site | Open chat | site/index.html | 2 versions · 212 B | site/app.js | 1 version · 619 B | site/style.css | 1 version · 29 B
+versions: v2 10/29/2026, 9:15:26 AM 212 B Inspect run | v1 10/29/2026, 9:15:24 AM 209 B Inspect run Show v1
+preview heading: Garden planner v2 | colour: rgb(200, 0, 0)
+preview script: script ran | cookie blocked | storage blocked | parent blocked
+preview network: fetch blocked
+preview origin: null
+download name: index.html
+direct open CSP: <nginx app CSP>, sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'
+direct open script ran: script did not run
+v1 shows old heading: yes
+390 px overflow: artifact page 0, list 0 (first run: 44 px, from the versions
+table's screen-reader label escaping its scroller; fixed)
+```
+Console errors: the expected CSP blocks from the preview's fetch, the 401 from the
+sign-in check before login, and a `data:` font blocked by nginx's `font-src
+'self'` on every page. That font block predates this change and is not fixed here.
+
+**Not tested:** previews in Firefox and Safari; the deployed stack behind the
+Cloudflare tunnel; a preview link after it expires, in the browser (the API test
+covers it).
+
+**Open questions:** whether to allow `data:` fonts in the app's CSP (the existing
+block above).

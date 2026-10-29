@@ -4,6 +4,12 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
 
 ## [Unreleased]
 ### Added
+- Studio (M6, ADR-0015): `/studio` lists saved files by chat or task;
+  `/studio/{id}` shows versions, text or images, downloads, and runs HTML as a
+  sandboxed preview of the latest files. API `GET /api/v1/artifacts`,
+  `/{id}`, `/{id}/versions/{n}/content`, `POST /{id}/preview`,
+  `GET /api/v1/previews/{token}/{path}`; migration 0007. Task timelines note saved,
+  skipped and restored files.
 - Artifacts (M6, ADR-0014): after every run, each file it created, changed or
   deleted is saved as a version (migration 0006, `SEED_ARTIFACT_ROOT`, compose
   volume `artifacts`); an emptied workspace is refilled before the next run.
