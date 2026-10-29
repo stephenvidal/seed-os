@@ -4,6 +4,12 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
 
 ## [Unreleased]
 ### Added
+- Rendered output (D-018): chat answers, task results and Studio files show
+  Markdown, tables and HTML rendered first, with a Rendered / Source switch.
+  Fenced `html`, `svg` and `markdown` blocks and whole-page HTML answers appear in a
+  sandboxed frame (no scripts, no network) that opens at the viewer's device width,
+  with a Phone / Desktop switch. Studio's HTML preview starts on open and uses the
+  same frame; Markdown files render. The system prompt asks for responsive HTML.
 - Projects (M6, D-017): `/projects` and `/projects/{id}` (name, instructions, the
   project's chats and files); new chats start in a project from its page; a chat's
   header moves it in or out. API `/api/v1/projects`, `PUT

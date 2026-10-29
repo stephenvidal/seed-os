@@ -55,6 +55,12 @@ it — with full visibility and control.
   the latest files, in a sandbox with no access to your session, its storage, the
   page around it or the network (ADR-0015). Task timelines say which files were
   saved, skipped or put back.
+- **Rendered output:** answers, task results and Studio files show Markdown,
+  tables and HTML rendered, with a Rendered / Source switch on each answer, block
+  and file. HTML (a fenced `html`/`svg` block or a whole-page answer) runs in a
+  sandboxed frame with no scripts and no network, in the phone layout on a phone and
+  the desktop layout otherwise, with a switch for the other. Studio's HTML preview
+  starts when the file opens (D-018).
 - **Tasks (M3):** create a task, then follow its timeline live: steps, tool calls
   and lifecycle notes (attempts, resumes, retries, interruptions). Tasks run in
   the worker, so they keep going when the page is closed; the timeline is rebuilt

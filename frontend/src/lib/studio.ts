@@ -27,11 +27,12 @@ export type Artifact = {
 export type ArtifactDetail = { artifact: Artifact; versions: ArtifactVersion[] };
 
 /** How the page shows a file: rendered, as text, or only offered for download. */
-export type Viewer = "html" | "image" | "text" | "none";
+export type Viewer = "html" | "markdown" | "image" | "text" | "none";
 
 export function viewerFor(mediaType: string): Viewer {
   const type = mediaType.split(";")[0]!.trim();
   if (type === "text/html") return "html";
+  if (type === "text/markdown") return "markdown";
   if (type.startsWith("image/")) return "image";
   if (
     type.startsWith("text/") ||

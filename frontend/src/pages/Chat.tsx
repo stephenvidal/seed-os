@@ -139,7 +139,7 @@ function LiveReply({ task, onEnd }: { task: Task; onEnd: () => void }) {
         <p className="text-xs text-warning">Resumed on another attempt after an interruption.</p>
       )}
       <ToolList tools={tools} live />
-      {text && <Markdown text={text} />}
+      {text && <Markdown text={text} toggle live />}
       {asking && (
         <ApprovalPrompt key={asking.id} taskId={task.id} call={asking} onDecided={onEnd} />
       )}
@@ -310,7 +310,7 @@ function TurnView({
       ) : (
         <div className="flex flex-col gap-2">
           <PastActivity task={task} />
-          {task.state === "completed" && <Markdown text={task.result_text ?? ""} />}
+          {task.state === "completed" && <Markdown text={task.result_text ?? ""} toggle />}
           {task.state === "failed" && (
             <p role="alert" className="flex items-start gap-2 text-xs text-danger">
               <AlertTriangle size={14} className="mt-px shrink-0" aria-hidden />

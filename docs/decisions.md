@@ -429,3 +429,40 @@ versions work (ADR-0014) without a stated need.
 **Consequences:** Editing instructions does not change answers already sent.
 Lone tasks are not in projects yet. Memory (owner's choice on 2026-10-29: the agent
 proposes, the owner approves) builds on this.
+
+## D-018 — Model output is shown rendered first
+
+**Date:** 2026-10-29
+
+**Context:** Chat answers, task results and Studio files showed Markdown tables,
+HTML and similar as text. The owner asked for the rendered view first, a switch to
+the source, and HTML that is mobile responsive, shown at the viewer's device width
+first with a switch to the other.
+
+**Options:** (a) steer the model only, through the system prompt; (b) fix the HTML
+on the client only, by injecting a viewport meta tag and base styles; (c) both. For
+inline HTML (a fenced block or a whole-page answer): run it with scripts, or
+without.
+
+**Choice:** (c). The system prompt asks for one self-contained, responsive page
+(viewport meta, fluid layout, media queries, inline styles). The client also puts a
+viewport meta and low-specificity base styles into inline HTML so a page that
+ignored the prompt still fits a phone. Inline HTML runs in a frame with
+`sandbox=""` (no scripts, no same-origin) and a CSP meta placed first (`default-src
+'none'`, inline styles, `data:` images and fonts). Studio files keep ADR-0015's
+served preview (`allow-scripts allow-modals`, opaque origin, server CSP) in the same
+frame component, which now starts the preview on open. The frame's width is the
+viewport: 390px for the phone view, a 1024px window scaled to fit for the desktop
+view; it opens in the phone view at 640px or narrower and the desktop view above.
+Fenced `html`, `svg` and `markdown` blocks render; tables already render as GFM.
+While an answer streams, HTML stays code until it is complete.
+
+**Reason:** The prompt alone cannot be trusted; the client alone cannot make a
+fixed-width page fluid. Chat HTML is model output with no owner review, so it gets
+the stricter frame; Studio files are the owner's saved artifacts behind a short-lived
+token.
+
+**Consequences:** Inline HTML cannot run scripts (a chart needing JavaScript shows
+in Studio as a file instead). Studio HTML files are not rewritten, so their
+responsiveness depends on the page; the phone view lays them out in a 390px frame so
+media queries apply. CSV and JSON are not rendered specially.
