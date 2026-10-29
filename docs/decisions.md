@@ -329,3 +329,23 @@ summary still shows the stored checkpoint). Very long runs load every event; the
 page reads 1000 per request. Not shown: delegation (M7), cost (no prices), and
 verification. Open question: which milestone owns verification evidence in the
 Inspector; no milestone names it.
+
+## D-015 — Which files become artifacts
+
+**Date:** 2026-10-29
+
+**Context:** M6 starts with artifacts. The agent's files live in a scratch
+workspace that a sandbox restart wipes. (D-014 is taken by the spend-tracking
+plan.)
+
+**Options:** save every file a run creates or changes; or give the agent a
+publish tool and save only what it publishes.
+
+**Choice:** Every changed file, per message (owner's choice on 2026-10-29, the
+recommended option). Design in ADR-0014.
+
+**Reason:** Nothing the agent makes is lost, it does not depend on the model
+remembering to publish, and versions line up with the messages that made them.
+
+**Consequences:** Studio may list scratch files the person does not care about;
+filtering or hiding comes with the Studio page if it is needed.

@@ -4,6 +4,11 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
 
 ## [Unreleased]
 ### Added
+- Artifacts (M6, ADR-0014): after every run, each file it created, changed or
+  deleted is saved as a version (migration 0006, `SEED_ARTIFACT_ROOT`, compose
+  volume `artifacts`); an emptied workspace is refilled before the next run.
+  Events `artifacts_saved`, `workspace_restored`, `artifacts_failed`; sandbox file
+  ops `snapshot`, `read_bytes`, `write_bytes`.
 - Execution Inspector (M5 step 2): `/inspector` lists tasks; `/inspector/{id}`
   shows attempts, model steps, tool calls, checkpoints, totals and the event log
   for one task, from its stored events (D-013).
