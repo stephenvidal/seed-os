@@ -299,3 +299,33 @@ tasks is cheap, and polling every 10 s is light next to the task stream.
 open owner question). Long histories may need an index on `finished_at`.
 Agent activity, artifacts and notifications stay as their milestones (M7, M6, M8).
 
+
+## D-013 — The Inspector reads the event log, and records checkpoints in it
+
+**Date:** 2026-10-29
+
+**Context:** WS-7 asks for an Execution Inspector: steps, transitions, tool calls
+and results, model, timing, tokens, retries, checkpoints, errors, with no
+fabricated reasoning. Every run already writes an ordered event log
+(`task_events`) with step usage and latency, tool results with durations,
+provider retries and lifecycle events. Checkpoints were saved but not logged.
+
+**Options:** a separate trace store written by the worker; or folding the event
+log in the browser, plus one new event for checkpoints.
+
+**Choice:** The page folds `GET /api/v1/tasks/{id}/events` (read page by page to
+the last event) into attempts, model steps, tool calls and checkpoints.
+`save_checkpoint` now logs `checkpoint_saved {steps, pending}` in the same
+transaction as the save. Each `attempt_started` is its own row, because a pause
+for approval or a shutdown hands the attempt number back and the resumed run
+repeats it. A tool result or decision belongs to the newest call with its id,
+because Ollama call ids restart at `call_0` every step.
+
+**Reason:** The log is already the record of what happened; a second store could
+disagree with it. One new event closes the only gap.
+
+**Consequences:** Tasks that ran before this change show no checkpoint rows (the
+summary still shows the stored checkpoint). Very long runs load every event; the
+page reads 1000 per request. Not shown: delegation (M7), cost (no prices), and
+verification. Open question: which milestone owns verification evidence in the
+Inspector; no milestone names it.

@@ -47,8 +47,14 @@ it — with full visibility and control.
   without it the page says so. Task agents can also run shell commands
   (`run_command`) in the sandbox: no network, time/memory/CPU/process limits,
   each task in its own workspace as its own user (ADR-0010).
-- Agents, Projects, Studio, Inspector, Models, Tools: page structure with
-  empty states naming the milestone that delivers each.
+- **Inspector (M5):** pick any task or chat message and see how it actually
+  ran, folded from its stored events: attempts (worker, resumed step, how each
+  ended), model steps (time, tokens, finish reason, provider retries), tool
+  calls (arguments, result, time, approval), checkpoints, and the raw event log
+  (streamed text chunks are counted, not listed). A running task refreshes every
+  3 s. Model reasoning is never stored, so it is never shown.
+- Agents, Projects, Studio, Models, Tools: page structure with empty states
+  naming the milestone that delivers each.
 
 ## API (as built)
 | Method | Path | Auth | Result |
@@ -71,7 +77,7 @@ it — with full visibility and control.
 | GET | `/api/v1/overview` | admin | `?hours=1..720` (default 24) → `{window_hours, generated_at, counts, attention[], active[], recent[], usage[]}`: queued/running/waiting now; completed/failed/canceled, recent work and per-model tokens for tasks finished in the window; `attention` is every waiting task then failures in the window (10 max), `active` running then queued (10 max), `recent` 5 max; all users' tasks |
 | GET | `/api/v1/tasks` | admin | Newest first; `?state=queued\|running\|waiting\|completed\|failed\|canceled`, `?limit=1..100` |
 | GET | `/api/v1/tasks/{id}` | admin | Task: state, attempt, termination, error, result, usage, `last_seq`, `resumable_from_step`, `awaiting_approval` (`{id, name, arguments}` while `waiting`), and for a chat turn `conversation_id` and `turn`; 404 `not_found` |
-| GET | `/api/v1/tasks/{id}/events` | admin | `{events[], last_seq, state}`; `?after=<seq>&limit=` for incremental reads. Events: `task_created`, `attempt_started`, run events, `cancel_requested`, `task_requeued`, `task_released`, `lease_expired` |
+| GET | `/api/v1/tasks/{id}/events` | admin | `{events[], last_seq, state}`; `?after=<seq>&limit=` for incremental reads. Events: `task_created`, `attempt_started`, run events, `checkpoint_saved` (`{steps, pending}`), `cancel_requested`, `task_requeued`, `task_released`, `lease_expired` |
 | GET | `/api/v1/tasks/{id}/stream` | admin | `text/event-stream`: each stored event as `id: <seq>` + JSON data, then `event: end` once the task is finished. Resumes after `Last-Event-ID` (or `?after=`); 404 `not_found` |
 | POST | `/api/v1/tasks/{id}/cancel` | admin | Queued or waiting → `canceled` at once; running → stops at the worker's next heartbeat; 409 `not_cancelable` |
 | POST | `/api/v1/tasks/{id}/decision` | admin | `{call_id, approve}` for the call in the task's `awaiting_approval` → task `queued` to resume; event `approval_decided`; audited as `tool_approved`/`tool_denied` with the tool and its arguments; 409 `not_waiting` |

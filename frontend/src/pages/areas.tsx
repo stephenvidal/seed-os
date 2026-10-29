@@ -1,4 +1,4 @@
-import { Activity, Bot, Boxes, Cpu, FolderKanban, Wrench } from "lucide-react";
+import { Bot, Boxes, Cpu, FolderKanban, Wrench } from "lucide-react";
 import { PlannedPage } from "./Planned";
 
 export const AgentsPage = () => (
@@ -48,23 +48,6 @@ export const StudioPage = () => (
       "Sandboxed previews",
       "Version history and downloads",
       "Source task and validation status",
-    ]}
-  />
-);
-
-export const InspectorPage = () => (
-  <PlannedPage
-    title="Inspector"
-    description="Observable execution: steps, tools, timing, tokens, and evidence."
-    icon={Activity}
-    emptyTitle="No executions recorded"
-    emptyBody="The inspector shows real execution events and explicit plans. It never fabricates model reasoning."
-    milestone="M5 · Command center and inspector"
-    scope={[
-      "State transitions and tool calls with results",
-      "Delegation and model selection",
-      "Tokens, cost, errors, and retries",
-      "Checkpoints and verification evidence",
     ]}
   />
 );

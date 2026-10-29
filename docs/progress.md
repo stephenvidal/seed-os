@@ -1123,3 +1123,69 @@ approval row opens: /chat/76672ddf-3e7f-45e1-9084-5c1909823e6c
 by SQL); the compose stack and the deploy; query time with a long task history.
 
 **Open questions:** model prices and the monthly budget, needed for spend (D-012).
+
+## 2026-10-29 — Increment 11: M5 step 2, Execution Inspector
+
+**Iteration:** M5 step 2. Definition of done: `/inspector` lists tasks and
+`/inspector/{id}` shows, from recorded events only, a task's attempts, model
+steps (time, tokens, finish reason, retries), tool calls (arguments, result,
+time, approval), checkpoints and its event log; no reasoning is shown; a running
+task refreshes; checkpoints are logged as events.
+
+**Changed**
+- `flow/store.py`: `save_checkpoint` logs `checkpoint_saved {steps, pending}` in
+  the same transaction as the save.
+- Web: `lib/inspector.ts` (`inspect()` folds events), `tasksApi.allEvents`
+  (reads every page), `pages/Inspector.tsx` (list and task pages); the Inspector
+  placeholder is gone.
+- D-013, README, CHANGELOG, roadmap, requirements WS-7.
+- Found while testing: provider retries are logged after `step_started`, so they
+  are charged to the step in progress; Ollama call ids repeat per step, so
+  results match the newest call with that id (a first draft de-duplicated calls by
+  id and would have hidden later steps' calls).
+
+**Tested**
+```
+backend: ruff check → All checks passed! · ruff format --check → 46 files already formatted
+         mypy → Success: no issues found in 31 source files
+         pytest (DB) → 123 passed, 1 skipped (test_sandbox.py:208, checks the non-root refusal)
+frontend: typecheck ok · lint ok · format ok · vitest → Test Files 9 passed (9), Tests 49 passed (49)
+```
+Mutation checks (each made, tests run, reverted):
+```
+allEvents stops after one page                     → CAUGHT
+event log lists text deltas                        → CAUGHT
+result matched to the first call with a reused id  → CAUGHT
+retry charged to no step                           → CAUGHT
+ending applied to first run with that number       → CAUGHT
+tool result ignored                                → CAUGHT
+approval decision ignored                          → CAUGHT
+checkpoint pending count dropped (web)             → CAUGHT
+pending count dropped (backend)                    → CAUGHT
+checkpoint not logged                              → CAUGHT
+seq not bumped (event collides)                    → CAUGHT
+```
+(The first mutation run had two survivors, a tool-call de-dupe and the web
+pending count; the de-dupe was the bug above, and the tests now cover both.)
+
+Browser (Chromium; API, worker, Postgres, Ollama-wire stub that answers 429 once,
+then writes two files, lists files, and replies):
+```
+empty list: No executions recorded
+Summary: Model | stub | Attempts | 1 of 3 | Duration | 1s | Model steps | 3 | Tool calls | 3 | Tokens | 200 in / 21 out | Time in model | 7 ms | Time in tools | 0 ms | Provider retries | 1 | Checkpoint | after step 2 | Ended | completed
+Attempts: 1	05:41:00 AM	vm:28672:ef01f5	—	05:41:01 AM	completed
+Model steps: 1 1 4 ms 50 7 tool_calls 2 1 | 1 2 1 ms 70 7 tool_calls 1 0 | 1 3 2 ms 80 7 stop 0 0
+Tool calls: 1 write_file {"path":"a.txt","content":"alpha"} ok | 1 write_file {"path":"b.txt","content":"beta"} ok | 2 list_files {} ok
+Checkpoints: 05:41:01 AM 1 1 0 | 05:41:01 AM 1 2 0
+event log types: task_created attempt_started run_started step_started provider_retry step_completed tool_call tool_result tool_call tool_result checkpoint_saved step_started step_completed tool_call tool_result checkpoint_saved step_started step_completed run_finished
+db tool_call ids: 8|1|call_0|write_file · 10|1|call_1|write_file · 15|2|call_0|list_files
+390px horizontal page scroll: false
+console errors: one 401 from the sign-in check before login
+```
+
+**Not tested:** in the browser, a crashed or paused-and-resumed run (covered by
+unit tests on a recorded-shape log, and by the backend checkpoint tests); the
+compose stack and the deploy; load time for a task with many thousands of events.
+
+**Open questions:** which milestone owns verification evidence in the Inspector
+(D-013); model prices for cost.
