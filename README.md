@@ -46,6 +46,11 @@ it — with full visibility and control.
   or reject it, and the projects list and the chat header say when proposals wait.
   You can add, edit and delete notes yourself. Each message copies the approved
   notes, newest first, up to 4,000 characters.
+- **Project knowledge (M6):** text documents (.md, .markdown, .txt, .csv, .json,
+  up to 256 KiB each) added on a project's page (D-021). In the project's chats the
+  agent has a `search_knowledge` tool that returns the five best matching passages
+  (Postgres full-text search, English stemming; "quoted phrases" and -excluded
+  words work). Documents are split into passages of up to 1,500 characters.
 - **Approvals (M4):** before the agent runs a shell command, the task stops as
   "needs you" and Chat and the task page show the exact command with Approve and
   Deny. The run carries on from where it stopped; a denied command is reported
@@ -102,7 +107,7 @@ it — with full visibility and control.
 | POST | `/api/v1/conversations/{id}/turns/{turn_id}/versions` | admin | `{prompt?, model?}`, optional `Idempotency-Key` → 201 task: a new version of that message (edited with `prompt`, asked again without), carrying the turns above it; it ends the shown path and older versions are kept; 200 on a repeated key; 409 `turn_in_progress` while any turn is unfinished; 404 `not_found` |
 | PUT | `/api/v1/conversations/{id}/shown` | admin | `{turn_id}` → `{conversation, turns[]}` showing that version and its newest replies; 409 `turn_in_progress` while a turn is unfinished; 404 `not_found` |
 | PUT | `/api/v1/conversations/{id}/project` | admin | `{project_id}` (or `null` to take it out) → the conversation; messages sent from now on get that project's instructions; 404 `not_found`, `project_not_found` |
-| GET | `/api/v1/projects` | admin | The caller's projects, most recently changed first: `{id, name, instructions, conversations, proposed_memories, …}` |
+| GET | `/api/v1/projects` | admin | The caller's projects, most recently changed first: `{id, name, instructions, conversations, proposed_memories, documents, …}` |
 | POST | `/api/v1/projects` | admin | `{name, instructions?}` (name: whitespace collapsed, 1–80 chars; instructions up to 20,000) → 201 project; 422 |
 | GET | `/api/v1/projects/{id}` | admin | The project; 404 `not_found` (also for another user's) |
 | PATCH | `/api/v1/projects/{id}` | admin | `{name?, instructions?}` → the project; 404 `not_found`; 422 |
@@ -110,6 +115,9 @@ it — with full visibility and control.
 | GET | `/api/v1/projects/{id}/memories` | admin | The project's notes, proposals first, then approved, newest first: `{id, content, status, created_by, source_task_id, source_conversation_id, approved_by, approved_at, …}`; `?status=proposed\|approved`; 404 `not_found` |
 | POST | `/api/v1/projects/{id}/memories` | admin | `{content}` (whitespace collapsed, 1–500 chars) → 201 note, approved as written; 404; 422 |
 | PATCH | `/api/v1/projects/{id}/memories/{memory_id}` | admin | `{content?, approve?}` → the note; `approve: true` makes a proposal reach the model; 404 `not_found` |
+| GET | `/api/v1/projects/{id}/documents` | admin | The project's knowledge documents by name: `{id, name, chars, chunks, created_by, created_at}`; 404 `not_found` |
+| POST | `/api/v1/projects/{id}/documents` | admin | `{name, content}` (a file name ending .md, .markdown, .txt, .csv or .json; text up to 256 KiB, no NUL) → 201 document; 409 `name_taken`; 404; 422 |
+| DELETE | `/api/v1/projects/{id}/documents/{document_id}` | admin | 204; removes the document and its passages; 404 `not_found` |
 | DELETE | `/api/v1/projects/{id}/memories/{memory_id}` | admin | 204; deletes a note or rejects a proposal; 404 `not_found` |
 | DELETE | `/api/v1/conversations/{id}` | admin | 204; removes the conversation, its turns and their events; 409 `turn_in_progress` while a turn is queued, running or waiting; 404 `not_found` |
 | POST | `/api/v1/conversations/{id}/turns` | admin | `{prompt, model?}`, optional `Idempotency-Key` → 201 task continuing the shown path, carrying its completed turns as context; `model` switches the conversation's model; 409 `turn_in_progress` while a turn is unfinished; 404 `not_found` |
@@ -131,7 +139,7 @@ it — with full visibility and control.
 Every authenticated request other than GET/HEAD/OPTIONS must send the `seed_csrf`
 cookie's value in `X-CSRF-Token`, or it gets 403 `csrf_failed` (ADR-0009). Sign-ins,
 sign-outs, user changes, new, renamed, moved and deleted conversations, new,
-changed and deleted projects, added, changed, approved and deleted memory notes, task
+changed and deleted projects, added, changed, approved and deleted memory notes, added and deleted documents, task
 create/cancel/retry (chat turns included) and approval decisions are recorded in
 `audit_log`.
 

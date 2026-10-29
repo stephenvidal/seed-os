@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from ..auth import AuthStoreDep, Principal, client_ip, require_role
 from ..errors import ApiError
+from .knowledge import MAX_DOCUMENT_CHARS, TEXT_SUFFIXES, Document, KnowledgeStore, NameTaken
 from .memory import MAX_NOTE_CHARS, Memory, MemoryStore, Status
 from .store import ProjectStore, ProjectSummary
 
@@ -40,6 +41,18 @@ def get_memory(request: Request) -> MemoryStore:
 
 
 MemoryDep = Annotated[MemoryStore, Depends(get_memory)]
+
+
+def get_knowledge(request: Request) -> KnowledgeStore:
+    store: KnowledgeStore | None = getattr(request.app.state, "knowledge_store", None)
+    if store is None:
+        raise ApiError(
+            503, "database_not_configured", "Projects need a database. Set SEED_DATABASE_URL."
+        )
+    return store
+
+
+KnowledgeDep = Annotated[KnowledgeStore, Depends(get_knowledge)]
 
 
 def tidy_name(v: str) -> str:
@@ -269,5 +282,85 @@ async def delete_memory(
         raise ApiError(404, "not_found", "No such note.")
     await audit.audit(
         "memory_deleted", actor=principal.username, target=str(memory_id), ip=client_ip(request)
+    )
+    return Response(status_code=204)
+
+
+class NewDocument(BaseModel):
+    name: str = Field(max_length=200)
+    # The file's text, read by the browser.
+    content: str = Field(max_length=MAX_DOCUMENT_CHARS)
+
+    @field_validator("name")
+    @classmethod
+    def name_ok(cls, v: str) -> str:
+        v = v.strip()
+        if not v or "/" in v or "\\" in v:
+            raise ValueError("Give the file name only.")
+        if not v.lower().endswith(TEXT_SUFFIXES):
+            raise ValueError(f"Only text documents: {', '.join(TEXT_SUFFIXES)}.")
+        return v
+
+    @field_validator("content")
+    @classmethod
+    def content_ok(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("The document is empty.")
+        if "\x00" in v:
+            raise ValueError("The document is not text.")
+        return v
+
+
+@router.get("/{project_id}/documents", response_model=list[Document])
+async def list_documents(
+    project_id: uuid.UUID, principal: AdminOnly, store: ProjectsDep, knowledge: KnowledgeDep
+) -> list[Document]:
+    """The project's knowledge documents, by name."""
+    await _project(store, principal.username, project_id)
+    return await knowledge.documents(principal.username, project_id)
+
+
+@router.post("/{project_id}/documents", response_model=Document, status_code=201)
+async def add_document(
+    project_id: uuid.UUID,
+    body: NewDocument,
+    request: Request,
+    principal: AdminOnly,
+    knowledge: KnowledgeDep,
+    audit: AuthStoreDep,
+) -> Document:
+    """Add a text document; the agent can search it in the project's chats from the
+    next message on. 409 name_taken when the project has one by that name."""
+    try:
+        doc = await knowledge.add(principal.username, project_id, body.name, body.content)
+    except NameTaken:
+        raise ApiError(
+            409, "name_taken", "This project already has a document with that name."
+        ) from None
+    if doc is None:
+        raise ApiError(404, "not_found", "No such project.")
+    await audit.audit(
+        "document_added",
+        actor=principal.username,
+        target=str(doc.id),
+        ip=client_ip(request),
+        detail={"name": doc.name, "chars": doc.chars},
+    )
+    return doc
+
+
+@router.delete("/{project_id}/documents/{document_id}", status_code=204)
+async def delete_document(
+    project_id: uuid.UUID,
+    document_id: uuid.UUID,
+    request: Request,
+    principal: AdminOnly,
+    knowledge: KnowledgeDep,
+    audit: AuthStoreDep,
+) -> Response:
+    if not await knowledge.delete(principal.username, project_id, document_id):
+        raise ApiError(404, "not_found", "No such document.")
+    await audit.audit(
+        "document_deleted", actor=principal.username, target=str(document_id), ip=client_ip(request)
     )
     return Response(status_code=204)

@@ -11,6 +11,10 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
 - Chat links to the files an answer saved (D-021): each appears under the answer
   and opens in a dialog with the same viewer as Studio (sandboxed preview, Source
   switch, Phone / Desktop frame), with a link on to Studio.
+- Project knowledge (M6, D-021): text documents on a project's page, split into
+  passages and indexed with Postgres full-text search; the `search_knowledge` tool
+  in the project's turns. API `/api/v1/projects/{id}/documents`, `documents` on
+  projects; migration 0010. nginx accepts request bodies up to 2 MiB.
 - Rendered output (D-019): chat answers, task results and Studio files show
   Markdown, tables and HTML rendered first, with a Rendered / Source switch.
   Fenced `html`, `svg` and `markdown` blocks and whole-page HTML answers appear in a

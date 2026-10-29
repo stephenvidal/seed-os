@@ -23,12 +23,14 @@ class ProjectSummary(Project):
     conversations: int
     # Memory notes the agent proposed that wait for the owner.
     proposed_memories: int
+    documents: int
 
 
 _SUMMARY = """
 SELECT p.*, (SELECT count(*) FROM conversations c WHERE c.project_id = p.id) AS conversations,
        (SELECT count(*) FROM project_memories m
-        WHERE m.project_id = p.id AND m.status = 'proposed') AS proposed_memories
+        WHERE m.project_id = p.id AND m.status = 'proposed') AS proposed_memories,
+       (SELECT count(*) FROM knowledge_documents d WHERE d.project_id = p.id) AS documents
 FROM projects p
 """
 
@@ -41,7 +43,7 @@ class ProjectStore:
         async with self.pool.connection() as conn:
             cur = await conn.execute(
                 "INSERT INTO projects (id, owner, name, instructions) VALUES (%s, %s, %s, %s) "
-                "RETURNING *, 0 AS conversations, 0 AS proposed_memories",
+                "RETURNING *, 0 AS conversations, 0 AS proposed_memories, 0 AS documents",
                 (uuid.uuid4(), owner, name, instructions),
             )
             row = await cur.fetchone()
