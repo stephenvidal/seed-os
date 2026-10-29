@@ -34,6 +34,11 @@ it — with full visibility and control.
   and searched by title, message or answer. Any message can be edited, and any
   answer regenerated; each becomes a new version, the old ones are kept, and the
   arrows under a message switch between its versions (ADR-0013).
+- **Agents (M7):** specialists SEED will be able to hand part of a job to (D-024).
+  The Agents page lists them and edits each one's name, what it is for,
+  instructions, model and allowed tools. It starts with an editable Researcher,
+  Coder and Reviewer, given once. SEED does not delegate to them yet: that is the
+  next step of M7.
 - **Projects (M6):** group chats under a name with instructions SEED follows in
   every one of them (D-017). A project's page edits its name and instructions and
   lists its chats and the files they saved; "New chat" starts one in the project,
@@ -123,6 +128,9 @@ it — with full visibility and control.
 | GET | `/api/v1/projects/{id}` | admin | The project; 404 `not_found` (also for another user's) |
 | PATCH | `/api/v1/projects/{id}` | admin | `{name?, instructions?}` → the project; 404 `not_found`; 422 |
 | DELETE | `/api/v1/projects/{id}` | admin | 204; its conversations and tasks are kept and leave the project; 404 `not_found` |
+| GET | `/api/v1/agents` | admin | The caller's agents by name: `{id, name, description, instructions, model, tools[], …}`; the first call adds the starter agents (Researcher, Coder, Reviewer) once |
+| POST | `/api/v1/agents` | admin | `{name, description, instructions?, model?, tools[]}` → 201; name 1-40 letters, digits, spaces, `-` or `_`, unique per owner ignoring case (409 `name_taken`); tools from `list_files`, `read_file`, `write_file`, `run_command`, `search_knowledge`; blank model means the delegating task's |
+| GET / PUT / DELETE | `/api/v1/agents/{id}` | admin | Read, replace (same body as POST) or delete (204) an agent; 404 `not_found`; audited as `agent_created`/`agent_updated`/`agent_deleted` |
 | GET | `/api/v1/projects/{id}/memories` | admin | The project's notes, proposals first, then approved, newest first: `{id, content, status, created_by, source_task_id, source_conversation_id, approved_by, approved_at, …}`; `?status=proposed\|approved`; 404 `not_found` |
 | POST | `/api/v1/projects/{id}/memories` | admin | `{content}` (whitespace collapsed, 1–500 chars) → 201 note, approved as written; 404; 422 |
 | PATCH | `/api/v1/projects/{id}/memories/{memory_id}` | admin | `{content?, approve?}` → the note; `approve: true` makes a proposal reach the model; 404 `not_found` |

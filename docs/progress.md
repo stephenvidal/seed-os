@@ -1746,3 +1746,51 @@ errors: the 401 from the sign-in check before login
 **Not tested:** a real model in a project task; Firefox and Safari.
 
 **Open questions:** none new. M6's planned steps are done; M7 is next.
+
+## Increment 19 — Agent definitions (M7 step 1)
+
+**Iteration:** M7 step 1, agent definitions. **Done when:** an owner can list,
+create, change and delete agents (name, purpose, instructions, model, allowed
+tools) through the API and the Agents page; names are unique per owner ignoring
+case; input is validated; the three starters appear once and stay deleted; other
+owners' agents are invisible — each shown by a test that fails when it breaks,
+and in a browser.
+
+**Changed**
+- Migration `0012_agents` (`agents`, `agent_starters`); `agents/store.py`,
+  `agents/api.py` (`/api/v1/agents`, audited).
+- Web: `/agents` is now the Agents page (list, create, edit, delete with a
+  confirm; a note that delegation is not built yet), replacing the planned page.
+- D-024, README, CHANGELOG, roadmap, requirements WS-4.
+
+**Tested**
+```
+backend: ruff check → All checks passed! · ruff format --check → 69 files already formatted
+         mypy → Success: no issues found in 46 source files
+         pytest (DB) → 162 passed, 1 skipped
+frontend: typecheck ok · lint ok · format ok · vitest → Test Files 14 passed (14), Tests 99 passed (99)
+```
+Mutation checks (each made, tests run, reverted), backend 13/13 caught: list
+crosses owners; get crosses owners; delete crosses owners; update crosses owners;
+tools not deduplicated or ordered; starters given again; starters overwrite the
+owner's agent; any name accepted; blank model kept; blank purpose accepted;
+purpose whitespace kept; name clash not answered with 409; any tool name
+accepted. Frontend 8/8 caught: tools not sent; empty form submittable; errors
+hidden; model choice ignored; delete without confirm; model badge wrong; purpose
+not tidied; PATCH instead of PUT. The frontend test also caught a real bug before
+commit: editing sent the whole agent (id, owner, dates) instead of the definition.
+
+Browser (Chromium) on the Vite dev server with the real API and Postgres:
+```
+starters: Coder · …· task's model · List files · Read files · Write files · Run commands · instructions
+          Researcher · … · List files · Read files · Search project knowledge · instructions
+          Reviewer · … · List files · Read files · instructions
+duplicate: You already have an agent called coder.
+after reload: [ 'Coder', 'Researcher', 'Reviewer', 'Writer' ]
+overflow at 390: 0
+errors: the 401 from the sign-in check before login; the 409 the duplicate check asked for
+```
+
+**Not tested:** Firefox and Safari.
+
+**Open questions:** none new. Step 2 (delegation) is next.

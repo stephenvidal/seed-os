@@ -636,3 +636,35 @@ finished task (2) would change nothing about how it ran, so it is not built.
 **Consequences:** A task sees the project's instructions and memory as they were
 when it was created. A queued task in a project that is then deleted runs without
 the memory and knowledge tools.
+
+## D-024 — Agent definitions, with three starters given once
+
+**Date:** 2026-10-29
+
+**Context:** M7 adds specialists SEED can delegate to. The requirements ask for
+configurable agent definitions (role, model, tool permissions) and real separate
+execution contexts, not personas. The owner chose on 2026-10-29 that the Agents
+page starts with three editable starter specialists rather than empty.
+
+**Options:** definitions in a config file; in the database, edited on the Agents
+page; for the starters, seeding them in a migration, at admin bootstrap, or the
+first time each owner lists agents.
+
+**Choice:** In the database, per owner: a name (1-40 characters, unique ignoring
+case, since the assistant will name the agent it delegates to), what it is for
+(read by the assistant to choose), instructions, a model (blank: the delegating
+task's) and allowed tools from `list_files`, `read_file`, `write_file`,
+`run_command`, `search_knowledge`. `remember` is not offered: memory proposals
+stay with the assistant the owner talks to. The starters, Researcher (read and
+search), Coder (files and commands) and Reviewer (read only), are inserted the
+first time an owner lists agents, recorded in `agent_starters` so deleting them
+does not bring them back; an agent of the owner's with the same name is kept.
+
+**Reason:** Owners change agents from the app, like projects. Seeding on first
+list works for every owner, not just the bootstrap admin, and needs no migration
+data.
+
+**Consequences:** Changing an agent affects delegations started afterwards only
+(step 2 copies the definition into the delegated task). `run_command` still waits
+for approval under `SEED_APPROVAL_REQUIRED_TOOLS`. Nothing delegates yet; the
+Agents page says so.
