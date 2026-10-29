@@ -27,6 +27,7 @@ import { ApprovalPrompt } from "../components/tasks/ApprovalPrompt";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { EmptyState } from "../components/ui/EmptyState";
+import { ArtifactLinks } from "../components/studio/ArtifactLinks";
 import { Markdown } from "../components/ui/Markdown";
 import { Panel } from "../components/ui/Panel";
 import { Spinner } from "../components/ui/Spinner";
@@ -239,6 +240,7 @@ function SummaryNote({ text }: { text: string }) {
 
 function TurnView({
   turn: task,
+  conversationId,
   last,
   locked,
   onEnd,
@@ -247,6 +249,7 @@ function TurnView({
   onShow,
 }: {
   turn: Turn;
+  conversationId: string;
   last: boolean;
   /** Something is being answered or changed: no new versions or switching. */
   locked: boolean;
@@ -326,6 +329,11 @@ function TurnView({
         <div className="flex flex-col gap-2">
           <PastActivity task={task} />
           {task.state === "completed" && <Markdown text={task.result_text ?? ""} toggle />}
+          <ArtifactLinks
+            conversationId={conversationId}
+            taskId={task.id}
+            enabled={task.state === "completed"}
+          />
           {task.state === "failed" && (
             <p role="alert" className="flex items-start gap-2 text-xs text-danger">
               <AlertTriangle size={14} className="mt-px shrink-0" aria-hidden />
@@ -830,6 +838,7 @@ function ConversationView({ id }: { id: string }) {
             <Fragment key={t.id}>
               <TurnView
                 turn={t}
+                conversationId={id}
                 last={i === turns.length - 1}
                 locked={locked}
                 onEnd={refresh}

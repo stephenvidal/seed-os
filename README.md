@@ -69,6 +69,8 @@ it — with full visibility and control.
   persistent volume. If the sandbox restarts and a workspace comes back empty,
   the next run puts the saved files back first (ADR-0014).
 - **Studio (M6):** every saved file, grouped by the chat or task that made it.
+  In a chat, the files an answer saved are linked under it and open in a dialog
+  with the same viewer (D-021).
   A file's page shows each version (who made it, size, a link to its run in the
   Inspector), its text or image, and a download. HTML can be run as a preview of
   the latest files, in a sandbox with no access to your session, its storage, the
