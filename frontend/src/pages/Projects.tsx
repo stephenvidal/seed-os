@@ -13,8 +13,12 @@ import { ApiError } from "../lib/api";
 import { chatApi } from "../lib/chat";
 import { formatBytes } from "../lib/format";
 import {
+  DOCUMENT_TYPES,
+  MAX_DOCUMENT_CHARS,
   MAX_NOTE_CHARS,
   PROJECTS,
+  documentsKey,
+  knowledgeApi,
   memoryApi,
   memoryKey,
   projectKey,
@@ -410,6 +414,99 @@ function Note({ project, note }: { project: Project; note: Memory }) {
   );
 }
 
+function Knowledge({ project }: { project: Project }) {
+  const qc = useQueryClient();
+  const docs = useQuery({
+    queryKey: documentsKey(project.id),
+    queryFn: () => knowledgeApi.list(project.id),
+    retry: false,
+  });
+  const [problem, setProblem] = useState<string | null>(null);
+  const changed = () => {
+    void qc.invalidateQueries({ queryKey: documentsKey(project.id) });
+    void qc.invalidateQueries({ queryKey: PROJECTS });
+  };
+  const add = useMutation({
+    mutationFn: async (file: File) => {
+      const text = await file.text();
+      if (text.length > MAX_DOCUMENT_CHARS)
+        throw new Error(`${file.name} is too long (at most 256 KiB of text).`);
+      return knowledgeApi.add(project.id, file.name, text);
+    },
+    onSuccess: changed,
+    onError: (e) => setProblem(e instanceof Error ? e.message : "Unexpected error."),
+  });
+  const remove = useMutation({
+    mutationFn: (id: string) => knowledgeApi.remove(project.id, id),
+    onSuccess: changed,
+    onError: (e) => setProblem(e instanceof Error ? e.message : "Unexpected error."),
+  });
+
+  return (
+    <Panel title="Knowledge">
+      <p className="px-4 pt-3 text-xs text-fg-muted">
+        Text documents SEED can search in this project&apos;s chats ({DOCUMENT_TYPES.join(", ")}; up
+        to 256 KiB each).
+      </p>
+      {docs.isPending ? (
+        <Loading />
+      ) : docs.isError ? (
+        <Failure error={docs.error} />
+      ) : docs.data.length === 0 ? (
+        <p className="px-4 pt-3 text-sm text-fg-muted">No documents yet.</p>
+      ) : (
+        <ul aria-label="Documents" className="mt-3 divide-y divide-border border-t border-border">
+          {docs.data.map((d) => (
+            <li key={d.id} className="flex items-center gap-3 px-4 py-2">
+              <span className="min-w-0 flex-1 truncate font-mono text-sm text-fg">{d.name}</span>
+              <span className="shrink-0 text-xs text-fg-muted tabular-nums">
+                {d.chars.toLocaleString()} characters ·{" "}
+                {d.chunks === 1 ? "1 passage" : `${d.chunks} passages`}
+              </span>
+              <Button
+                size="icon"
+                variant="ghost"
+                aria-label={`Delete ${d.name}`}
+                disabled={remove.isPending}
+                onClick={() => {
+                  setProblem(null);
+                  remove.mutate(d.id);
+                }}
+              >
+                <Trash2 size={14} aria-hidden />
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border px-4 py-3">
+        <label className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-control border border-border px-3 text-xs font-medium text-fg hover:bg-surface-2 focus-within:border-accent">
+          <Plus size={14} aria-hidden />
+          {add.isPending ? "Adding…" : "Add documents"}
+          <input
+            type="file"
+            multiple
+            accept={DOCUMENT_TYPES.join(",")}
+            className="sr-only"
+            disabled={add.isPending}
+            onChange={async (e) => {
+              const files = [...(e.target.files ?? [])];
+              e.target.value = "";
+              setProblem(null);
+              for (const f of files) await add.mutateAsync(f).catch(() => undefined);
+            }}
+          />
+        </label>
+        {problem && (
+          <p role="alert" className="w-full text-xs text-danger">
+            {problem}
+          </p>
+        )}
+      </div>
+    </Panel>
+  );
+}
+
 function MemoryPanel({ project }: { project: Project }) {
   const qc = useQueryClient();
   const memory = useQuery({
@@ -616,6 +713,7 @@ export function ProjectPage() {
       <div className="flex flex-col gap-4">
         <Instructions project={project.data} />
         <MemoryPanel project={project.data} />
+        <Knowledge project={project.data} />
         <div className="grid gap-4 lg:grid-cols-2">
           <Chats project={project.data} />
           <Files project={project.data} />
