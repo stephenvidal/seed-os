@@ -9,6 +9,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import __version__, auth, models, system
+from .agents import api as agents_api
+from .agents.store import AgentStore
 from .chat import api as chat_api
 from .chat.store import ChatStore
 from .config import Settings, get_settings
@@ -47,6 +49,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.task_store = TaskStore(pool)
             app.state.chat_store = ChatStore(pool)
             app.state.project_store = ProjectStore(pool)
+            app.state.agent_store = AgentStore(pool)
             app.state.memory_store = MemoryStore(pool)
             app.state.knowledge_store = KnowledgeStore(pool)
             app.state.auth_store = auth.AuthStore(pool)
@@ -79,6 +82,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(tasks_api.router)
     app.include_router(chat_api.router)
     app.include_router(projects_api.router)
+    app.include_router(agents_api.router)
     app.include_router(overview.router)
     app.include_router(studio_api.router)
     app.include_router(studio_api.previews)

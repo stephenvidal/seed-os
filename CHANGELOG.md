@@ -8,6 +8,10 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
   they now render (D-020). The per-step output cap is 16,384 tokens, up from 4,096.
 
 ### Added
+- Agent definitions (M7, D-024): the Agents page and `/api/v1/agents` (list,
+  create, replace, delete); name, purpose, instructions, model and allowed tools;
+  starter Researcher, Coder and Reviewer given once per owner; migration 0012.
+  Nothing delegates to them yet.
 - Tasks in projects (M6, D-023): `project_id` on `POST /api/v1/tasks` and as a
   filter on `GET /api/v1/tasks`; such a task gets the project's instructions,
   memory and knowledge tools. A Project picker on Tasks, a Tasks panel on the
