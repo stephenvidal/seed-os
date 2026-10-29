@@ -8,6 +8,10 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
   they now render (D-020). The per-step output cap is 16,384 tokens, up from 4,096.
 
 ### Added
+- Project knowledge (M6, D-021): text documents on a project's page, split into
+  passages and indexed with Postgres full-text search; the `search_knowledge` tool
+  in the project's turns. API `/api/v1/projects/{id}/documents`, `documents` on
+  projects; migration 0010. nginx accepts request bodies up to 2 MiB.
 - Rendered output (D-019): chat answers, task results and Studio files show
   Markdown, tables and HTML rendered first, with a Rendered / Source switch.
   Fenced `html`, `svg` and `markdown` blocks and whole-page HTML answers appear in a

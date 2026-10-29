@@ -1,4 +1,4 @@
-"""Project knowledge (D-019): text documents the owner adds to a project, searched
+"""Project knowledge (D-021): text documents the owner adds to a project, searched
 by the agent in that project's chats."""
 
 import uuid

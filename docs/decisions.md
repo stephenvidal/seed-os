@@ -516,3 +516,32 @@ the inline Markdown path. 4,096 tokens cut off pages mid-document.
 
 **Consequences:** Raw HTML tags in the middle of a Markdown answer are still dropped.
 A step that hits the cap still ends as `length`; the page shows what arrived.
+
+## D-021 — Project knowledge is full-text search over text documents
+
+**Date:** 2026-10-29
+
+**Context:** The memory requirements list "searchable knowledge". The owner chose
+on 2026-10-29 to finish M6 (knowledge, then summaries) before M7. The deployment
+is one small VPS with no GPU, and the requirements ask for low idle memory and no
+GPU assumption.
+
+**Options:** embeddings with pgvector (needs an extension and an embedding model,
+local or paid per call); Postgres full-text search; the agent reading whole
+documents with file tools.
+
+**Choice:** Postgres full-text search. The owner adds text documents (.md,
+.markdown, .txt, .csv, .json, up to 256 KiB) on the project page; each is split
+into passages of up to 1,500 characters on paragraph breaks and indexed with
+`to_tsvector('english', …)` (a generated column with a GIN index). A
+`search_knowledge` tool, offered in a project's turns, returns the five best
+passages by `ts_rank` for a `websearch_to_tsquery` query. Passages are tool
+results, so the model treats them as data.
+
+**Reason:** No new service, extension, model or cost; it runs in the Postgres
+already deployed, and word search with stemming suits notes and documentation.
+
+**Consequences:** Search matches words, not meaning: a question phrased with
+different words than the document can miss. Embeddings can be added later behind
+the same tool if that proves a problem. PDFs and Word files are not accepted.
+Uploads go through nginx, which now accepts request bodies up to 2 MiB.

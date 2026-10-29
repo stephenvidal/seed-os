@@ -1,4 +1,4 @@
-"""Project knowledge (D-019): text documents the owner adds to a project, which the
+"""Project knowledge (D-021): text documents the owner adds to a project, which the
 agent searches in that project's chats.
 
 A document is split into chunks of at most CHUNK_CHARS, on paragraph breaks where

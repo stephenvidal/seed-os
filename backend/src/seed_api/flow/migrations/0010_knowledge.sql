@@ -1,4 +1,4 @@
--- Project knowledge (M6, D-019): text documents the owner adds to a project,
+-- Project knowledge (M6, D-021): text documents the owner adds to a project,
 -- split into chunks the agent searches with Postgres full-text search.
 CREATE TABLE knowledge_documents (
     id         uuid PRIMARY KEY,
