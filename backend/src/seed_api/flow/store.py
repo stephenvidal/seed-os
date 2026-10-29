@@ -92,6 +92,8 @@ class Task(BaseModel):
     agent: AgentCopy | None
     awaiting_delegation: ToolCall | None
     delegations: dict[str, DelegatedResult]
+    # How many delegations deep: 0 for a task a person started (D-026).
+    delegation_depth: int
 
     @property
     def workspace(self) -> uuid.UUID:
@@ -111,6 +113,16 @@ class Lease(BaseModel):
     task_id: uuid.UUID
     worker_id: str
     attempt: int
+
+
+class Delegation(BaseModel):
+    """An agent task to start for a delegate call (D-025)."""
+
+    call: ToolCall
+    agent: AgentCopy
+    prompt: str
+    # What the task is about, for its title.
+    about: str
 
 
 class LeaseLost(Exception):
@@ -155,6 +167,7 @@ async def insert_task(
     parent_task_id: uuid.UUID | None = None,
     delegated_call: str | None = None,
     agent: AgentCopy | None = None,
+    delegation_depth: int = 0,
 ) -> DictRow | None:
     """Insert a queued task and its first event. Returns None, inserting nothing,
     when this creator already used the idempotency key. Call inside a transaction."""
@@ -163,9 +176,9 @@ async def insert_task(
         INSERT INTO tasks (id, created_by, title, model, prompt, state, idempotency_key,
                            max_attempts, last_seq, conversation_id, turn, parent_id, context,
                            workspace_id, project_id, instructions, memory, summary_of,
-                           parent_task_id, delegated_call, agent)
+                           parent_task_id, delegated_call, agent, delegation_depth)
         VALUES (%s, %s, %s, %s, %s, 'queued', %s, %s, 1, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s)
+                %s, %s, %s, %s)
         ON CONFLICT (created_by, idempotency_key) DO NOTHING
         RETURNING *
         """,
@@ -189,6 +202,7 @@ async def insert_task(
             parent_task_id,
             delegated_call,
             Jsonb(agent.model_dump(mode="json")) if agent else None,
+            delegation_depth,
         ),
     )
     row = await cur.fetchone()
@@ -397,7 +411,7 @@ class TaskStore:
                 await _log(
                     conn, row, "lease_expired", {"state": row["state"], "attempt": row["attempt"]}
                 )
-                await _report_to_parent(conn, row)
+                await _ended(conn, row)
         return len(rows)
 
     async def claim(self, worker_id: str, lease_s: float) -> tuple[Task, Lease] | None:
@@ -525,7 +539,7 @@ class TaskStore:
             row = await cur.fetchone()
             if row is None:
                 raise LeaseLost(str(lease.task_id))
-            await _report_to_parent(conn, row)
+            await _ended(conn, row)
 
     async def pause(self, lease: Lease, call: ToolCall) -> None:
         """Park a running task until a person decides on `call`. The attempt is not
@@ -546,74 +560,106 @@ class TaskStore:
             if await cur.fetchone() is None:
                 raise LeaseLost(str(lease.task_id))
 
-    async def delegate(
-        self, lease: Lease, call: ToolCall, *, agent: AgentCopy, prompt: str, about: str
-    ) -> uuid.UUID:
-        """Hand `call` to `agent` as a task of its own and park the running task
-        until that task ends (D-025). The child works in the parent's workspace and
-        project, with the agent's model or else the parent's; its title is the agent's
-        name and `about`. Returns its id."""
-        async with self.pool.connection() as conn, conn.transaction():
+    async def delegation_status(self, task_id: uuid.UUID) -> tuple[set[str], set[str]]:
+        """The delegate calls of a task's current run that have an agent task still
+        working, and those that already have a result (D-026)."""
+        async with self.pool.connection() as conn:
             cur = await conn.execute(
                 """
-                UPDATE tasks SET
-                    state = 'waiting', awaiting_delegation = %(call)s, attempt = attempt - 1,
-                    lease_owner = NULL, lease_expires_at = NULL,
-                    last_seq = last_seq + 1, updated_at = now()
-                WHERE id = %(id)s AND lease_owner = %(worker)s AND attempt = %(attempt)s
-                  AND state = 'running'
-                RETURNING *
+                SELECT
+                    ARRAY(SELECT delegated_call FROM tasks c
+                          WHERE c.parent_task_id = t.id
+                            AND c.state IN ('queued', 'running', 'waiting')) AS active,
+                    ARRAY(SELECT jsonb_object_keys(t.delegations)) AS answered
+                FROM tasks t WHERE t.id = %s
                 """,
-                {**_fence(lease), "call": Jsonb(call.model_dump(mode="json"))},
+                (task_id,),
+            )
+            row = await cur.fetchone()
+        if row is None:
+            return set(), set()
+        return set(row["active"]), set(row["answered"])
+
+    async def delegate(
+        self,
+        lease: Lease,
+        *,
+        starts: list[Delegation],
+        refusals: list[tuple[ToolCall, str]],
+        wait_for: ToolCall,
+    ) -> list[uuid.UUID]:
+        """Start an agent task for each of `starts`, answer each of `refusals` with
+        its reason, and park the running task until `wait_for` has a result (or
+        queue it at once when it already has one). One transaction (D-025, D-026).
+        Each child works in the parent's workspace and project, one level deeper,
+        with the agent's model or else the parent's. Returns the children's ids."""
+        async with self.pool.connection() as conn, conn.transaction():
+            cur = await conn.execute(
+                "SELECT * FROM tasks WHERE id = %(id)s AND lease_owner = %(worker)s "
+                "AND attempt = %(attempt)s AND state = 'running' FOR UPDATE",
+                _fence(lease),
             )
             parent = await cur.fetchone()
             if parent is None:
                 raise LeaseLost(str(lease.task_id))
-            child = await insert_task(
-                conn,
-                created_by=parent["created_by"],
-                title=f"{agent.name}: {' '.join(about.split())[:70]}",
-                model=agent.model or parent["model"],
-                prompt=prompt,
-                max_attempts=parent["max_attempts"],
-                idempotency_key=None,
-                workspace_id=parent["workspace_id"] or parent["id"],
-                project_id=parent["project_id"],
-                parent_task_id=parent["id"],
-                delegated_call=call.id,
-                agent=agent,
-            )
-            assert child is not None  # noqa: S101 - no idempotency key, so no conflict
-            await _log(
-                conn,
-                parent,
-                "delegated",
-                {"id": call.id, "agent": agent.name, "task_id": str(child["id"])},
-            )
-        return uuid.UUID(str(child["id"]))
-
-    async def refuse_delegation(self, lease: Lease, call: ToolCall, reason: str) -> None:
-        """Answer a delegation that cannot be made (no such agent) at once: the
-        reason becomes the call's result and the task is queued to carry on."""
-        result = DelegatedResult(ok=False, content=json.dumps({"error": reason}))
-        async with self.pool.connection() as conn, conn.transaction():
+            events: list[tuple[str, dict[str, Any]]] = []
+            children: list[uuid.UUID] = []
+            for d in starts:
+                child = await insert_task(
+                    conn,
+                    created_by=parent["created_by"],
+                    title=f"{d.agent.name}: {' '.join(d.about.split())[:70]}",
+                    model=d.agent.model or parent["model"],
+                    prompt=d.prompt,
+                    max_attempts=parent["max_attempts"],
+                    idempotency_key=None,
+                    workspace_id=parent["workspace_id"] or parent["id"],
+                    project_id=parent["project_id"],
+                    parent_task_id=parent["id"],
+                    delegated_call=d.call.id,
+                    agent=d.agent,
+                    delegation_depth=parent["delegation_depth"] + 1,
+                )
+                assert child is not None  # noqa: S101 - no idempotency key, so no conflict
+                children.append(child["id"])
+                events.append(
+                    (
+                        "delegated",
+                        {"id": d.call.id, "agent": d.agent.name, "task_id": str(child["id"])},
+                    )
+                )
+            answers: dict[str, Any] = {}
+            for call, reason in refusals:
+                result = DelegatedResult(ok=False, content=json.dumps({"error": reason}))
+                answers[call.id] = result.model_dump()
+                events.append(("delegation_refused", {"id": call.id, "reason": reason}))
             cur = await conn.execute(
                 """
                 UPDATE tasks SET
-                    state = 'queued', attempt = attempt - 1,
-                    delegations = delegations || jsonb_build_object(%(cid)s::text, %(r)s::jsonb),
-                    lease_owner = NULL, lease_expires_at = NULL,
-                    last_seq = last_seq + 1, updated_at = now()
-                WHERE id = %(id)s AND lease_owner = %(worker)s AND attempt = %(attempt)s
-                  AND state = 'running'
+                    delegations = delegations || %(answers)s,
+                    state = CASE WHEN delegations || %(answers)s ? %(wait)s
+                                 THEN 'queued' ELSE 'waiting' END,
+                    awaiting_delegation = CASE WHEN delegations || %(answers)s ? %(wait)s
+                                               THEN NULL ELSE %(call)s END,
+                    attempt = attempt - 1, lease_owner = NULL, lease_expires_at = NULL,
+                    last_seq = last_seq + %(n)s, updated_at = now()
+                WHERE id = %(id)s
                 RETURNING *
                 """,
-                {**_fence(lease), "cid": call.id, "r": Jsonb(result.model_dump())},
+                {
+                    "id": parent["id"],
+                    "answers": Jsonb(answers),
+                    "wait": wait_for.id,
+                    "call": Jsonb(wait_for.model_dump(mode="json")),
+                    "n": len(events),
+                },
             )
             row = await cur.fetchone()
-            if row is None:
-                raise LeaseLost(str(lease.task_id))
-            await _log(conn, row, "delegation_refused", {"id": call.id, "reason": reason})
+            assert row is not None  # noqa: S101 - the row is locked above
+            first = row["last_seq"] - len(events)
+            for i, (type_, data) in enumerate(events, start=1):
+                await _log(conn, {**row, "last_seq": first + i}, type_, data)
+        return children
 
     async def release(self, lease: Lease) -> None:
         """Hand a task back on graceful shutdown. The attempt is not counted, and
@@ -657,7 +703,7 @@ async def _cancel(conn: AsyncConnection[DictRow], task_id: uuid.UUID) -> DictRow
     row = await cur.fetchone()
     if row is not None:
         await _log(conn, row, "cancel_requested", {"state": row["state"]})
-        await _report_to_parent(conn, row)
+        await _ended(conn, row)
     return row
 
 
@@ -668,6 +714,22 @@ _RESULT_TEXT = {
     "failed": "The task failed",
     "canceled": "The task was canceled",
 }
+
+
+async def _ended(conn: AsyncConnection[DictRow], row: DictRow) -> None:
+    """After a task's state changed: when it has ended, report it to its parent and
+    cancel the agent tasks it still has running, as nothing would read their
+    results (D-026). Call in the transaction that changed the task."""
+    if row["state"] not in TERMINAL:
+        return
+    await _report_to_parent(conn, row)
+    cur = await conn.execute(
+        "SELECT id FROM tasks WHERE parent_task_id = %s "
+        "AND state IN ('queued', 'running', 'waiting')",
+        (row["id"],),
+    )
+    for child in await cur.fetchall():
+        await _cancel(conn, child["id"])
 
 
 async def _report_to_parent(conn: AsyncConnection[DictRow], child: DictRow) -> None:
@@ -687,10 +749,12 @@ async def _report_to_parent(conn: AsyncConnection[DictRow], child: DictRow) -> N
     cur = await conn.execute(
         """
         UPDATE tasks SET
-            state = 'queued', awaiting_delegation = NULL,
             delegations = delegations || jsonb_build_object(%(call)s::text, %(result)s::jsonb),
+            state = CASE WHEN awaiting_delegation->>'id' = %(call)s THEN 'queued' ELSE state END,
+            awaiting_delegation = CASE WHEN awaiting_delegation->>'id' = %(call)s
+                                       THEN NULL ELSE awaiting_delegation END,
             last_seq = last_seq + 1, updated_at = now()
-        WHERE id = %(id)s AND state = 'waiting' AND awaiting_delegation->>'id' = %(call)s
+        WHERE id = %(id)s AND state IN ('queued', 'running', 'waiting')
         RETURNING *
         """,
         {

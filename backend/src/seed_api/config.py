@@ -33,6 +33,14 @@ class Settings(BaseSettings):
     task_max_attempts: int = Field(default=3, ge=1, le=10)
     worker_lease_seconds: float = Field(default=30.0, ge=3, le=600)
     worker_poll_seconds: float = Field(default=2.0, gt=0, le=60)
+    # Tasks one worker process runs at once (D-026): a task waiting for its agents
+    # must not hold up the agents' own tasks.
+    worker_concurrency: int = Field(default=2, ge=1, le=16)
+    # Delegation limits (D-026): agent tasks one task may have working at once, may
+    # start in all, and how deep agents may hand work on (1 = agents do not delegate).
+    delegation_max_parallel: int = Field(default=3, ge=1, le=8)
+    delegation_max_per_task: int = Field(default=10, ge=1, le=50)
+    delegation_max_depth: int = Field(default=1, ge=1, le=3)
     # Tools that wait for a person's approval before each call (D-009). JSON list.
     approval_required_tools: list[str] = ["run_command"]
     # Chat: how many earlier completed turns a new message carries as context.
