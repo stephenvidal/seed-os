@@ -35,7 +35,7 @@ def anyio_backend() -> str:
 async def pool(db_url: str) -> AsyncIterator[Pool]:
     pool = make_pool(db_url, max_size=4)
     await pool.open(wait=True)
-    assert await migrate(pool) == ["0001_tasks", "0002_auth"]
+    assert await migrate(pool) == ["0001_tasks", "0002_auth", "0003_conversations"]
     yield pool
     await pool.close()
 

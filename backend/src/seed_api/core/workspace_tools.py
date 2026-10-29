@@ -105,7 +105,7 @@ WRITE_DESCRIPTION = "Create or overwrite a UTF-8 text file in the workspace."
 
 
 def workspace_tools(root: Path) -> list[Tool]:
-    """File tools on a local directory (in-request Chat runs)."""
+    """File tools on a local directory (the worker, when no sandbox is configured)."""
     root = root.resolve()
     root.mkdir(parents=True, exist_ok=True)
 

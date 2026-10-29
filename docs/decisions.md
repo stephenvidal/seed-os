@@ -162,3 +162,26 @@ per-task users give the separation between tasks that one tenant needs.
 **Consequences:** Workspaces are ephemeral (tmpfs) until M6. Open questions:
 per-task disk quota; a stronger kernel boundary (gVisor) before multi-tenant use.
 
+## D-007 — Chat turns are tasks
+
+**Date:** 2026-10-29
+
+**Context:** M4 asks for persistent conversations with streaming, task integration
+and continuation. Chat ran inside the HTTP request and was lost when the page
+closed. The owner agreed to start M4 with saved chats on durable tasks.
+
+**Options:** keep a separate chat runner with its own storage; make every message
+a task that carries the conversation.
+
+**Choice:** Every message is a task (ADR-0011). Conversations are a small table;
+turns are tasks with a conversation id, a turn number, a fixed context snapshot,
+and the conversation's workspace.
+
+**Reason:** Tasks already have leases, checkpoints, recovery, cancel, retry,
+the event stream and the audit log. A second runner would duplicate all of it.
+
+**Consequences:** `/api/v1/runs` is gone. Turns of one conversation run one at a
+time. Failed turns are left out of later context. Open questions: whether
+conversations are private to their owner once there are roles besides admin
+(today they are listed per owner, while the Tasks list shows every task); how much
+context to carry once answers get long (now a turn count, not tokens).

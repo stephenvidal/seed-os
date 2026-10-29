@@ -2,7 +2,23 @@
 
 All notable changes. Format: Keep a Changelog; versions follow the milestones.
 
-## [Unreleased] — M3 Sandbox (increment 5)
+## [Unreleased] — M4 Saved chats (increment 6)
+### Added
+- Saved conversations (`/api/v1/conversations`). Each message runs as a task
+  carrying the earlier completed turns, so replies survive leaving the page and
+  restarts, and appear under Tasks (ADR-0011).
+- One workspace per conversation: later messages see files earlier ones made.
+- Chat page: conversation list, live replies with tool activity, Markdown
+  answers (raw HTML is not rendered), Stop, Try again, model switch per message.
+- `SEED_CHAT_CONTEXT_TURNS` (default 20).
+### Changed
+- A chat turn cannot be retried while another turn of its conversation is
+  unfinished (409 `not_retryable`).
+### Removed
+- `POST /api/v1/runs` (in-request runs that stopped when the page closed) and
+  `SEED_MAX_CONCURRENT_RUNS`.
+
+## M3 Sandbox (increment 5)
 ### Added
 - `sandbox` service: runs the agent's shell commands and task file operations in a
   container with no network, no secrets and dropped capabilities; each task as

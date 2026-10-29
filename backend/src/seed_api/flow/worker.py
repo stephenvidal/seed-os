@@ -24,7 +24,7 @@ from ..core.providers.base import Provider
 from ..core.tools import ToolRegistry
 from ..core.workspace_tools import workspace_tools
 from ..errors import ApiError
-from ..runs import SYSTEM_PROMPT, make_provider
+from ..models import SYSTEM_PROMPT, make_provider
 from ..sandbox.client import SandboxClient, sandbox_tools
 from .db import make_pool, migrate
 from .store import Lease, LeaseLost, Task, TaskStore
@@ -110,12 +110,13 @@ class Worker:
         async def on_checkpoint(cp: Checkpoint) -> None:
             await self.store.save_checkpoint(lease, cp)
 
+        # A chat turn works in its conversation's workspace, so files persist across turns.
         if self.sandbox is not None:
             tools = sandbox_tools(
-                self.sandbox, task.id, self.settings.sandbox_command_timeout_seconds
+                self.sandbox, task.workspace, self.settings.sandbox_command_timeout_seconds
             )
         else:  # no sandbox configured: file tools on local disk, no commands
-            tools = workspace_tools(Path(self.settings.workspace_root) / str(task.id))
+            tools = workspace_tools(Path(self.settings.workspace_root) / str(task.workspace))
         provider = self.provider_factory()
         beat = asyncio.create_task(heartbeat())
         try:
@@ -124,6 +125,7 @@ class Worker:
                 model=task.model,
                 messages=[
                     Message(role="system", content=SYSTEM_PROMPT),
+                    *(Message(role=m.role, content=m.content) for m in task.context),
                     Message(role="user", content=task.prompt),
                 ],
                 tools=ToolRegistry(tools),

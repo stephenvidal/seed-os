@@ -38,7 +38,8 @@ StoreDep = Annotated[TaskStore, Depends(get_store)]
 
 
 class TaskView(BaseModel):
-    """A task as clients see it. The checkpoint (full model context) stays server-side."""
+    """A task as clients see it. The checkpoint and a chat turn's context (full
+    model input) stay server-side."""
 
     id: uuid.UUID
     title: str
@@ -58,11 +59,14 @@ class TaskView(BaseModel):
     updated_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
+    # Set when the task is a chat turn: its conversation and position in it.
+    conversation_id: uuid.UUID | None
+    turn: int | None
 
     @classmethod
     def of(cls, task: Task) -> "TaskView":
         return cls(
-            **task.model_dump(exclude={"checkpoint"}),
+            **task.model_dump(include=set(cls.model_fields) - {"resumable_from_step"}),
             resumable_from_step=task.checkpoint.steps if task.checkpoint else None,
         )
 
@@ -114,7 +118,7 @@ async def create_task(
         idempotency_key=idempotency_key,
     )
     if not created:
-        if (task.model, task.prompt) != (body.model, body.prompt):
+        if (task.model, task.prompt, task.conversation_id) != (body.model, body.prompt, None):
             raise ApiError(
                 409,
                 "idempotency_conflict",

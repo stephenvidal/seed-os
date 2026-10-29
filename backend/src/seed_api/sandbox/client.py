@@ -1,4 +1,4 @@
-"""Worker-side tools backed by the sandbox: files and shell commands for one task."""
+"""Worker-side tools backed by the sandbox: files and shell commands in one workspace."""
 
 import uuid
 from typing import Any
@@ -46,12 +46,14 @@ class SandboxClient:
         data: dict[str, Any] = r.json()
         return data
 
-    async def exec(self, task_id: uuid.UUID, req: ExecRequest) -> ExecResult:
-        data = await self._post(f"/v1/workspaces/{task_id}/exec", req.model_dump())
+    async def exec(self, workspace_id: uuid.UUID, req: ExecRequest) -> ExecResult:
+        data = await self._post(f"/v1/workspaces/{workspace_id}/exec", req.model_dump())
         return ExecResult.model_validate(data)
 
-    async def file(self, task_id: uuid.UUID, **body: Any) -> dict[str, Any]:
-        res = FileResult.model_validate(await self._post(f"/v1/workspaces/{task_id}/files", body))
+    async def file(self, workspace_id: uuid.UUID, **body: Any) -> dict[str, Any]:
+        res = FileResult.model_validate(
+            await self._post(f"/v1/workspaces/{workspace_id}/files", body)
+        )
         if not res.ok or res.result is None:
             raise ToolFailure(res.error or "The file operation failed.")
         return res.result
@@ -65,22 +67,24 @@ class CommandInput(BaseModel):
     stdin: str = Field(default="", max_length=MAX_STDIN_BYTES, description="Text sent to stdin")
 
 
-def sandbox_tools(client: SandboxClient, task_id: uuid.UUID, max_timeout_s: float) -> list[Tool]:
+def sandbox_tools(
+    client: SandboxClient, workspace_id: uuid.UUID, max_timeout_s: float
+) -> list[Tool]:
     async def list_files(inp: PathInput) -> ListOutput:
-        return ListOutput.model_validate(await client.file(task_id, op="list", path=inp.path))
+        return ListOutput.model_validate(await client.file(workspace_id, op="list", path=inp.path))
 
     async def read_file(inp: ReadInput) -> ReadOutput:
-        return ReadOutput.model_validate(await client.file(task_id, op="read", path=inp.path))
+        return ReadOutput.model_validate(await client.file(workspace_id, op="read", path=inp.path))
 
     async def write_file(inp: WriteInput) -> WriteOutput:
         return WriteOutput.model_validate(
-            await client.file(task_id, op="write", path=inp.path, content=inp.content)
+            await client.file(workspace_id, op="write", path=inp.path, content=inp.content)
         )
 
     async def run_command(inp: CommandInput) -> ExecResult:
         timeout = min(float(inp.timeout_s), max_timeout_s)
         return await client.exec(
-            task_id, ExecRequest(command=inp.command, stdin=inp.stdin, timeout_s=timeout)
+            workspace_id, ExecRequest(command=inp.command, stdin=inp.stdin, timeout_s=timeout)
         )
 
     return [

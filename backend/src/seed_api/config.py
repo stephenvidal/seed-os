@@ -24,8 +24,7 @@ class Settings(BaseSettings):
     ollama_base_url: str = "https://ollama.com"
     provider_timeout_seconds: float = 120.0
     default_model: str | None = None
-    # Agent runs (in-request until SEED Flow lands in M3).
-    max_concurrent_runs: int = 2
+    # Limits for every agent run (each task attempt).
     run_max_steps: int = 8
     run_max_runtime_seconds: float = 300
     run_max_total_tokens: int = 200_000
@@ -34,6 +33,8 @@ class Settings(BaseSettings):
     task_max_attempts: int = Field(default=3, ge=1, le=10)
     worker_lease_seconds: float = Field(default=30.0, ge=3, le=600)
     worker_poll_seconds: float = Field(default=2.0, gt=0, le=60)
+    # Chat: how many earlier completed turns a new message carries as context.
+    chat_context_turns: int = Field(default=20, ge=1, le=200)
     # Sandbox (ADR-0010). Worker side: unset URL => tasks get file tools only, no
     # command execution. Sandbox side: the rest bounds every command.
     sandbox_url: str | None = None
@@ -46,7 +47,7 @@ class Settings(BaseSettings):
     sandbox_cpu_seconds: int = Field(default=60, ge=1)
     sandbox_max_processes: int = Field(default=64, ge=1)
     sandbox_max_file_mb: int = Field(default=64, ge=1)
-    # Ephemeral per-run dirs on the container tmpfs until artifact storage (M6).
+    # Without a sandbox: per-workspace dirs on the container tmpfs until artifact storage (M6).
     workspace_root: str = "/tmp/seed-workspaces"  # noqa: S108
 
 

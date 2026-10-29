@@ -22,6 +22,9 @@ export type Task = {
   updated_at: string;
   started_at: string | null;
   finished_at: string | null;
+  /** Set when the task is a chat turn. */
+  conversation_id: string | null;
+  turn: number | null;
 };
 
 export type TaskEvent = {
@@ -46,6 +49,10 @@ export const tasksApi = {
     }),
   cancel: (id: string) => request<Task>(`/api/v1/tasks/${id}/cancel`, { method: "POST" }),
   retry: (id: string) => request<Task>(`/api/v1/tasks/${id}/retry`, { method: "POST" }),
+  events: (id: string) =>
+    request<{ events: TaskEvent[]; last_seq: number; state: TaskState }>(
+      `/api/v1/tasks/${id}/events?limit=1000`,
+    ),
 };
 
 /**
