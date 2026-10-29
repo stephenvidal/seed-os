@@ -8,7 +8,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import __version__, auth, models, system
+from . import __version__, auth, models, system, tools_api
 from .agents import api as agents_api
 from .agents.store import AgentStore
 from .chat import api as chat_api
@@ -84,6 +84,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(projects_api.router)
     app.include_router(agents_api.router)
     app.include_router(overview.router)
+    app.include_router(tools_api.router)
     app.include_router(studio_api.router)
     app.include_router(studio_api.previews)
 
