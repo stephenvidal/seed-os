@@ -120,6 +120,10 @@ async def test_worker_completes_task_with_ordered_audit_log(
     types = [e.type for e in events]
     assert types[:3] == ["task_created", "attempt_started", "run_started"]
     assert types[-1] == "run_finished" and "tool_result" in types
+    # The step with tool results is checkpointed, and the log says so after them.
+    saved = [e for e in events if e.type == "checkpoint_saved"]
+    assert [(e.data, e.attempt) for e in saved] == [({"steps": 1, "pending": 0}, 1)]
+    assert types.index("checkpoint_saved") > types.index("tool_result")
     assert done.last_seq == len(events)
     assert len(await store.events(task.id, after=3, limit=2)) == 2
 
@@ -352,6 +356,9 @@ async def test_worker_runs_commands_in_the_sandbox(store: TaskStore, tmp_path: P
     types = [e.type for e in events]
     assert types.count("tool_call") == 1 and types.count("tool_result") == 1
     assert types.index("approval_requested") < types.index("approval_decided")
+    # Saved at the pause with the call still to run, then again once it has run.
+    saved = [e.data for e in events if e.type == "checkpoint_saved"]
+    assert saved == [{"steps": 1, "pending": 1}, {"steps": 1, "pending": 0}]
     result = next(e.data for e in events if e.type == "tool_result")
     assert result["ok"] and result["output"]["stdout"] == "built\n"
     assert (sandbox_root / str(task.id) / "out.txt").read_text() == "built\n"
