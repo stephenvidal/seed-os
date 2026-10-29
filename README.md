@@ -27,7 +27,9 @@ it — with full visibility and control.
   cancels the answer in progress, and a failed or stopped last answer can be
   tried again. The model can be changed between messages. Conversations can be
   renamed, deleted (after a confirm, and not while a message is being answered)
-  and searched by title, message or answer.
+  and searched by title, message or answer. Any message can be edited, and any
+  answer regenerated; each becomes a new version, the old ones are kept, and the
+  arrows under a message switch between its versions (ADR-0013).
 - **Approvals (M4):** before the agent runs a shell command, the task stops as
   "needs you" and Chat and the task page show the exact command with Approve and
   Deny. The run carries on from where it stopped; a denied command is reported

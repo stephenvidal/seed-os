@@ -17,7 +17,8 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
 - Message versions (ADR-0013): `POST /api/v1/conversations/{id}/turns/{turn_id}/versions`
   edits or regenerates any message as a new version, keeping the old ones;
   `PUT /api/v1/conversations/{id}/shown` switches versions; turns carry `versions`.
-  Migration 0005 (`tasks.parent_id`, `conversations.head_id`). Chat controls follow.
+  Migration 0005 (`tasks.parent_id`, `conversations.head_id`). In Chat: Edit
+  under each message, Regenerate under each answer, and version arrows.
 ### Changed
 - A waiting task cancels at once; a chat turn waiting for approval blocks the
   next message like any unfinished turn.

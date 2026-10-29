@@ -12,7 +12,9 @@ export type Conversation = {
 };
 
 export type ConversationSummary = Conversation & { turns: number; last_state: TaskState | null };
-export type ConversationDetail = { conversation: Conversation; turns: Task[] };
+/** A turn on the shown path, with the ids of that message's versions, oldest first. */
+export type Turn = Task & { versions: string[] };
+export type ConversationDetail = { conversation: Conversation; turns: Turn[] };
 
 export const chatApi = {
   /** With `query`, only conversations whose title, messages or answers contain it. */
@@ -27,6 +29,24 @@ export const chatApi = {
       method: "POST",
       body: JSON.stringify(body),
       headers: { "Idempotency-Key": idempotencyKey },
+    }),
+  /** A new version of a message: edited with `prompt`, asked again without. */
+  addVersion: (
+    id: string,
+    turnId: string,
+    body: { prompt?: string; model?: string },
+    idempotencyKey: string,
+  ) =>
+    request<Task>(`/api/v1/conversations/${id}/turns/${turnId}/versions`, {
+      method: "POST",
+      body: JSON.stringify(body),
+      headers: { "Idempotency-Key": idempotencyKey },
+    }),
+  /** Show another version of a message, with its newest replies. */
+  show: (id: string, turnId: string) =>
+    request<ConversationDetail>(`/api/v1/conversations/${id}/shown`, {
+      method: "PUT",
+      body: JSON.stringify({ turn_id: turnId }),
     }),
   rename: (id: string, title: string) =>
     request<Conversation>(`/api/v1/conversations/${id}`, {

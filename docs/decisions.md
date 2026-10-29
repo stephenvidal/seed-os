@@ -270,6 +270,6 @@ recommended "last message only"). Built as a tree of turns; details in ADR-0013.
 **Reason:** Nothing the person or the model produced is lost by editing, and an
 earlier line of the conversation stays one click away.
 
-**Consequences:** Two PRs: the tree and its API first, then the Chat controls.
-Workspace files are shared by all versions. Open question: whether the Tasks list
+**Consequences:** Built as two commits (the tree and its API, then the Chat
+controls) in one PR, since both were ready together. Workspace files are shared by all versions. Open question: whether the Tasks list
 should group a message's versions.

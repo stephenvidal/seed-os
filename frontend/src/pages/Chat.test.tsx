@@ -40,6 +40,7 @@ const turn = (over: Record<string, unknown> = {}) => ({
   conversation_id: "c1",
   turn: 1,
   ...over,
+  versions: (over.versions as string[] | undefined) ?? [String(over.id ?? "t1")],
 });
 
 const conversation = {
@@ -424,5 +425,85 @@ describe("Chat", () => {
     await user.clear(within(nav).getByRole("searchbox"));
     await user.type(within(nav).getByRole("searchbox"), "zzz");
     expect(await within(nav).findByText("No conversations match “zzz”.")).toBeInTheDocument();
+  });
+
+  it("edits a message as a new version, keeps the old one, and switches back", async () => {
+    const t1 = turn({ prompt: "Plan my week", result_text: "Week plan." });
+    const t2 = turn({ id: "t2", turn: 2, prompt: "Add gym", result_text: "Gym added." });
+    const v2 = turn({ id: "v2", turn: 2, prompt: "Add yoga", result_text: "Yoga added." });
+    let detail = { conversation, turns: [t1, t2] };
+    const spy = mockApi({
+      "GET /api/v1/auth/me": ME,
+      "GET /api/v1/models": MODELS,
+      "GET /api/v1/conversations?limit=200": { status: 200, body: [summary] },
+      "GET /api/v1/conversations/c1": () => ({ status: 200, body: detail }),
+      "POST /api/v1/conversations/c1/turns/t2/versions": () => {
+        detail = { conversation, turns: [t1, { ...v2, versions: ["t2", "v2"] }] };
+        return { status: 201, body: { ...v2, state: "queued", result_text: null } };
+      },
+      "PUT /api/v1/conversations/c1/shown": () => {
+        detail = { conversation, turns: [t1, { ...t2, versions: ["t2", "v2"] }] };
+        return { status: 200, body: detail };
+      },
+    });
+    vi.stubGlobal("EventSource", FakeEventSource);
+    const user = userEvent.setup();
+    renderApp(<App />, "/chat/c1");
+
+    await screen.findByText("Gym added.");
+    expect(screen.queryByRole("button", { name: "Previous version" })).toBeNull();
+    await user.click(screen.getAllByRole("button", { name: "Edit" })[1]!);
+    await user.keyboard("{Escape}");
+    expect(screen.queryByLabelText("Edit message")).toBeNull();
+    await user.click(screen.getAllByRole("button", { name: "Edit" })[1]!);
+    const box = screen.getByLabelText("Edit message");
+    expect(box).toHaveValue("Add gym");
+    await user.clear(box);
+    await user.type(box, "Add yoga");
+    await user.click(screen.getByRole("button", { name: "Send edit" }));
+
+    expect(bodyOf(spy, "POST", "/api/v1/conversations/c1/turns/t2/versions")?.body).toEqual({
+      prompt: "Add yoga",
+    });
+    expect(await screen.findByText("Yoga added.")).toBeInTheDocument();
+    expect(screen.queryByText("Gym added.")).toBeNull();
+    expect(screen.getByLabelText("Version 2 of 2")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next version" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Previous version" }));
+    expect(await screen.findByText("Gym added.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Version 1 of 2")).toBeInTheDocument();
+    expect(bodyOf(spy, "PUT", "/api/v1/conversations/c1/shown")?.body).toEqual({
+      turn_id: "t2",
+    });
+  });
+
+  it("regenerates an answer, and offers nothing new while one is coming", async () => {
+    const t2 = turn({ id: "t2", turn: 2, prompt: "Add gym", result_text: "Gym added." });
+    const r1 = turn({ id: "r1", state: "running", result_text: null, versions: ["t1", "r1"] });
+    let detail = { conversation, turns: [turn(), t2] };
+    const spy = mockApi({
+      "GET /api/v1/auth/me": ME,
+      "GET /api/v1/models": MODELS,
+      "GET /api/v1/conversations?limit=200": { status: 200, body: [summary] },
+      "GET /api/v1/conversations/c1": () => ({ status: 200, body: detail }),
+      "POST /api/v1/conversations/c1/turns/t1/versions": () => {
+        detail = { conversation, turns: [r1] };
+        return { status: 201, body: { ...r1, state: "queued" } };
+      },
+    });
+    vi.stubGlobal("EventSource", FakeEventSource);
+    const user = userEvent.setup();
+    renderApp(<App />, "/chat/c1");
+
+    await screen.findByText("Gym added.");
+    await user.click(screen.getAllByRole("button", { name: "Regenerate" })[0]!);
+    expect(bodyOf(spy, "POST", "/api/v1/conversations/c1/turns/t1/versions")?.body).toEqual({});
+    // The later message belongs to the older version now, so it leaves the view.
+    await waitFor(() => expect(screen.queryByText("Add gym")).toBeNull());
+    expect(screen.getByLabelText("Version 2 of 2")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Previous version" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull(); // not finished yet
   });
 });

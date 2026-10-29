@@ -1025,3 +1025,48 @@ switching back to an older version.)
 has no automated test (checked by hand above).
 
 **Open questions:** whether the Tasks list should group a message's versions (D-011).
+
+## 2026-10-29 — Increment 9 (part 2): version controls in Chat
+
+**Iteration:** M4 step 3b, second part. Definition of done: Edit under every
+finished message and Regenerate under every answer create a new version; arrows
+with "n / m" switch versions; nothing can be edited, regenerated or switched while
+a message is being answered; the choice survives a reload.
+
+**Changed**
+- `lib/chat.ts`: `Turn` (task + `versions`), `addVersion`, `show`.
+- `pages/Chat.tsx`: `Versions` arrows, inline edit (Escape cancels; "Sent as a new
+  version; this one is kept."), Regenerate; a new version stays pending until the
+  conversation is refetched, so the controls stay locked until it shows.
+- README, CHANGELOG, roadmap, requirements WS-2, D-011 note (one PR, two commits).
+
+**Tested**
+```
+frontend: typecheck ok · lint ok · format ok · vitest → Tests 37 passed (37)
+build: Chat chunk 182.85 kB (55.17 kB gzip); main bundle unchanged at 147.48 kB gzip
+```
+Mutation checks (each made, suite run, reverted):
+```
+arrows work while answering     → CAUGHT     Edit on an unfinished message   → CAUGHT
+regenerate sends a prompt       → CAUGHT     Previous shows the next version → CAUGHT
+controls unlocked while answering → CAUGHT   Regenerate only on the last one → CAUGHT
+Escape does not cancel the edit → CAUGHT
+```
+Browser (Chromium; API with migration 0005, worker, Postgres, Ollama-wire stub
+whose answer states how many earlier messages it was sent):
+```
+before edit, earlier-message counts: [ '0', '2' ]
+while answering: edit buttons = 1 all disabled = true | prev disabled = true
+after edit: Version 2 of 2 | counts: [ '0', '2' ] | tomatoes shown: 0
+switched back: Version 1 of 2
+after reload still shows: Add tomatoes
+regenerated first: Version 2 of 2 | turns shown: 1 | counts: [ '0' ]
+back to first version follows newest reply: Add peppers
+tasks list rows: 4
+390px horizontal overflow px: 0
+errors: [401 before sign-in, expected]
+```
+The edited second message was sent with the two messages before it, not the old
+answer; the regenerated first message was sent with none.
+
+**Not tested:** a real model; the compose stack and the deploy.
