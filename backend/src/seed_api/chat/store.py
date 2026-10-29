@@ -24,6 +24,7 @@ from pydantic import BaseModel
 
 from ..flow.db import Pool
 from ..flow.store import ContextMessage, Task, insert_task, task_by_key
+from ..projects.memory import approved_notes
 
 
 class Conversation(BaseModel):
@@ -119,20 +120,25 @@ def _busy(rows: list[DictRow]) -> None:
         )
 
 
-async def _instructions(
+async def _project(
     conn: AsyncConnection[DictRow], owner: str, project_id: uuid.UUID | None
-) -> str | None:
-    """The project's instructions to copy into a new turn: None outside a project
-    or when they are empty. Raises ChatError project_not_found."""
+) -> dict[str, Any]:
+    """What a new turn copies from its project (insert_task arguments): the
+    project, its instructions and its approved memory; nothing outside a project.
+    Raises ChatError project_not_found."""
     if project_id is None:
-        return None
+        return {}
     cur = await conn.execute(
         "SELECT instructions FROM projects WHERE id = %s AND owner = %s", (project_id, owner)
     )
     row = await cur.fetchone()
     if row is None:
         raise ChatError("project_not_found", "No such project.")
-    return row["instructions"] or None
+    return {
+        "project_id": project_id,
+        "instructions": row["instructions"] or None,
+        "memory": await approved_notes(conn, project_id),
+    }
 
 
 def _same_turn(task: Task, conversation_id: uuid.UUID | None, prompt: str) -> Task:
@@ -176,7 +182,7 @@ class ChatStore:
                         if conv is None:  # pragma: no cover - the turn's FK holds it
                             raise RuntimeError("turn without a conversation")
                         return conv, task, False
-                instructions = await _instructions(conn, owner, project_id)
+                project = await _project(conn, owner, project_id)
                 cur = await conn.execute(
                     "INSERT INTO conversations (id, owner, title, model, project_id) "
                     "VALUES (%s, %s, %s, %s, %s) RETURNING *",
@@ -194,7 +200,7 @@ class ChatStore:
                     idempotency_key=idempotency_key,
                     conversation_id=conv_row["id"],
                     turn=1,
-                    instructions=instructions,
+                    **project,
                 )
                 if row is None:
                     raise _KeyTaken  # roll back the conversation just inserted
@@ -347,7 +353,7 @@ class ChatStore:
             turn=turn,
             parent_id=parent,
             context=context,
-            instructions=await _instructions(conn, owner, conv["project_id"]),
+            **await _project(conn, owner, conv["project_id"]),
         )
         if row is None:  # pragma: no cover - the key was checked under the lock
             raise RuntimeError("idempotency key taken under the conversation lock")
@@ -380,7 +386,7 @@ class ChatStore:
         now on get the new project's instructions. Not counted as activity. Raises
         ChatError not_found or project_not_found."""
         async with self.pool.connection() as conn, conn.transaction():
-            await _instructions(conn, owner, project_id)  # the project must be the owner's
+            await _project(conn, owner, project_id)  # the project must be the owner's
             cur = await conn.execute(
                 "UPDATE conversations SET project_id = %s WHERE id = %s AND owner = %s RETURNING *",
                 (project_id, conversation_id, owner),
