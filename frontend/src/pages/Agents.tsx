@@ -248,7 +248,8 @@ export function AgentsPage() {
         description="Specialists SEED can hand part of a job to. You talk to SEED; it decides when one helps."
       />
       <p className="mb-4 rounded-control border border-dashed border-border px-3 py-2 text-xs text-fg-muted">
-        SEED does not hand work to these agents yet. Delegation is the next step of M7.
+        When one of these clearly helps, SEED hands it part of the job as a task of its own, with
+        only the tools ticked here. Changes apply to work handed over afterwards.
       </p>
       <Panel
         title="Your agents"

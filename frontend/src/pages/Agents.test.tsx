@@ -41,7 +41,7 @@ afterEach(() => {
 });
 
 describe("Agents", () => {
-  it("lists agents with their model and tools, and says delegation is not built yet", async () => {
+  it("lists agents with their model and tools", async () => {
     mockApi({
       "GET /api/v1/auth/me": ME,
       "GET /api/v1/agents": {
@@ -57,7 +57,7 @@ describe("Agents", () => {
     expect(researcher).toHaveTextContent("Read files");
     expect(coder).toHaveTextContent("m-small");
     expect(coder).toHaveTextContent("no tools");
-    expect(screen.getByText(/does not hand work to these agents yet/)).toBeInTheDocument();
+    expect(screen.getByText(/hands it part of the job as a task of its own/)).toBeInTheDocument();
     expect(await axe(container)).toHaveNoViolations();
   });
 

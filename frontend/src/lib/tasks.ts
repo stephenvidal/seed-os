@@ -36,6 +36,12 @@ export type Task = {
   summary: string | null;
   /** Set while the task is waiting: the call that needs a person's decision. */
   awaiting_approval: ToolCallInfo | null;
+  /** Set while the task waits for a task it delegated to an agent. */
+  awaiting_delegation?: ToolCallInfo | null;
+  /** On a delegated task: the task that delegated it. */
+  parent_task_id?: string | null;
+  /** On a delegated task: the agent it runs as, as it was when delegated. */
+  agent?: { id: string; name: string; description: string } | null;
 };
 
 export type TaskEvent = {
@@ -134,6 +140,7 @@ export type TimelineItem =
 const TERMINATION_TEXT: Record<string, string> = {
   completed: "Finished",
   awaiting_approval: "Paused for your approval",
+  awaiting_delegation: "Waiting for an agent",
   cancelled: "Canceled",
   max_steps: "Stopped: step limit reached",
   deadline: "Stopped: time limit reached",
@@ -299,6 +306,19 @@ export function toTimeline(events: TaskEvent[]): TimelineItem[] {
       case "summary_failed":
         note(e, "warning", `Could not summarize earlier turns: ${String(d.error)}`);
         break;
+      case "delegated":
+        note(e, "neutral", `Handed to ${String(d.agent)} as a task of its own`);
+        break;
+      case "delegation_refused":
+        note(e, "warning", `Not delegated: ${String(d.reason)}`);
+        break;
+      case "delegation_finished":
+        note(
+          e,
+          d.state === "completed" ? "accent" : "warning",
+          `${String(d.agent)} ${d.state === "completed" ? "reported back" : `stopped: ${String(d.state)}`}`,
+        );
+        break;
       case "lease_expired":
         note(
           e,
@@ -332,4 +352,23 @@ export function pendingApproval(events: TaskEvent[]): ToolCallInfo | null {
     else if (e.type === "approval_decided" || e.type === "cancel_requested") pending = null;
   }
   return pending;
+}
+
+/**
+ * The agent task a task is waiting for, read from its events: the last
+ * delegation that has not reported back, unless the task was canceled since.
+ */
+export function pendingDelegation(events: TaskEvent[]): { agent: string; taskId: string } | null {
+  let open: { agent: string; taskId: string } | null = null;
+  for (const e of events) {
+    if (e.type === "delegated")
+      open = { agent: String(e.data.agent), taskId: String(e.data.task_id) };
+    else if (
+      e.type === "delegation_finished" ||
+      e.type === "cancel_requested" ||
+      (e.type === "run_finished" && e.data.termination !== "awaiting_delegation")
+    )
+      open = null;
+  }
+  return open;
 }
