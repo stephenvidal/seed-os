@@ -1546,3 +1546,29 @@ Mutation check: HTML_START narrowed to doctype/html only → fragment tests fail
 the two answers' text was not available to me); a real browser.
 
 **Open questions:** none.
+
+---
+
+## 2026-10-29 — Increment 18: open Studio files from chat
+
+**Iteration:** owner request (D-021). Done when a finished answer that saved files
+shows a link per file, and a click opens the file in a dialog with Studio's viewer.
+
+**Changed:** `Viewer` and its helpers moved from `pages/Studio.tsx` to
+`components/studio/ArtifactViewer.tsx`; new `Modal`, `ArtifactLinks`; `savedFiles`
+and `studioApi.inConversation` in `lib/studio.ts`; `TurnView` renders the links.
+No backend change.
+
+**Tested**
+```
+frontend: typecheck ok · lint ok · format ok · vitest → Test Files 13 passed (13), Tests 92 passed (92)
+```
+New tests: links + dialog (preview frame, Open in Studio, Escape closes, deleted
+file gets no link); a chat with no files shows none. Mutation check: ignoring
+`deleted` in `savedFiles` → "links the files an answer saved…" failed.
+
+**Not tested:** a real browser (dialog sizing on a phone, focus return, the live
+preview inside the dialog); against the live API; very long chats.
+
+**Open questions:** none.
+

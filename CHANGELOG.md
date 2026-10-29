@@ -8,6 +8,9 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
   they now render (D-020). The per-step output cap is 16,384 tokens, up from 4,096.
 
 ### Added
+- Chat links to the files an answer saved (D-021): each appears under the answer
+  and opens in a dialog with the same viewer as Studio (sandboxed preview, Source
+  switch, Phone / Desktop frame), with a link on to Studio.
 - Rendered output (D-019): chat answers, task results and Studio files show
   Markdown, tables and HTML rendered first, with a Rendered / Source switch.
   Fenced `html`, `svg` and `markdown` blocks and whole-page HTML answers appear in a

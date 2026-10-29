@@ -1,5 +1,6 @@
 /** Client for Studio (/api/v1/artifacts): saved files, their versions and previews. */
 import { ApiError, request } from "./api";
+import type { TaskEvent } from "./tasks";
 
 export type ArtifactVersion = {
   version: number;
@@ -49,8 +50,27 @@ export const contentUrl = (id: string, version: number, download = false) =>
 export const sourceHref = (a: Artifact) =>
   a.conversation_id ? `/chat/${a.conversation_id}` : a.task_id ? `/tasks/${a.task_id}` : null;
 
+export type SavedFile = { path: string; version: number };
+
+/** The files a task saved (not the ones it deleted), read from its `artifacts_saved` events. */
+export function savedFiles(events: TaskEvent[]): SavedFile[] {
+  const out = new Map<string, SavedFile>();
+  for (const e of events) {
+    if (e.type !== "artifacts_saved") continue;
+    const saved = (e.data.saved ?? []) as { path: string; version: number; deleted: boolean }[];
+    for (const s of saved) {
+      if (s.deleted) out.delete(s.path);
+      else out.set(s.path, { path: s.path, version: s.version });
+    }
+  }
+  return [...out.values()];
+}
+
 export const studioApi = {
   list: () => request<Artifact[]>("/api/v1/artifacts?limit=500"),
+  /** The files of one chat. */
+  inConversation: (conversationId: string) =>
+    request<Artifact[]>(`/api/v1/artifacts?limit=500&conversation_id=${conversationId}`),
   /** The files of a project's chats. */
   inProject: (projectId: string) =>
     request<Artifact[]>(`/api/v1/artifacts?limit=500&project_id=${projectId}`),

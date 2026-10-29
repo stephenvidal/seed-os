@@ -516,3 +516,29 @@ the inline Markdown path. 4,096 tokens cut off pages mid-document.
 
 **Consequences:** Raw HTML tags in the middle of a Markdown answer are still dropped.
 A step that hits the cap still ends as `length`; the page shows what arrived.
+
+## D-021 — Chat links to the files an answer saved, and opens them in a dialog
+
+**Date:** 2026-10-29
+
+**Context:** The owner asked that a chat message that saves a Studio artifact show a
+link to it, opening a dialog that displays it, so it can be reviewed without leaving
+the conversation.
+
+**Options:** (a) add the saved artifact ids to the task or conversation API; (b) read
+them in the browser from what exists: the chat's file list
+(`GET /api/v1/artifacts?conversation_id=`) and the task's `artifacts_saved` event.
+
+**Choice:** (b). A finished answer looks up its chat's files once; only if the chat
+has any, it reads that task's events and links each file the task saved and did not
+delete, matched by path. The dialog reuses Studio's viewer unchanged (served HTML
+preview, Rendered / Source switch, Markdown, images, text) and links to Studio.
+
+**Reason:** No backend or migration change, and a chat without files costs one
+request. The viewer is moved, not copied, so Studio and chat cannot drift.
+
+**Consequences:** A link opens the version that answer saved. If a later answer
+changed the file, that version shows as source only (previews run the latest saved
+files, ADR-0015); Studio has the versions. A file deleted with its chat gives "no
+longer exists". Opening a long chat with files reads every completed turn's events.
+
