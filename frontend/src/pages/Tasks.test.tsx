@@ -160,4 +160,35 @@ describe("Tasks", () => {
     expect(screen.getByText("Canceled before it started")).toBeInTheDocument();
     expect(es.closed).toBe(true);
   });
+
+  it("lets you deny the command a waiting task asks to run", async () => {
+    const waiting = task({
+      state: "waiting",
+      awaiting_approval: { id: "call_0", name: "run_command", arguments: { command: "make" } },
+    });
+    const spy = mockApi({
+      "GET /api/v1/auth/me": ME,
+      "GET /api/v1/tasks/t1": { status: 200, body: waiting },
+      "POST /api/v1/tasks/t1/decision": { status: 200, body: task({ state: "queued" }) },
+    });
+    vi.stubGlobal("EventSource", FakeEventSource);
+    const user = userEvent.setup();
+    FakeEventSource.last = undefined;
+    renderApp(<App />, "/tasks/t1");
+    expect(await screen.findByText("needs you")).toBeInTheDocument();
+    await waitFor(() => expect(FakeEventSource.last).toBeDefined());
+    const es = FakeEventSource.last!;
+    act(() =>
+      es.emit(1, "approval_requested", {
+        id: "call_0",
+        name: "run_command",
+        arguments: { command: "make" },
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: "Deny" }));
+    await waitFor(() => {
+      const post = spy.mock.calls.find((c) => String(c[0]) === "/api/v1/tasks/t1/decision");
+      expect(JSON.parse(String(post?.[1]?.body))).toEqual({ call_id: "call_0", approve: false });
+    });
+  });
 });

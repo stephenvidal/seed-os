@@ -1,6 +1,7 @@
 """Task persistence and the task state machine.
 
-States: queued → running → completed | failed | canceled. A running task is held
+States: queued → running → completed | failed | canceled, and running → waiting →
+queued while a tool call waits for a person's approval. A running task is held
 by a worker lease that the worker must keep extending (heartbeat). Every write a
 worker makes is fenced on (lease_owner, attempt, state = running), so a worker
 that lost its lease cannot touch a task another worker has since claimed.
@@ -19,10 +20,10 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel
 
 from ..core.agent import Checkpoint
-from ..core.messages import Usage
+from ..core.messages import ToolCall, Usage
 from .db import Pool
 
-TaskState = Literal["queued", "running", "completed", "failed", "canceled"]
+TaskState = Literal["queued", "running", "waiting", "completed", "failed", "canceled"]
 TERMINAL: frozenset[str] = frozenset({"completed", "failed", "canceled"})
 
 
@@ -31,6 +32,12 @@ class ContextMessage(BaseModel):
 
     role: Literal["user", "assistant"]
     content: str
+
+
+class Decision(BaseModel):
+    approved: bool
+    by: str
+    at: datetime
 
 
 class Task(BaseModel):
@@ -60,6 +67,8 @@ class Task(BaseModel):
     turn: int | None
     context: list[ContextMessage]
     workspace_id: uuid.UUID | None
+    awaiting_approval: ToolCall | None
+    approvals: dict[str, Decision]
 
     @property
     def workspace(self) -> uuid.UUID:
@@ -221,19 +230,20 @@ class TaskStore:
         return [TaskEvent.model_validate(r) for r in rows]
 
     async def request_cancel(self, task_id: uuid.UUID) -> Task | None:
-        """Queued tasks are canceled at once; running ones are flagged for their
-        worker. Returns None when the task is missing or already finished."""
+        """Queued and waiting tasks are canceled at once; running ones are flagged
+        for their worker. Returns None when the task is missing or already finished."""
         async with self.pool.connection() as conn, conn.transaction():
             cur = await conn.execute(
                 """
                 UPDATE tasks SET
                     cancel_requested = true,
-                    state = CASE WHEN state = 'queued' THEN 'canceled' ELSE state END,
-                    termination = CASE WHEN state = 'queued' THEN 'cancelled' ELSE termination END,
-                    finished_at = CASE WHEN state = 'queued' THEN now() ELSE finished_at END,
+                    state = CASE WHEN state = 'running' THEN state ELSE 'canceled' END,
+                    termination = CASE WHEN state = 'running' THEN termination ELSE 'cancelled' END,
+                    finished_at = CASE WHEN state = 'running' THEN finished_at ELSE now() END,
+                    awaiting_approval = NULL,
                     last_seq = last_seq + 1,
                     updated_at = now()
-                WHERE id = %s AND state IN ('queued', 'running')
+                WHERE id = %s AND state IN ('queued', 'running', 'waiting')
                 RETURNING *
                 """,
                 (task_id,),
@@ -261,12 +271,13 @@ class TaskStore:
                 UPDATE tasks SET
                     state = 'queued', max_attempts = attempt + %s, cancel_requested = false,
                     checkpoint = NULL, termination = NULL, error = NULL, result_text = NULL,
-                    finished_at = NULL, last_seq = last_seq + 1, updated_at = now()
+                    approvals = '{}', finished_at = NULL, last_seq = last_seq + 1,
+                    updated_at = now()
                 WHERE id = %s AND state IN ('failed', 'canceled')
                   AND NOT EXISTS (
                       SELECT 1 FROM tasks other
                       WHERE other.conversation_id = tasks.conversation_id
-                        AND other.state IN ('queued', 'running'))
+                        AND other.state IN ('queued', 'running', 'waiting'))
                 RETURNING *
                 """,
                 (extra_attempts, task_id),
@@ -275,6 +286,34 @@ class TaskStore:
             if row is None:
                 return None
             await _log(conn, row, "task_requeued", {"max_attempts": row["max_attempts"]})
+        return Task.model_validate(row)
+
+    async def decide(
+        self, task_id: uuid.UUID, *, call_id: str, approved: bool, by: str
+    ) -> Task | None:
+        """Record a person's decision on the call a waiting task waits for and queue
+        the task to resume. Returns None when the task is not waiting on that call."""
+        async with self.pool.connection() as conn, conn.transaction():
+            cur = await conn.execute(
+                """
+                UPDATE tasks SET
+                    state = 'queued', awaiting_approval = NULL,
+                    approvals = approvals || jsonb_build_object(
+                        %(call)s::text,
+                        jsonb_build_object('approved', %(ok)s::boolean, 'by', %(by)s::text,
+                                           'at', now())),
+                    last_seq = last_seq + 1, updated_at = now()
+                WHERE id = %(id)s AND state = 'waiting' AND awaiting_approval->>'id' = %(call)s
+                RETURNING *
+                """,
+                {"id": task_id, "call": call_id, "ok": approved, "by": by},
+            )
+            row = await cur.fetchone()
+            if row is None:
+                return None
+            await _log(
+                conn, row, "approval_decided", {"id": call_id, "approved": approved, "by": by}
+            )
         return Task.model_validate(row)
 
     # --- Worker side ----------------------------------------------------------
@@ -416,6 +455,25 @@ class TaskStore:
                     "text": result_text,
                     "usage": Jsonb(usage.model_dump()),
                 },
+            )
+            if await cur.fetchone() is None:
+                raise LeaseLost(str(lease.task_id))
+
+    async def pause(self, lease: Lease, call: ToolCall) -> None:
+        """Park a running task until a person decides on `call`. The attempt is not
+        counted: the run resumes from its checkpoint once the task is queued again.
+        The run itself already logged approval_requested."""
+        async with self.pool.connection() as conn:
+            cur = await conn.execute(
+                """
+                UPDATE tasks SET
+                    state = 'waiting', awaiting_approval = %(call)s, attempt = attempt - 1,
+                    lease_owner = NULL, lease_expires_at = NULL, updated_at = now()
+                WHERE id = %(id)s AND lease_owner = %(worker)s AND attempt = %(attempt)s
+                  AND state = 'running'
+                RETURNING id
+                """,
+                {**_fence(lease), "call": Jsonb(call.model_dump(mode="json"))},
             )
             if await cur.fetchone() is None:
                 raise LeaseLost(str(lease.task_id))

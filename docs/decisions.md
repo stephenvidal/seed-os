@@ -207,3 +207,23 @@ answer always gives the user something and says what is unfinished.
 **Consequences:** A run that hits the limit now usually ends `completed`, so the
 limit is visible only as a `wrap_up` flag on the last `step_started` event. Open
 question: whether the default of 8 steps suits command-heavy tasks.
+
+## D-009 — Shell commands wait for approval by default
+
+**Date:** 2026-10-29
+
+**Context:** M4 asks for approvals, and the requirements ask for approval of
+destructive or sensitive operations. The tools today are list/read/write files in
+a disposable workspace and `run_command` in the sandbox.
+
+**Options:** commands only; commands and file writes; nothing until riskier tools exist.
+
+**Choice:** Commands only (owner's choice on 2026-10-29). The list is a setting,
+`SEED_APPROVAL_REQUIRED_TOOLS`; a tool can also mark itself as always needing approval.
+
+**Reason:** Commands are the open-ended action; file writes stay inside the workspace,
+and approving each one would interrupt most tasks.
+
+**Consequences:** Every command pauses its task until someone answers; there is no
+"approve all for this chat" yet. Open questions: per-conversation or per-command
+allow lists; who may approve once there are roles besides admin.

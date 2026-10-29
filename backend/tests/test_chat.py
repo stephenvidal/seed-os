@@ -139,6 +139,22 @@ async def test_retry_waits_for_the_other_turns(
     await answer(tasks, wsettings, [reply("two")])
     retried = await tasks.retry(first.id, extra_attempts=3)
     assert retried is not None and retried.state == "queued"
+
+
+@pytest.mark.anyio
+async def test_retry_waits_for_a_turn_that_waits_for_approval(
+    chat: ChatStore, tasks: TaskStore, pool: Pool
+) -> None:
+    cid = await begin(chat, "first")
+    first = (await chat.turns(cid))[0]
+    await tasks.request_cancel(first.id)
+    second = await send(chat, cid, "second")
+    async with pool.connection() as conn:
+        await conn.execute(
+            "UPDATE tasks SET state = 'waiting', awaiting_approval = %s WHERE id = %s",
+            ('{"id": "c", "name": "run_command", "arguments": {}}', second.id),
+        )
+    assert await tasks.retry(first.id, extra_attempts=3) is None
     with pytest.raises(ChatError) as e:
         await send(chat, cid, "third")
     assert e.value.code == "turn_in_progress"
@@ -308,3 +324,15 @@ def test_unknown_conversation_and_validation(api: TestClient) -> None:
     assert r.status_code == 404 and r.json()["error"]["code"] == "not_found"
     assert api.post("/api/v1/conversations", json={"model": MODEL, "prompt": ""}).status_code == 422
     assert api.get("/api/v1/conversations?limit=0").status_code == 422
+
+
+def test_a_turn_waiting_for_approval_blocks_the_next(api: TestClient, db_url: str) -> None:
+    detail = api.post("/api/v1/conversations", json={"model": MODEL, "prompt": "build it"}).json()
+    cid, tid = detail["conversation"]["id"], detail["turns"][0]["id"]
+    with psycopg.connect(db_url) as conn:
+        conn.execute(
+            "UPDATE tasks SET state = 'waiting', awaiting_approval = %s WHERE id = %s",
+            ('{"id": "c", "name": "run_command", "arguments": {}}', tid),
+        )
+    r = api.post(f"/api/v1/conversations/{cid}/turns", json={"prompt": "next"})
+    assert r.status_code == 409 and r.json()["error"]["code"] == "turn_in_progress"

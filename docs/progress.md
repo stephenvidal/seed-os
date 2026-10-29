@@ -864,3 +864,64 @@ run tool calls on the wrap-up step     → 1 failed
 
 **Not tested:** the real model on the wrap-up step (no key in this session). Which
 tools the failed runs used is not confirmed yet; asked the owner for their timeline.
+
+## 2026-10-29 — Increment 7: M4 step 2, approvals for commands
+
+**Iteration:** M4 step 2. Definition of done: a gated tool call pauses its task in a
+"waiting" state that holds no worker; Chat and the task page show the exact call with
+Approve/Deny; the run resumes from its checkpoint after the decision; a denied call
+never runs. The owner picked "Commands only" as the default (D-009).
+
+**Changed**
+- `core/agent.py`: `approvals` argument; pause at the first undecided gated call
+  (`approval_requested` event, checkpoint with `pending`, termination
+  `awaiting_approval`); on resume run the pending calls (denied → `denied` result).
+- `core/tools.py`: a gated tool runs only with `approved=True`.
+- Migration `0004_approvals`: state `waiting`, `awaiting_approval`, `approvals`.
+- `flow/store.py`: `pause`, `decide`; cancel ends waiting tasks; retry and chat
+  treat waiting as unfinished. `flow/worker.py`: gates tools from
+  `SEED_APPROVAL_REQUIRED_TOOLS`, passes decisions, parks the task.
+- `POST /api/v1/tasks/{id}/decision` (audited with tool and arguments).
+- Web: `ApprovalPrompt` in Chat and on the task page, "needs you" badges in the
+  task list and conversation list, timeline notes; a step's paused call now gets
+  its result after the decision in the timeline.
+- ADR-0012, D-009, README, security, roadmap, CHANGELOG.
+
+**Tested**
+```
+backend: ruff check → All checks passed! · mypy → Success: no issues found in 30 source files
+         pytest (DB, SEED_REQUIRE_ROOT_TESTS=1, as root) → 109 passed, 1 skipped
+frontend: typecheck ok · lint ok · format ok · vitest → Tests 31 passed (31)
+```
+Mutation checks (each made, suite run, reverted):
+```
+agent never pauses                       → CAUGHT     registry ignores approval   → CAUGHT
+denied call runs anyway                  → CAUGHT     pause counts the attempt    → CAUGHT
+paused call announced twice              → CAUGHT     decide ignores the call id  → CAUGHT
+checkpoint drops pending calls           → CAUGHT     retry ignores waiting turn  → CAUGHT
+cancel leaves waiting tasks waiting      → CAUGHT     chat ignores waiting turn   → CAUGHT
+worker ignores the setting               → CAUGHT     worker drops decisions      → CAUGHT
+pendingApproval ignores decisions        → CAUGHT     Deny sends approve          → CAUGHT
+buttons stay enabled after deciding      → CAUGHT
+```
+Browser (Chromium; API, worker, the real sandbox server as root with per-workspace
+users, Postgres, an Ollama-wire stub that always asks to run one command):
+```
+card: SEED wants to run a command | echo built > out.txt && id -u && cat out.txt | It runs in the sandbox for this workspace, with no network access. Nothing happens until you choose. | Approve | Deny
+list badge: yes
+sandbox files before approval: []
+card survives reload: yes
+answer 1: Tool said: {"exit_code": 0, "signal": null, "stdout": "533142801\nbuilt\n", ...
+tasks list shows needs you: yes
+timeline: ... Step 1 · 50 in / 5 out | run_command | 0 ms | {"command":"echo built > out.txt && id -u && cat out.txt"} | The user denied this action. Do not try it again; continue without it. | Waiting for your approval to run run_command | Paused for your approval | Denied by admin | Attempt 1 resumed after step 1 | Step 2 ... | Finished
+errors: []
+```
+Audit log afterwards: `tool_approved` and `tool_denied` rows, each with
+`{"tool": "run_command", "arguments": {"command": "echo built > out.txt && id -u && cat out.txt"}}`.
+The command ran as uid 533142801 (the workspace's user) only after Approve.
+
+**Not tested:** a real model's reaction to a denial (no key here); the compose stack
+and the deploy.
+
+**Open questions:** "approve all for this chat"; per-command allow lists; who may
+approve once roles exist (D-009).

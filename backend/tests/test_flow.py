@@ -35,7 +35,12 @@ def anyio_backend() -> str:
 async def pool(db_url: str) -> AsyncIterator[Pool]:
     pool = make_pool(db_url, max_size=4)
     await pool.open(wait=True)
-    assert await migrate(pool) == ["0001_tasks", "0002_auth", "0003_conversations"]
+    assert await migrate(pool) == [
+        "0001_tasks",
+        "0002_auth",
+        "0003_conversations",
+        "0004_approvals",
+    ]
     yield pool
     await pool.close()
 
@@ -327,8 +332,25 @@ async def test_worker_runs_commands_in_the_sandbox(store: TaskStore, tmp_path: P
     )
     w = Worker(store, settings, lambda: provider, sandbox=SandboxClient(http), worker_id="w")
     assert await w.run_once() is True
+    # Commands wait for a person's approval by default; nothing has run yet.
+    waiting = await store.get(task.id)
+    assert waiting is not None and waiting.state == "waiting" and waiting.attempt == 0
+    assert waiting.awaiting_approval is not None
+    assert waiting.awaiting_approval.name == "run_command"
+    assert not (sandbox_root / str(task.id) / "out.txt").exists()
+    assert await w.run_once() is False  # a waiting task is not claimable
+    decided = await store.decide(
+        task.id, call_id=waiting.awaiting_approval.id, approved=True, by="admin"
+    )
+    assert decided is not None and decided.state == "queued"
+    assert await w.run_once() is True
     await http.aclose()
+    done = await store.get(task.id)
+    assert done is not None and done.state == "completed" and done.attempt == 1
     events = await store.events(task.id, after=0, limit=100)
+    types = [e.type for e in events]
+    assert types.count("tool_call") == 1 and types.count("tool_result") == 1
+    assert types.index("approval_requested") < types.index("approval_decided")
     result = next(e.data for e in events if e.type == "tool_result")
     assert result["ok"] and result["output"]["stdout"] == "built\n"
     assert (sandbox_root / str(task.id) / "out.txt").read_text() == "built\n"

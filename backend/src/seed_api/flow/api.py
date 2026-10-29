@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 from ..auth import AuthStoreDep, Principal, client_ip, require_role
 from ..config import Settings, get_settings
-from ..core.messages import Usage
+from ..core.messages import ToolCall, Usage
 from ..errors import ApiError
 from .store import TERMINAL, Task, TaskEvent, TaskState, TaskStore
 
@@ -62,6 +62,8 @@ class TaskView(BaseModel):
     # Set when the task is a chat turn: its conversation and position in it.
     conversation_id: uuid.UUID | None
     turn: int | None
+    # Set while state is waiting: the tool call that needs a person's decision.
+    awaiting_approval: ToolCall | None
 
     @classmethod
     def of(cls, task: Task) -> "TaskView":
@@ -171,6 +173,38 @@ async def cancel_task(
         raise ApiError(409, "not_cancelable", "The task has already finished.")
     await audit.audit(
         "task_canceled", actor=principal.username, target=str(task_id), ip=client_ip(request)
+    )
+    return TaskView.of(task)
+
+
+class Decide(BaseModel):
+    call_id: str = Field(min_length=1, max_length=200)
+    approve: bool
+
+
+@router.post("/{task_id}/decision", response_model=TaskView)
+async def decide(
+    task_id: uuid.UUID,
+    body: Decide,
+    request: Request,
+    principal: AdminOnly,
+    store: StoreDep,
+    audit: AuthStoreDep,
+) -> TaskView:
+    """Approve or deny the tool call a waiting task waits for. The task is queued
+    and resumes where it stopped; a denied call is reported to the model."""
+    call = (await _task(store, task_id)).awaiting_approval
+    task = await store.decide(
+        task_id, call_id=body.call_id, approved=body.approve, by=principal.username
+    )
+    if task is None:
+        raise ApiError(409, "not_waiting", "The task is not waiting for a decision on that call.")
+    await audit.audit(
+        "tool_approved" if body.approve else "tool_denied",
+        actor=principal.username,
+        target=f"{task_id}/{body.call_id}",
+        ip=client_ip(request),
+        detail={"tool": call.name, "arguments": call.arguments} if call else None,
     )
     return TaskView.of(task)
 

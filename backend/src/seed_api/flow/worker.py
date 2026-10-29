@@ -14,6 +14,7 @@ import signal
 import socket
 import uuid
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import Literal
 
@@ -117,6 +118,10 @@ class Worker:
             )
         else:  # no sandbox configured: file tools on local disk, no commands
             tools = workspace_tools(Path(self.settings.workspace_root) / str(task.workspace))
+        gated = set(self.settings.approval_required_tools)
+        tools = [
+            replace(t, requires_approval=t.requires_approval or t.name in gated) for t in tools
+        ]
         provider = self.provider_factory()
         beat = asyncio.create_task(heartbeat())
         try:
@@ -137,6 +142,7 @@ class Worker:
                 on_event=on_event,
                 on_checkpoint=on_checkpoint,
                 resume=task.checkpoint,
+                approvals={call_id: d.approved for call_id, d in task.approvals.items()},
                 cancel=cancel,
             )
             await self._settle(lease, result, why)
@@ -150,6 +156,10 @@ class Worker:
     async def _settle(self, lease: Lease, result: RunResult, why: dict[str, bool]) -> None:
         if why["lost"]:
             raise LeaseLost(str(lease.task_id))
+        if result.termination == "awaiting_approval" and result.awaiting is not None:
+            await self.store.pause(lease, result.awaiting)
+            log.info("task %s waiting for approval of %s", lease.task_id, result.awaiting.name)
+            return
         if result.termination == "cancelled" and why["shutdown"] and not why["user"]:
             await self.store.release(lease)
             log.info("task %s released on shutdown", lease.task_id)

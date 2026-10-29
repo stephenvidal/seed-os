@@ -155,7 +155,7 @@ class ChatStore:
                 (conversation_id,),
             )
             rows = await cur.fetchall()
-            if any(r["state"] in ("queued", "running") for r in rows):
+            if any(r["state"] in ("queued", "running", "waiting") for r in rows):
                 raise ChatError(
                     "turn_in_progress",
                     "The previous message is still being answered. Wait for it, or cancel it.",
