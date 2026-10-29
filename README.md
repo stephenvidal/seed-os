@@ -34,11 +34,18 @@ it — with full visibility and control.
   and searched by title, message or answer. Any message can be edited, and any
   answer regenerated; each becomes a new version, the old ones are kept, and the
   arrows under a message switch between its versions (ADR-0013).
-- **Agents (M7):** specialists SEED will be able to hand part of a job to (D-024).
-  The Agents page lists them and edits each one's name, what it is for,
-  instructions, model and allowed tools. It starts with an editable Researcher,
-  Coder and Reviewer, given once. SEED does not delegate to them yet: that is the
-  next step of M7.
+- **Agents (M7):** specialists SEED can hand part of a job to (D-024). The Agents
+  page lists them and edits each one's name, what it is for, instructions, model
+  and allowed tools. It starts with an editable Researcher, Coder and Reviewer,
+  given once.
+- **Delegation (M7):** while answering, SEED has a `delegate` tool listing your
+  agents (D-025). Delegating starts the agent's own task: it gets only the task
+  text and what to report back, the agent's instructions and model, and only its
+  ticked tools, in the same workspace and project. SEED's turn waits ("with an
+  agent" in the chat list and on Tasks; the answer says who is working and links
+  to their task) and carries on with the agent's report when that task ends,
+  however it ends. Canceling SEED's turn cancels its agents' tasks. Agents do not
+  delegate further yet, and one agent works at a time.
 - **Projects (M6):** group chats under a name with instructions SEED follows in
   every one of them (D-017). A project's page edits its name and instructions and
   lists its chats and the files they saved; "New chat" starts one in the project,
@@ -141,15 +148,15 @@ it — with full visibility and control.
 | DELETE | `/api/v1/conversations/{id}` | admin | 204; removes the conversation, its turns and their events; 409 `turn_in_progress` while a turn is queued, running or waiting; 404 `not_found` |
 | POST | `/api/v1/conversations/{id}/turns` | admin | `{prompt, model?}`, optional `Idempotency-Key` → 201 task continuing the shown path, carrying its completed turns as context; `model` switches the conversation's model; 409 `turn_in_progress` while a turn is unfinished; 404 `not_found` |
 | POST | `/api/v1/tasks` | admin | `{model, prompt, title?, project_id?}`, optional `Idempotency-Key` header → 201 task (`queued`); with `project_id` the task copies the project's instructions and approved memory and gets its `remember` and `search_knowledge` tools (404 `project_not_found`); 200 with the existing task on a repeated key; 409 `idempotency_conflict`; 503 `provider_not_configured` |
-| GET | `/api/v1/overview` | admin | `?hours=1..720` (default 24) → `{window_hours, generated_at, counts, attention[], active[], recent[], usage[]}`: queued/running/waiting now; completed/failed/canceled, recent work and per-model tokens for tasks finished in the window; `attention` is every waiting task then failures in the window (10 max), `active` running then queued (10 max), `recent` 5 max; all users' tasks |
+| GET | `/api/v1/overview` | admin | `?hours=1..720` (default 24) → `{window_hours, generated_at, counts, attention[], active[], recent[], usage[]}`: queued/running/waiting (for approval)/delegating (waiting for an agent's task) now; completed/failed/canceled, recent work and per-model tokens for tasks finished in the window; `attention` is every task waiting for approval then failures in the window (10 max), `active` running, then queued and delegating (10 max), `recent` 5 max; all users' tasks |
 | GET | `/api/v1/artifacts` | admin | Saved files, most recently changed first: `{id, path, media_type, conversation_id, source_title, task_id, versions, latest{version, task_id, size, deleted, created_at}, …}`; `?conversation_id=`, `?project_id=`, `?limit=1..500` |
 | GET | `/api/v1/artifacts/{id}` | admin | `{artifact, versions[]}` (newest first); 404 `not_found` |
 | GET | `/api/v1/artifacts/{id}/versions/{n}/content` | admin | The version's bytes, sandboxed by CSP (never runs); `?download=true` as an attachment; 410 `deleted`; 503 `artifacts_not_configured` without `SEED_ARTIFACT_ROOT` |
 | POST | `/api/v1/artifacts/{id}/preview` | admin | 201 `{url, expires_in}`: a link, valid 1 h, that serves the latest saved files of the file's workspace; 410 `deleted` |
 | GET | `/api/v1/previews/{token}/{path}` | link | A previewed file, sandboxed (scripts run; no same-origin access, no network); 404 for an unknown path or an expired link |
 | GET | `/api/v1/tasks` | admin | Newest first; `?state=queued\|running\|waiting\|completed\|failed\|canceled`, `?project_id=` (the project's tasks started outside a chat), `?limit=1..100` |
-| GET | `/api/v1/tasks/{id}` | admin | Task: state, attempt, termination, error, result, usage, `last_seq`, `resumable_from_step`, `awaiting_approval` (`{id, name, arguments}` while `waiting`), and for a chat turn `conversation_id`, `turn`, `summary_of` (the newest earlier turn its model saw only in summary) and `summary` (the summary of the chat through this turn, once made); 404 `not_found` |
-| GET | `/api/v1/tasks/{id}/events` | admin | `{events[], last_seq, state}`; `?after=<seq>&limit=` for incremental reads. Events: `task_created`, `attempt_started`, run events, `checkpoint_saved` (`{steps, pending}`), `artifacts_saved` (`{saved[{path, version, deleted}], skipped[{path, reason}], truncated}`), `workspace_restored` (`{files}`), `artifacts_failed` (`{stage, error}`), `context_summarized` (`{through, turns, usage}`), `summary_failed` (`{error}`), `cancel_requested`, `task_requeued`, `task_released`, `lease_expired` |
+| GET | `/api/v1/tasks/{id}` | admin | Task: state, attempt, termination, error, result, usage, `last_seq`, `resumable_from_step`, `awaiting_approval` (`{id, name, arguments}` while `waiting` for a person), `awaiting_delegation` (the `delegate` call while `waiting` for an agent's task), `parent_task_id` and `agent` (`{id, name, description, instructions, model, tools}` as delegated) on an agent's task, and for a chat turn `conversation_id`, `turn`, `summary_of` (the newest earlier turn its model saw only in summary) and `summary` (the summary of the chat through this turn, once made); 404 `not_found` |
+| GET | `/api/v1/tasks/{id}/events` | admin | `{events[], last_seq, state}`; `?after=<seq>&limit=` for incremental reads. Events: `task_created`, `attempt_started`, run events, `checkpoint_saved` (`{steps, pending}`), `artifacts_saved` (`{saved[{path, version, deleted}], skipped[{path, reason}], truncated}`), `workspace_restored` (`{files}`), `artifacts_failed` (`{stage, error}`), `delegation_requested`, `delegated` (`{id, agent, task_id}`), `delegation_refused` (`{id, reason}`), `delegation_finished` (`{id, task_id, agent, state}`), `context_summarized` (`{through, turns, usage}`), `summary_failed` (`{error}`), `cancel_requested`, `task_requeued`, `task_released`, `lease_expired` |
 | GET | `/api/v1/tasks/{id}/stream` | admin | `text/event-stream`: each stored event as `id: <seq>` + JSON data, then `event: end` once the task is finished. Resumes after `Last-Event-ID` (or `?after=`); 404 `not_found` |
 | POST | `/api/v1/tasks/{id}/cancel` | admin | Queued or waiting → `canceled` at once; running → stops at the worker's next heartbeat; 409 `not_cancelable` |
 | POST | `/api/v1/tasks/{id}/decision` | admin | `{call_id, approve}` for the call in the task's `awaiting_approval` → task `queued` to resume; event `approval_decided`; audited as `tool_approved`/`tool_denied` with the tool and its arguments; 409 `not_waiting` |

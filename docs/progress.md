@@ -1794,3 +1794,71 @@ errors: the 401 from the sign-in check before login; the 409 the duplicate check
 **Not tested:** Firefox and Safari.
 
 **Open questions:** none new. Step 2 (delegation) is next.
+
+## Increment 20 — Delegation (M7 step 2)
+
+**Iteration:** M7 step 2, delegation. **Done when:** SEED can hand a sub-task to
+an agent, which runs as its own task with the agent's instructions, model and
+tools only; the parent waits durably and resumes with the report however the
+child ends (completed, failed, canceled, dead); canceling the parent cancels the
+child; unknown agents and bad arguments are answered without a child; the chat
+and task lists say a task is with an agent rather than waiting on you — each
+shown by a test that fails when it breaks, and in a browser.
+
+**Changed**
+- Core: `Tool.deferred`; `run_agent(delegated=…)`, termination
+  `awaiting_delegation`, event `delegation_requested`.
+- Migration `0013_delegation` (`parent_task_id`, `delegated_call`, `agent`,
+  `awaiting_delegation`, `delegations`; the waiting check now allows either
+  wait).
+- `TaskStore.delegate`, `refuse_delegation`; children report to their parent in
+  `finish`, `sweep` and cancel; cancel cascades; children cannot be retried.
+- `agents/delegation.py` (tool, prompts); worker offers `delegate`, filters an
+  agent's tools, saves an agent's files under the parent's chat.
+- Overview `delegating`; chat list `last_state` `delegating`; task view fields.
+- Web: "with an agent" badges; "Researcher is working on part of this. Follow
+  it" in the live answer; timeline notes for the new events; Agents page note.
+- D-025, README, CHANGELOG, roadmap, requirements WS-4.
+
+**Tested**
+```
+backend: ruff check → All checks passed! · ruff format --check → 71 files already formatted
+         mypy → Success: no issues found in 47 source files
+         pytest (DB) → 169 passed, 1 skipped
+frontend: typecheck ok · lint ok · format ok · vitest → Test Files 14 passed (14), Tests 103 passed (103)
+```
+Mutation checks (each made, tests run, reverted), backend 23 of 24 caught.
+Caught: returned results ignored; invalid arguments paused on; pause reported as
+an approval; agent tools not filtered; agents may delegate; results not passed to
+the run; agent system prompt not used; agent model ignored; workspace not
+shared; project not inherited; finish, sweep or cancel not reporting to the
+parent; cancel not cascading; children retryable; result text dropped; agent
+names case-sensitive; deliverable dropped from the prompt; overview `waiting`
+counting delegations; delegations missing from `active`; chat list
+`delegating` missing; refusal replaced by a release. Survived: dropping
+`state = 'waiting'` from the parent update in `_report_to_parent`. That one is
+equivalent: the table's check makes `awaiting_delegation` non-null only while
+`waiting`. Frontend 7/7 caught: badge, chat-list badge, follow link, the two ways
+a pending delegation ends, the refusal note, the outcome tone.
+
+Browser (Chromium) on the Vite dev server with the real API, worker and Postgres,
+and an Ollama-wire stub that delegates "delegate …" to Researcher:
+```
+while waiting: Researcher is working on part of this. Follow it
+list badge: 1
+answer: SEED says: Researcher report on: find the open questions in the brief (tools: list_files,read_file)
+agent task: Researcher: find the open questions in the brief
+agent task prompt: find the open questions in the brief |  | Report back: a one-line summary
+overflow at 390: 0
+errors: the 401 from the sign-in check before login
+```
+The first browser run showed two faults that are now fixed: the agent task's title
+included "Report back: …", and the chat list did not refresh to "with an agent"
+until the turn ended.
+
+**Not tested:** a real model choosing to delegate; an agent asking for command
+approval mid-delegation (the approval path is unchanged and tested on its own);
+Firefox and Safari; the live site (this session cannot reach it).
+
+**Open questions:** none new. Step 3 (parallel sub-tasks, depth and concurrency
+limits) is next.

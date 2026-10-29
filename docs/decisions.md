@@ -668,3 +668,42 @@ data.
 (step 2 copies the definition into the delegated task). `run_command` still waits
 for approval under `SEED_APPROVAL_REQUIRED_TOOLS`. Nothing delegates yet; the
 Agents page says so.
+
+## D-025 — Delegation is a deferred tool call answered by a child task
+
+**Date:** 2026-10-29
+
+**Context:** The requirements ask that delegation be "real separate execution
+contexts, not personas", with explicit inputs, outputs and ownership, and that
+the primary assistant integrates and delivers. Tasks must survive restarts.
+
+**Options:** (1) run the agent inline inside the parent's tool call (one worker,
+one process, lost on a crash, no own timeline); (2) the parent's tool call starts
+a child task and the parent waits for it like it waits for an approval; (3) a
+separate orchestration service.
+
+**Choice:** Option 2. The `delegate` tool (`{agent, task, deliverable}`) is
+offered when the owner has agents, listing each with its purpose and tools. It is
+*deferred*: the loop checkpoints and pauses on the call (termination
+`awaiting_delegation`). The worker then, in one transaction, parks the parent
+(`waiting`, `awaiting_delegation`) and inserts the child: prompt = task + "Report
+back: deliverable", the agent's definition copied (`agent`), its model or else
+the parent's, the parent's workspace and project, `parent_task_id` and the call
+id. An unknown agent is answered at once with the list of names. The child runs
+with a system prompt naming the agent, its owner-given instructions, and only its
+allowed tools (`search_knowledge` only in a project; never `remember` or
+`delegate`, so depth is 1). Whenever the child ends (finished, failed, canceled,
+or swept as dead), the same transaction writes its result into the parent's
+`delegations` and queues the parent, whose resumed run gives the call that
+result. Canceling a task cancels its children; a child cannot be retried. A
+task waiting for a child is not "waiting on you": the overview counts it as
+`delegating` and lists it as active; the chat list says "with an agent".
+
+**Reason:** It reuses the durable pause/resume already proven for approvals, so a
+delegation survives worker and server restarts, has its own task page, events,
+limits and usage, and needs no new service.
+
+**Consequences:** One delegation runs at a time per parent (parallel sub-tasks
+are M7 step 3); agents share the parent's workspace. The agent's tokens are its
+own task's usage, not added to the parent's. The first listing of agents, from
+the Agents page or from a run, gives an owner the starters (D-024).

@@ -8,6 +8,13 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
   they now render (D-020). The per-step output cap is 16,384 tokens, up from 4,096.
 
 ### Added
+- Delegation (M7, D-025): the `delegate` tool hands a sub-task to one of the
+  owner's agents as a task of its own (agent's instructions, model and tools,
+  same workspace and project); the turn waits durably and resumes with the
+  report however the agent's task ends; canceling cascades. Task fields
+  `parent_task_id`, `agent`, `awaiting_delegation`; overview `delegating`;
+  conversation `last_state` `delegating`; events `delegated`,
+  `delegation_finished`, `delegation_refused`; migration 0013.
 - Agent definitions (M7, D-024): the Agents page and `/api/v1/agents` (list,
   create, replace, delete); name, purpose, instructions, model and allowed tools;
   starter Researcher, Coder and Reviewer given once per owner; migration 0012.
