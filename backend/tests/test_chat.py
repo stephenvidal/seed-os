@@ -13,7 +13,7 @@ from pydantic import SecretStr
 from seed_api.chat.store import ChatError, ChatStore
 from seed_api.config import Settings
 from seed_api.flow.db import Pool, make_pool, migrate
-from seed_api.flow.store import TaskStore
+from seed_api.flow.store import Task, TaskStore
 from seed_api.flow.worker import Worker
 
 from .conftest import sign_in, start
@@ -74,6 +74,11 @@ async def send(chat: ChatStore, cid: uuid.UUID, prompt: str, *, turns: int = 20,
     return task
 
 
+async def path(chat: ChatStore, cid: uuid.UUID) -> list[Task]:
+    """The tasks on the conversation's shown path."""
+    return [t.task for t in await chat.turns(cid)]
+
+
 async def answer(tasks: TaskStore, settings: Settings, script: list[Step]) -> ScriptedProvider:
     provider = ScriptedProvider(script)
     assert await Worker(tasks, settings, lambda: provider, worker_id="w").run_once()
@@ -105,7 +110,7 @@ async def test_a_turn_carries_the_conversation_and_its_files(
     tool_msg = next(m for m in provider.requests[1].messages if m.role == "tool")
     assert '"content":"hello"' in tool_msg.content.replace(" ", "")
     assert (tmp_path / str(cid) / "notes.txt").read_text() == "hello"
-    turns = await chat.turns(cid)
+    turns = await path(chat, cid)
     assert [(t.turn, t.state, t.result_text) for t in turns] == [
         (1, "completed", "Made it."),
         (2, "completed", "It says hello."),
@@ -120,7 +125,7 @@ async def test_one_turn_at_a_time_and_failed_turns_carry_nothing(
     with pytest.raises(ChatError) as e:
         await send(chat, cid, "too soon")
     assert e.value.code == "turn_in_progress"
-    first = (await chat.turns(cid))[0]
+    first = (await path(chat, cid))[0]
     await tasks.request_cancel(first.id)
     second = await send(chat, cid, "second")
     assert second.turn == 2 and second.context == []  # the canceled turn has no answer
@@ -131,7 +136,7 @@ async def test_retry_waits_for_the_other_turns(
     chat: ChatStore, tasks: TaskStore, wsettings: Settings
 ) -> None:
     cid = await begin(chat, "first")
-    first = (await chat.turns(cid))[0]
+    first = (await path(chat, cid))[0]
     await tasks.request_cancel(first.id)
     await send(chat, cid, "second")
     # Turns share a workspace: the canceled turn may not run beside the queued one.
@@ -146,7 +151,7 @@ async def test_retry_waits_for_a_turn_that_waits_for_approval(
     chat: ChatStore, tasks: TaskStore, pool: Pool
 ) -> None:
     cid = await begin(chat, "first")
-    first = (await chat.turns(cid))[0]
+    first = (await path(chat, cid))[0]
     await tasks.request_cancel(first.id)
     second = await send(chat, cid, "second")
     async with pool.connection() as conn:
@@ -230,9 +235,9 @@ async def test_rename_retitles_the_turns_but_not_the_order(
     newer = await begin(chat, "newer")
     conv = await chat.rename(older, owner="admin", title="Renamed")
     assert conv.title == "Renamed"
-    [turn] = await chat.turns(older)
+    [turn] = await path(chat, older)
     assert turn.title == "Renamed"  # the Tasks list shows turns by this title
-    [other] = await chat.turns(newer)
+    [other] = await path(chat, newer)
     assert other.title == "newer"
     # Renaming is not activity: the older conversation stays below the newer one.
     assert [c.id for c in await chat.list("admin", limit=10)] == [newer, older]
@@ -255,7 +260,7 @@ async def test_delete_removes_the_turns_and_their_events(
     await answer(tasks, wsettings, [reply("one")])
     await send(chat, gone, "two")
     await answer(tasks, wsettings, [reply("two")])
-    [first, second] = await chat.turns(gone)
+    [first, second] = await path(chat, gone)
     with pytest.raises(ChatError) as e:
         await chat.delete(gone, owner="someone-else")
     assert e.value.code == "not_found"
@@ -273,7 +278,7 @@ async def test_delete_removes_the_turns_and_their_events(
         await chat.delete(gone, owner="admin")
     assert e.value.code == "not_found"
     assert [c.id for c in await chat.list("admin", limit=10)] == [keep]
-    assert [t.result_text for t in await chat.turns(keep)] == ["kept"]
+    assert [t.result_text for t in await path(chat, keep)] == ["kept"]
 
 
 @pytest.mark.anyio
@@ -318,6 +323,150 @@ async def test_search_matches_titles_messages_and_answers(
     assert await chat.list("someone-else", limit=10, query="o") == []
     [hit] = await chat.list("admin", limit=10, query="four")
     assert hit.turns == 1 and hit.last_state == "completed"
+
+
+async def version(  # type: ignore[no-untyped-def]
+    chat: ChatStore, cid: uuid.UUID, turn: uuid.UUID, prompt: str | None, *, key=None
+):
+    task, _ = await chat.add_version(
+        cid,
+        turn,
+        owner="admin",
+        prompt=prompt,
+        model=None,
+        max_attempts=3,
+        idempotency_key=key,
+        context_turns=20,
+    )
+    return task
+
+
+@pytest.mark.anyio
+async def test_editing_a_message_keeps_the_old_version(
+    chat: ChatStore, tasks: TaskStore, wsettings: Settings
+) -> None:
+    cid = await begin(chat, "q1")
+    await answer(tasks, wsettings, [reply("a1")])
+    await send(chat, cid, "q2")
+    await answer(tasks, wsettings, [reply("a2")])
+    await send(chat, cid, "q3")
+    await answer(tasks, wsettings, [reply("a3")])
+    t1, t2, t3 = await path(chat, cid)
+
+    v2 = await version(chat, cid, t2.id, "q2 edited")
+    assert (v2.turn, v2.parent_id, v2.prompt) == (2, t1.id, "q2 edited")
+    assert [m.content for m in v2.context] == ["q1", "a1"]  # not a2 or anything after
+    turns = await chat.turns(cid)
+    assert [t.task.id for t in turns] == [t1.id, v2.id]
+    assert [t.versions for t in turns] == [[t1.id], [t2.id, v2.id]]
+    # One turn at a time, across all versions: they share a workspace.
+    for attempt in (
+        send(chat, cid, "too soon"),
+        version(chat, cid, t3.id, None),
+        chat.show(cid, t2.id, owner="admin"),
+    ):
+        with pytest.raises(ChatError) as e:
+            await attempt
+        assert e.value.code == "turn_in_progress"
+    provider = await answer(tasks, wsettings, [reply("b2")])
+    sent = [(m.role, m.content) for m in provider.requests[0].messages][1:]
+    assert sent == [("user", "q1"), ("assistant", "a1"), ("user", "q2 edited")]
+
+    v3 = await send(chat, cid, "q3b")  # continues the shown version
+    assert (v3.turn, v3.parent_id) == (3, v2.id)
+    assert [m.content for m in v3.context] == ["q1", "a1", "q2 edited", "b2"]
+    await answer(tasks, wsettings, [reply("b3")])
+
+    # The old version, and what followed it, are all still there.
+    await chat.show(cid, t2.id, owner="admin")
+    assert [t.id for t in await path(chat, cid)] == [t1.id, t2.id, t3.id]
+    assert [t.result_text for t in await path(chat, cid)] == ["a1", "a2", "a3"]
+    # A new message continues the shown version, not the newest turn.
+    t4 = await send(chat, cid, "q4")
+    assert (t4.turn, t4.parent_id) == (4, t3.id)
+    assert [m.content for m in t4.context][-2:] == ["q3", "a3"]
+    await answer(tasks, wsettings, [reply("a4")])
+    await chat.show(cid, v2.id, owner="admin")
+    assert [t.id for t in await path(chat, cid)] == [t1.id, v2.id, v3.id]
+    [summary] = await chat.list("admin", limit=10)
+    assert (summary.turns, summary.last_state) == (3, "completed")
+    await chat.show(cid, t3.id, owner="admin")
+    assert [t.id for t in await path(chat, cid)] == [t1.id, t2.id, t3.id, t4.id]
+
+
+@pytest.mark.anyio
+async def test_regenerating_asks_the_same_message_again(
+    chat: ChatStore, tasks: TaskStore, wsettings: Settings
+) -> None:
+    cid = await begin(chat, "q1")
+    await answer(tasks, wsettings, [reply("a1")])
+    await send(chat, cid, "q2")
+    await answer(tasks, wsettings, [reply("a2")])
+    t1, t2 = await path(chat, cid)
+    await version(chat, cid, t2.id, None)  # older child of t1 ...
+    await answer(tasks, wsettings, [reply("a2, again")])
+
+    r1 = await version(chat, cid, t1.id, None)
+    assert (r1.turn, r1.parent_id, r1.prompt, r1.context) == (1, None, "q1", [])
+    [shown] = await chat.turns(cid)
+    assert shown.task.id == r1.id and shown.versions == [t1.id, r1.id]
+    [summary] = await chat.list("admin", limit=10)
+    assert (summary.turns, summary.last_state) == (1, "queued")
+    await answer(tasks, wsettings, [reply("a1, again")])
+
+    # Showing a version follows its newest reply down: the regenerated a2.
+    await chat.show(cid, t1.id, owner="admin")
+    assert [t.result_text for t in await path(chat, cid)] == ["a1", "a2, again"]
+    [_, second] = await chat.turns(cid)
+    assert second.versions[0] == t2.id and len(second.versions) == 2
+
+
+@pytest.mark.anyio
+async def test_versions_belong_to_their_conversation(
+    chat: ChatStore, tasks: TaskStore, wsettings: Settings
+) -> None:
+    cid = await begin(chat, "mine")
+    other = await begin(chat, "other")
+    await answer(tasks, wsettings, [reply("x")])
+    await answer(tasks, wsettings, [reply("y")])
+    [foreign] = await path(chat, other)
+    for attempt in (
+        version(chat, cid, foreign.id, "edit"),
+        chat.show(cid, foreign.id, owner="admin"),
+    ):
+        with pytest.raises(ChatError) as e:
+            await attempt
+        assert e.value.code == "not_found"
+    [mine] = await path(chat, cid)
+    with pytest.raises(ChatError) as e:
+        await chat.add_version(
+            cid,
+            mine.id,
+            owner="someone-else",
+            prompt=None,
+            model=None,
+            max_attempts=3,
+            idempotency_key=None,
+            context_turns=20,
+        )
+    assert e.value.code == "not_found"
+
+    first = await version(chat, cid, mine.id, "edit", key="v-1")
+    await tasks.request_cancel(first.id)
+    replay, created = await chat.add_version(
+        cid,
+        mine.id,
+        owner="admin",
+        prompt="edit",
+        model=None,
+        max_attempts=3,
+        idempotency_key="v-1",
+        context_turns=20,
+    )
+    assert replay.id == first.id and not created
+    with pytest.raises(ChatError) as e:
+        await version(chat, cid, mine.id, "different", key="v-1")
+    assert e.value.code == "idempotency_conflict"
 
 
 # --- HTTP API -----------------------------------------------------------------
@@ -486,3 +635,41 @@ def test_rename_and_delete_need_csrf(api: TestClient) -> None:
     assert api.delete(f"/api/v1/conversations/{cid}").status_code == 403
     api.headers["X-CSRF-Token"] = token
     assert api.get(f"/api/v1/conversations/{cid}").json()["conversation"]["title"] == "hi"
+
+
+def test_versions_over_http(api: TestClient, db_url: str) -> None:
+    detail = api.post("/api/v1/conversations", json={"model": MODEL, "prompt": "hi"}).json()
+    cid, tid = detail["conversation"]["id"], detail["turns"][0]["id"]
+    assert detail["turns"][0]["versions"] == [tid]
+    url = f"/api/v1/conversations/{cid}/turns/{tid}/versions"
+    busy = api.post(url, json={})
+    assert busy.status_code == 409 and busy.json()["error"]["code"] == "turn_in_progress"
+    api.post(f"/api/v1/tasks/{tid}/cancel")
+    assert api.post(url, json={"prompt": ""}).status_code == 422
+    elsewhere = f"/api/v1/conversations/{cid}/turns/{uuid.uuid4()}/versions"
+    assert api.post(elsewhere, json={}).status_code == 404
+
+    r = api.post(url, json={"prompt": "hello"}, headers={"Idempotency-Key": "v-1"})
+    assert r.status_code == 201 and r.json()["turn"] == 1 and r.json()["prompt"] == "hello"
+    again = api.post(url, json={"prompt": "hello"}, headers={"Idempotency-Key": "v-1"})
+    assert again.status_code == 200 and again.json()["id"] == r.json()["id"]
+    vid = r.json()["id"]
+    [shown] = api.get(f"/api/v1/conversations/{cid}").json()["turns"]
+    assert shown["id"] == vid and shown["versions"] == [tid, vid]
+
+    show = f"/api/v1/conversations/{cid}/shown"
+    busy = api.put(show, json={"turn_id": tid})
+    assert busy.status_code == 409  # the new version is queued
+    api.post(f"/api/v1/tasks/{vid}/cancel")
+    back = api.put(show, json={"turn_id": tid})
+    assert back.status_code == 200
+    assert [t["id"] for t in back.json()["turns"]] == [tid]
+    assert api.put(show, json={"turn_id": str(uuid.uuid4())}).status_code == 404
+    assert api.put(show, json={"turn_id": "nope"}).status_code == 422
+
+    with psycopg.connect(db_url) as conn:
+        audit = conn.execute(
+            "SELECT target, detail FROM audit_log "
+            "WHERE action = 'task_created' AND detail ? 'version_of'"
+        ).fetchall()
+    assert audit == [(vid, {"version_of": tid, "edited": True})]

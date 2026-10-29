@@ -979,3 +979,49 @@ conversations (a sequential scan, D-010).
 
 **Open questions:** delete a conversation's workspace files with it; search
 snippets and ranking (D-010).
+
+## 2026-10-29 — Increment 9: M4 step 3b (part 1), message versions in the API
+
+**Iteration:** M4 step 3b, first of two PRs. The owner chose "any message, keep
+versions" (D-011). Definition of done: any message can be edited or regenerated as
+a new version that keeps the turns above it and leaves older versions intact; the
+conversation shows one path and can switch to any version; existing conversations
+migrate unchanged; the one-unfinished-turn rule holds across versions. Chat
+controls are the next PR, so the UI here is unchanged (it shows the path).
+
+**Changed**
+- Migration `0005_versions`: `tasks.parent_id`, `conversations.head_id`, backfill,
+  `UNIQUE(conversation_id, turn)` replaced by a parent/turn CHECK.
+- `chat/store.py`: `send` continues the shown path; `add_version`, `show`;
+  `turns` returns the shown path with each turn's versions; listing by head.
+- `chat/api.py`: `POST …/turns/{turn_id}/versions`, `PUT …/shown`, `versions` on
+  turns; the new version is audited as `task_created` with `{version_of, edited}`.
+- ADR-0013, D-011, README, CHANGELOG, roadmap.
+
+**Tested**
+```
+backend: ruff check → All checks passed! · mypy → Success: no issues found in 30 source files
+         pytest (DB) → 119 passed, 1 skipped
+```
+Migration on a database holding 0004-era chats (the e2e database plus a
+three-turn conversation inserted the old way), then read through the new store:
+```
+applied: ['0005_versions']
+Old three-turn chat | turns 3 completed | path [(1, 'p1', 1), (2, 'p2', 1), (3, 'p3', 1)]
+Lisbon trip | turns 1 completed | path [(1, 'Holiday in Lisbon 50', 1)]
+```
+Mutation checks (each made, suite run, reverted):
+```
+version's context includes the old answer → CAUGHT   send ignores the shown path      → CAUGHT
+show follows the oldest reply             → CAUGHT   show while a turn is unfinished  → CAUGHT
+version while a turn is unfinished        → CAUGHT   turns report no other versions   → CAUGHT
+list counts every version                 → CAUGHT   version nested under its target  → CAUGHT
+new version not made the head             → CAUGHT
+```
+(The first run let "send ignores the shown path" survive; the test now sends after
+switching back to an older version.)
+
+**Not tested:** the migration inside the compose stack and the deploy; the backfill
+has no automated test (checked by hand above).
+
+**Open questions:** whether the Tasks list should group a message's versions (D-011).

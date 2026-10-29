@@ -11,7 +11,7 @@ from ..auth import AuthStoreDep, Principal, client_ip, require_role
 from ..config import Settings, get_settings
 from ..errors import ApiError
 from ..flow.api import TaskView
-from .store import ChatError, ChatStore, Conversation, ConversationSummary
+from .store import ChatError, ChatStore, Conversation, ConversationSummary, Turn
 
 router = APIRouter(prefix="/api/v1/conversations", tags=["chat"])
 
@@ -74,9 +74,30 @@ class Rename(BaseModel):
         return v
 
 
+class NewVersion(BaseModel):
+    # The edited message; left out, the message is asked again (regenerate).
+    prompt: str | None = Field(default=None, min_length=1, max_length=20_000)
+    model: str | None = Field(default=None, min_length=1, max_length=200)
+
+
+class Show(BaseModel):
+    turn_id: uuid.UUID
+
+
+class TurnView(TaskView):
+    # Ids of this message's versions, oldest first, this one included.
+    versions: list[uuid.UUID]
+
+    @classmethod
+    def of_turn(cls, turn: Turn) -> "TurnView":
+        return cls(**TaskView.of(turn.task).model_dump(), versions=turn.versions)
+
+
 class ConversationDetail(BaseModel):
+    """The conversation and its shown path of turns."""
+
     conversation: Conversation
-    turns: list[TaskView]
+    turns: list[TurnView]
 
 
 @router.post("", response_model=ConversationDetail, status_code=201)
@@ -109,7 +130,9 @@ async def start_conversation(
             )
     else:
         response.status_code = 200
-    return ConversationDetail(conversation=conv, turns=[TaskView.of(task)])
+    return ConversationDetail(
+        conversation=conv, turns=[TurnView.of_turn(Turn(task=task, versions=[task.id]))]
+    )
 
 
 @router.get("", response_model=list[ConversationSummary])
@@ -128,11 +151,17 @@ async def list_conversations(
 async def get_conversation(
     conversation_id: uuid.UUID, principal: AdminOnly, chat: ChatDep
 ) -> ConversationDetail:
+    return await _detail(chat, principal, conversation_id)
+
+
+async def _detail(
+    chat: ChatStore, principal: Principal, conversation_id: uuid.UUID
+) -> ConversationDetail:
     conv = await chat.get(principal.username, conversation_id)
     if conv is None:
         raise ApiError(404, "not_found", "No such conversation.")
     turns = await chat.turns(conversation_id)
-    return ConversationDetail(conversation=conv, turns=[TaskView.of(t) for t in turns])
+    return ConversationDetail(conversation=conv, turns=[TurnView.of_turn(t) for t in turns])
 
 
 @router.patch("/{conversation_id}", response_model=Conversation)
@@ -217,3 +246,63 @@ async def send_message(
     else:
         response.status_code = 200
     return TaskView.of(task)
+
+
+@router.post(
+    "/{conversation_id}/turns/{turn_id}/versions", response_model=TaskView, status_code=201
+)
+async def add_version(
+    conversation_id: uuid.UUID,
+    turn_id: uuid.UUID,
+    body: NewVersion,
+    request: Request,
+    response: Response,
+    principal: AdminOnly,
+    chat: ChatDep,
+    audit: AuthStoreDep,
+    settings: SettingsDep,
+    idempotency_key: IdempotencyKey = None,
+) -> TaskView:
+    """Edit a message (`prompt`) or ask it again (no `prompt`). The new version
+    keeps the turns before it, ends the shown path, and is queued as a task; the
+    old version and anything after it are kept. 409 turn_in_progress while any
+    turn of the conversation is unfinished."""
+    _need_provider(settings)
+    try:
+        task, created = await chat.add_version(
+            conversation_id,
+            turn_id,
+            owner=principal.username,
+            prompt=body.prompt,
+            model=body.model,
+            max_attempts=settings.task_max_attempts,
+            idempotency_key=idempotency_key,
+            context_turns=settings.chat_context_turns,
+        )
+    except ChatError as e:
+        raise _api_error(e) from e
+    if created:
+        await audit.audit(
+            "task_created",
+            actor=principal.username,
+            target=str(task.id),
+            ip=client_ip(request),
+            detail={"version_of": str(turn_id), "edited": body.prompt is not None},
+        )
+    else:
+        response.status_code = 200
+    return TaskView.of(task)
+
+
+@router.put("/{conversation_id}/shown", response_model=ConversationDetail)
+async def show_version(
+    conversation_id: uuid.UUID, body: Show, principal: AdminOnly, chat: ChatDep
+) -> ConversationDetail:
+    """Show another version of a message: the path runs through `turn_id` to its
+    newest reply. Returns the conversation as now shown. 409 turn_in_progress
+    while a turn is unfinished."""
+    try:
+        await chat.show(conversation_id, body.turn_id, owner=principal.username)
+    except ChatError as e:
+        raise _api_error(e) from e
+    return await _detail(chat, principal, conversation_id)

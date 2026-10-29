@@ -253,3 +253,23 @@ conversations are few enough that a scan is fast; an index can come when it is n
 **Consequences:** Workspace files of a deleted conversation stay until the sandbox
 restarts (tmpfs). Open questions: deleting workspace files with the conversation
 (needs a worker-side path, or M6 artifact storage); search snippets and ranking.
+
+## D-011 — Editing and regenerating keep every version
+
+**Date:** 2026-10-29
+
+**Context:** M4 step 3b: edit and regenerate messages. Turns are tasks with their
+own answers and timelines.
+
+**Options:** last message only, replacing it; any message, dropping later ones;
+any message, keeping versions to switch between.
+
+**Choice:** Any message, keep versions (owner's choice on 2026-10-29, over the
+recommended "last message only"). Built as a tree of turns; details in ADR-0013.
+
+**Reason:** Nothing the person or the model produced is lost by editing, and an
+earlier line of the conversation stays one click away.
+
+**Consequences:** Two PRs: the tree and its API first, then the Chat controls.
+Workspace files are shared by all versions. Open question: whether the Tasks list
+should group a message's versions.

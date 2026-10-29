@@ -65,6 +65,7 @@ class Task(BaseModel):
     finished_at: datetime | None
     conversation_id: uuid.UUID | None
     turn: int | None
+    parent_id: uuid.UUID | None
     context: list[ContextMessage]
     workspace_id: uuid.UUID | None
     awaiting_approval: ToolCall | None
@@ -122,6 +123,7 @@ async def insert_task(
     idempotency_key: str | None,
     conversation_id: uuid.UUID | None = None,
     turn: int | None = None,
+    parent_id: uuid.UUID | None = None,
     context: list[ContextMessage] | None = None,
 ) -> DictRow | None:
     """Insert a queued task and its first event. Returns None, inserting nothing,
@@ -129,8 +131,9 @@ async def insert_task(
     cur = await conn.execute(
         """
         INSERT INTO tasks (id, created_by, title, model, prompt, state, idempotency_key,
-                           max_attempts, last_seq, conversation_id, turn, context, workspace_id)
-        VALUES (%s, %s, %s, %s, %s, 'queued', %s, %s, 1, %s, %s, %s, %s)
+                           max_attempts, last_seq, conversation_id, turn, parent_id, context,
+                           workspace_id)
+        VALUES (%s, %s, %s, %s, %s, 'queued', %s, %s, 1, %s, %s, %s, %s, %s)
         ON CONFLICT (created_by, idempotency_key) DO NOTHING
         RETURNING *
         """,
@@ -144,6 +147,7 @@ async def insert_task(
             max_attempts,
             conversation_id,
             turn,
+            parent_id,
             Jsonb([m.model_dump() for m in context or []]),
             conversation_id,
         ),
