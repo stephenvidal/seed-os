@@ -55,10 +55,16 @@ services:
     env_file:
       - path: .env
         required: true
-    environment: *seed-env
+    environment:
+      <<: *seed-env
+      SEED_SANDBOX_URL: http://sandbox:8100
     depends_on:
       db:
         condition: service_healthy
+      sandbox:
+        condition: service_healthy
+    # Commands and task files go through the sandbox, never the worker's own disk.
+    networks: [default, sandbox]
     # The worker hands its task back on SIGTERM; give it time to do so.
     stop_grace_period: 30s
     healthcheck:
@@ -66,6 +72,34 @@ services:
     read_only: true
     tmpfs: [/tmp]
     mem_limit: 256m
+    logging: *logging
+  sandbox:
+    image: ghcr.io/stephenvidal/seed-api:${SEED_TAG:-latest}
+    # asyncio loop: uvloop cannot start a subprocess as another user.
+    command: ["uvicorn", "seed_api.sandbox.server:app", "--host", "0.0.0.0", "--port", "8100", "--loop", "asyncio"]
+    restart: unless-stopped
+    # No env_file: the sandbox holds no secrets and no database credentials.
+    # Root inside the container only to give each task its own user; every other
+    # capability is dropped and the root filesystem is read-only.
+    user: "0:0"
+    cap_drop: [ALL]
+    cap_add: [SETUID, SETGID, CHOWN, KILL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    tmpfs:
+      - /tmp
+      # Workspaces are ephemeral until artifact storage (M6), and bounded in size.
+      - /workspaces:size=256m,mode=0711
+    # Only on the internal network: reachable by the worker, no route out.
+    networks: [sandbox]
+    mem_limit: 768m
+    cpus: 1.0
+    pids_limit: 256
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8100/healthz').status==200 else 1)"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
     logging: *logging
   web:
     image: ghcr.io/stephenvidal/seed-web:${SEED_TAG:-latest}
@@ -78,5 +112,8 @@ services:
       - "127.0.0.1:${SEED_HOST_PORT:-8091}:8080"
     mem_limit: 64m
     logging: *logging
+networks:
+  sandbox:
+    internal: true
 volumes:
   pgdata:

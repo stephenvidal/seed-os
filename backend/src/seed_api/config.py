@@ -34,6 +34,18 @@ class Settings(BaseSettings):
     task_max_attempts: int = Field(default=3, ge=1, le=10)
     worker_lease_seconds: float = Field(default=30.0, ge=3, le=600)
     worker_poll_seconds: float = Field(default=2.0, gt=0, le=60)
+    # Sandbox (ADR-0010). Worker side: unset URL => tasks get file tools only, no
+    # command execution. Sandbox side: the rest bounds every command.
+    sandbox_url: str | None = None
+    sandbox_root: str = "/workspaces"
+    # Each task's files and commands run as a user of their own. Needs root in the
+    # sandbox container; off only for tests on a non-root machine.
+    sandbox_isolate_users: bool = True
+    sandbox_command_timeout_seconds: float = Field(default=60, gt=0, le=600)
+    sandbox_memory_mb: int = Field(default=512, ge=32)
+    sandbox_cpu_seconds: int = Field(default=60, ge=1)
+    sandbox_max_processes: int = Field(default=64, ge=1)
+    sandbox_max_file_mb: int = Field(default=64, ge=1)
     # Ephemeral per-run dirs on the container tmpfs until artifact storage (M6).
     workspace_root: str = "/tmp/seed-workspaces"  # noqa: S108
 

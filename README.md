@@ -28,7 +28,9 @@ it — with full visibility and control.
   the worker, so they keep going when the page is closed; the timeline is rebuilt
   from stored events on reload and resumes after a dropped connection. Cancel
   and retry appear only in the states that allow them. Needs `SEED_DATABASE_URL`;
-  without it the page says so.
+  without it the page says so. Task agents can also run shell commands
+  (`run_command`) in the sandbox: no network, time/memory/CPU/process limits,
+  each task in its own workspace as its own user (ADR-0010).
 - Agents, Projects, Studio, Inspector, Models, Tools: page structure with
   empty states naming the milestone that delivers each.
 
@@ -64,7 +66,7 @@ Errors are always `{"error": {"code", "message"}}`. OpenAPI at `/api/docs`.
 **Compose:** `cp .env.example .env`, set `SEED_ADMIN_PASSWORD` and
 `SEED_POSTGRES_PASSWORD`, then
 `docker compose up -d --build` → http://localhost:8080. This starts Postgres, the
-API, one worker and the web server.
+API, one worker, the sandbox and the web server.
 
 **Development:**
 ```bash
@@ -102,6 +104,11 @@ docker compose exec api python -m seed_api.users list    # in the compose stack
 | `SEED_TASK_MAX_ATTEMPTS` | `3` | Attempts per task (and per retry) before it is dead-lettered as `failed/abandoned` |
 | `SEED_WORKER_LEASE_SECONDS` | `30` | Worker lease; renewed every third of it. A crashed worker's task is resumed after this |
 | `SEED_WORKER_POLL_SECONDS` | `2` | Idle worker poll interval |
+| `SEED_SANDBOX_URL` | unset | Worker: sandbox address (compose sets `http://sandbox:8100`). Unset: tasks get local file tools and no commands |
+| `SEED_SANDBOX_COMMAND_TIMEOUT_SECONDS` | `60` | Longest a command may run (the model may ask for less) |
+| `SEED_SANDBOX_MEMORY_MB` / `SEED_SANDBOX_CPU_SECONDS` / `SEED_SANDBOX_MAX_PROCESSES` / `SEED_SANDBOX_MAX_FILE_MB` | `512` / `60` / `64` / `64` | Per-command limits, set on the sandbox service |
+| `SEED_SANDBOX_ROOT` | `/workspaces` | Sandbox: where task workspaces live |
+| `SEED_SANDBOX_ISOLATE_USERS` | `true` | Sandbox: run each task as its own user (needs root in the container; `false` only for tests) |
 
 ## Repository map
 | Path | Purpose |

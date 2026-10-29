@@ -143,3 +143,22 @@ used. Sign-in requires the database. New open questions: roles beyond `admin`
 (the requirements ask for RBAC but name no roles), a per-client sign-in limit
 (needs a trusted client address through the tunnel), and audit log retention.
 
+## D-006 — Commands run in a separate sandbox container
+
+**Date:** 2026-10-29
+
+**Context:** M3's last part is the sandbox. Two designs were put to the owner:
+one locked-down sandbox container that runs commands for the worker, or a fresh
+container per command started through the Docker socket.
+
+**Options:** separate sandbox container; container per command.
+
+**Choice:** Separate sandbox container (owner's choice on 2026-10-29), with a
+user per task inside it. Details in ADR-0010.
+
+**Reason:** The Docker socket is root on a VPS that also hosts other services;
+per-task users give the separation between tasks that one tenant needs.
+
+**Consequences:** Workspaces are ephemeral (tmpfs) until M6. Open questions:
+per-task disk quota; a stronger kernel boundary (gVisor) before multi-tenant use.
+

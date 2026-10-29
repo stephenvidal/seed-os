@@ -18,6 +18,8 @@ from seed_api.flow.db import Pool, make_pool, migrate
 from seed_api.flow.store import LeaseLost, Task, TaskStore
 from seed_api.flow.worker import Worker
 from seed_api.main import create_app
+from seed_api.sandbox.client import SandboxClient
+from seed_api.sandbox.server import create_sandbox_app
 
 from .fakes import ScriptedProvider, Step, calls, reply
 
@@ -305,3 +307,29 @@ async def test_stream_delivers_events_written_after_it_opened(
     ]
     assert types[0] == "task_created" and types[-1] == "run_finished"
     assert "text_delta" in types and body.rstrip().endswith('data: {"state": "completed"}')
+
+
+async def test_worker_runs_commands_in_the_sandbox(store: TaskStore, tmp_path: Path) -> None:
+    sandbox_root = tmp_path / "sandbox"
+    sandbox_root.mkdir()
+    settings = Settings(
+        workspace_root=str(tmp_path / "local"),
+        sandbox_root=str(sandbox_root),
+        sandbox_isolate_users=False,
+        sandbox_command_timeout_seconds=5,
+    )
+    http = httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=create_sandbox_app(settings)), base_url="http://sb"
+    )
+    task = await new_task(store)
+    provider = ScriptedProvider(
+        [calls(("run_command", {"command": "echo built > out.txt; cat out.txt"})), reply("ok")]
+    )
+    w = Worker(store, settings, lambda: provider, sandbox=SandboxClient(http), worker_id="w")
+    assert await w.run_once() is True
+    await http.aclose()
+    events = await store.events(task.id, after=0, limit=100)
+    result = next(e.data for e in events if e.type == "tool_result")
+    assert result["ok"] and result["output"]["stdout"] == "built\n"
+    assert (sandbox_root / str(task.id) / "out.txt").read_text() == "built\n"
+    assert not (tmp_path / "local").exists()  # nothing touched the worker's own disk

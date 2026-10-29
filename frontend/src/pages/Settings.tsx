@@ -73,7 +73,7 @@ export function SettingsPage() {
         <Panel title="Account">
           <Row
             label="Signed in as"
-            hint="Bootstrap administrator from server environment. Multi-user accounts arrive with persistence (M3)."
+            hint="Accounts are managed on the server with python -m seed_api.users (add, set-password, disable)."
           >
             <span className="font-mono text-sm text-fg">
               {me?.username} · {me?.role}

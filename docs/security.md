@@ -19,6 +19,11 @@
   management and task create/cancel/retry with actor, target, address and time.
 - **Rate limiting:** 5 failed sign-ins per username per 60 s → 429, counted from
   `audit_log`, so it holds across processes and restarts.
+- **Command execution (ADR-0010):** only in the `sandbox` container: no network
+  route out, no secrets, read-only root, all capabilities dropped except those
+  needed to switch users. Each task runs as its own uid in a 0700 workspace;
+  commands get time, memory, CPU, process, file-size and output limits, and
+  every process of the task is killed when a command ends.
 - **Input validation:** Pydantic models at every endpoint; typed 422 errors.
 - **Transport/headers (nginx):** CSP `default-src 'self'`, `frame-ancestors
   'none'`, `X-Frame-Options DENY`, `nosniff`, `Referrer-Policy`. TLS is expected
@@ -34,7 +39,9 @@
 - Sign-in limits are per username, not per client: behind the tunnel all clients
   share one address. A per-client limit needs `CF-Connecting-IP` passed through.
 - Audit log rows are kept indefinitely; no retention policy yet.
-- Sandbox, tool approval policies, network egress controls, prompt-injection
-  handling: M2/M3 (see requirements).
+- Tool approval policies, network egress for tools, prompt-injection handling:
+  not built yet (see requirements).
+- Sandbox: tasks share one kernel and container (no gVisor); no per-task disk
+  quota inside the 256 MiB workspace tmpfs.
 - Artifact previews must be served from a separate origin (M6).
 - Dependency audit not yet automated (`npm audit`, `pip-audit`).
