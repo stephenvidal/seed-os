@@ -1351,6 +1351,25 @@ covers it).
 **Open questions:** whether to allow `data:` fonts in the app's CSP (the existing
 block above).
 
+## Session: Command Center overflow on narrow screens
+
+**Iteration:** Fix horizontal overflow of the Command Center at ~390 px (reported from a phone screenshot). Done = no horizontal overflow at 390 px on the Command Center, and other pages checked.
+
+**Changed**
+- `frontend/src/pages/CommandCenter.tsx`: the page grid and the work-panels grid now use an explicit single column (`grid-cols-1`) and the column wrappers have `min-w-0`. Cause: a grid without `grid-template-columns` gets an `auto` track, which grows to its widest child's min-content (long task titles), so `<main>` was 621 px wide inside a 390 px viewport.
+
+**Tested**
+```
+Chromium 390x844, vite dev, API mocked (long task titles, failed/completed rows):
+before: / main scrollWidth 621 (viewport 390)
+after:  / main scrollWidth 390; /tasks /chat /studio /settings /inspector /memory /agents all 390 (no overflow)
+frontend: typecheck ok · lint ok · format ok · vitest passes (see run in PR)
+```
+
+**Not tested:** other widths (320, tablets); real data on the live site; Safari/Firefox. No automated regression test: jsdom has no layout, so it cannot fail on this bug. `/tasks` and `/chat` have no `<main>` measured in the script's mock (empty/loading state); the page-level scrollWidth was 390.
+
+**Open questions:** none.
+
 ## 2026-10-29 — Increment 14: M6 step 2 (part 1), projects
 
 **Iteration:** M6 step 2, part 1. Definition of done: projects can be created,
