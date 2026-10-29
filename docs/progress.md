@@ -1524,3 +1524,25 @@ and iframe look are unchecked beyond unit tests; whether the model follows the n
 prompt; Firefox and Safari.
 
 **Open questions:** none new.
+
+## 2026-10-29 — Increment 17: blank HTML answers and the output cap
+
+**Iteration:** fix for a bug the owner hit on the live site (D-020). Done when an
+answer that is raw HTML, or prose then a page, renders; and the per-step output
+cap no longer truncates ordinary pages.
+
+**Changed:** `isHtmlDocument` accepts a leading HTML tag, `splitHtmlPage` splits
+prose from a page, `Markdown` uses both; `max_output_tokens_per_step` 4096 → 16384.
+
+**Tested**
+```
+frontend: typecheck ok · lint ok · format ok · vitest → Test Files 13 passed (13), Tests 90 passed (90)
+backend: ruff ok · mypy → Success: no issues found in 41 source files
+         pytest (no DB) → 57 passed, 90 skipped
+```
+Mutation check: HTML_START narrowed to doctype/html only → fragment tests failed.
+
+**Not tested:** the real model's output (the cause is inferred from the screenshot,
+the two answers' text was not available to me); a real browser.
+
+**Open questions:** none.

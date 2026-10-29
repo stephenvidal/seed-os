@@ -41,7 +41,7 @@ class RunLimits(BaseModel):
     max_runtime_s: float = Field(default=300, gt=0, le=3600)
     max_total_tokens: int = Field(default=200_000, ge=1)
     max_tool_calls_per_step: int = Field(default=8, ge=1, le=64)
-    max_output_tokens_per_step: int | None = Field(default=4096, gt=0)
+    max_output_tokens_per_step: int | None = Field(default=16_384, gt=0)
     provider_retries: int = Field(default=2, ge=0, le=5)
 
 

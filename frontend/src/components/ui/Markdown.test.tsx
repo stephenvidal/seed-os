@@ -39,6 +39,17 @@ describe("Markdown", () => {
     expect(screen.getByTitle("Rendered HTML")).toBeInTheDocument();
   });
 
+  it("shows a raw HTML fragment instead of an empty answer", () => {
+    render(<Markdown text={"<style>p{color:red}</style><div><p>Once upon a time</p></div>"} />);
+    expect(screen.getByTitle("Rendered HTML").getAttribute("srcdoc")).toContain("Once upon");
+  });
+
+  it("shows the prose and then the page when a page follows some text", () => {
+    render(<Markdown text={"Here is your story:\n\n" + PAGE} />);
+    expect(screen.getByText("Here is your story:")).toBeInTheDocument();
+    expect(screen.getByTitle("Rendered HTML")).toBeInTheDocument();
+  });
+
   it("shows HTML as code while the answer is still arriving", () => {
     render(<Markdown text={"```html\n<h1>Hello</h1>\n```"} live />);
     expect(screen.queryByTitle("Rendered html")).toBeNull();
