@@ -444,3 +444,10 @@ async def test_calls_past_the_steps_cap_are_not_handed_off(pool: Pool, tmp_path:
     # The loop runs 8 calls a step; the ninth gets a "limit" error, not an agent.
     await run.next(calls(ask("Nobody", 0), *(ask("Coder", n) for n in range(1, 9))))
     assert len(await children(pool, turn.id)) == 7
+
+
+def test_a_worker_process_has_a_slot_for_every_agent_the_limit_allows() -> None:
+    # A waiting task gives up its slot, but each working agent takes one, and the
+    # task resumes in one more: fewer slots than this and the limit cannot be reached.
+    s = Settings()
+    assert s.worker_concurrency > s.delegation_max_parallel

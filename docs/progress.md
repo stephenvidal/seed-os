@@ -1935,3 +1935,25 @@ model asking for several agents; two agents writing the same file; the live site
 **Open questions:** none new. Step 4 (delegation views in chat, Inspector and
 Command Center) is next; the live answer shows "Used 1 tool" until the run
 reaches the other calls, which step 4 should address.
+
+## Increment 22 — Worker slots for the parallel limit (D-027)
+
+**Iteration:** fix found in the live check of #31. **Done when:** with default
+settings three agents of one task run at the same time.
+
+**Changed:** `worker_concurrency` default 2 → 4; README row; D-027; a settings test.
+
+**Checked:** a waiting task does not hold a slot (the worker returns after parking
+it), so the cap was the worker count: the 2-worker run in Increment 21 started
+Reviewer only when Coder's slot freed.
+
+**Tested**
+```
+ruff check → All checks passed!
+test_a_worker_process_has_a_slot_for_every_agent_the_limit_allows → 1 passed; with the default put back to 2 → 1 failed
+browser, default settings (4 workers started), stub agents of 6 s, 3 s and 9 s:
+answer: Researcher (started 21:39:13, finished 21:39:19) / Coder (21:39:15–21:39:18) / Reviewer (21:39:15–21:39:24)
+```
+All three overlap. Full backend suite: 177 passed, 1 skipped; mypy and format clean.
+
+**Not tested:** the live site after deploy (the coordinator re-checks it).

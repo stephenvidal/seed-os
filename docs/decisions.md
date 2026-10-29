@@ -750,3 +750,22 @@ tool call events appear when the run reaches them. Agents share the parent's
 workspace, so two agents writing the same file race; the owner chooses which
 agents get `write_file`. The database pool grows with the concurrency (2 + 2
 per worker).
+
+## D-027 — Worker concurrency default of 4
+
+**Date:** 2026-10-29
+
+**Context:** The live check of D-026 showed Researcher and Coder overlapping but
+Reviewer starting only when one finished, though `SEED_DELEGATION_MAX_PARALLEL` is
+3. A task waiting for its agents already gives up its worker (the worker returns
+once it has parked the task), so it was not holding a slot. The cause was the
+default of 2 workers per process: only two agent tasks could run at once.
+
+**Choice:** `SEED_WORKER_CONCURRENCY` defaults to 4, above the parallel limit of 3,
+so the three agents and the resumed parent can each have a slot. A test fails if
+the default is not above the parallel limit. An owner who raises the parallel
+limit raises concurrency with it; the README says so.
+
+**Consequences:** One worker process may run four model calls at once. Each
+worker's pool use grows the pool to 10 connections. Agents of different tasks
+share the same slots, so heavy use still queues the oldest task first.
