@@ -1070,3 +1070,56 @@ The edited second message was sent with the two messages before it, not the old
 answer; the regenerated first message was sent with none.
 
 **Not tested:** a real model; the compose stack and the deploy.
+
+## 2026-10-29 — Increment 10: M5 step 1, Command Center from live tasks
+
+**Iteration:** M5 step 1. Definition of done: the Command Center shows only real
+data from the task store: counts, what needs a person (waiting approvals, recent
+failures), running and queued work, recent completions and tokens by model, with
+honest empty states and no spend figure (no prices exist); it refreshes itself.
+
+**Changed**
+- `flow/overview.py`: `GET /api/v1/overview?hours=` (one database clock per
+  snapshot; capped lists).
+- Web: `lib/overview.ts`, Command Center stat tiles and panels; `StateBadge` moved
+  to `components/tasks` and shared with Tasks.
+- D-012, README, CHANGELOG, roadmap, requirements WS-1.
+
+**Tested**
+```
+backend: ruff check → All checks passed! · mypy → Success: no issues found in 31 source files
+         pytest (DB) → 123 passed, 1 skipped
+frontend: typecheck ok · lint ok · format ok · vitest → Tests 40 passed (40)
+```
+Mutation checks (each made, suite run, reverted):
+```
+old failures not filtered out        → CAUGHT   waiting not listed first          → CAUGHT
+usage counts unfinished tasks        → CAUGHT   completed ignores the window      → CAUGHT
+queued listed newest first           → CAUGHT   lists not capped                  → CAUGHT
+window ignores ?hours                → CAUGHT   chat turn links to the task page  → CAUGHT
+approval row hides the tool name     → CAUGHT   "x ago" not computed              → CAUGHT
+token counts not formatted           → CAUGHT
+```
+(The first run of "completed ignores the window" had no old completed task to
+catch it; the test now has one.)
+
+Browser (Chromium; API, worker, Postgres, Ollama-wire stub). Two chats answered
+for real; the waiting and failed states were then set by SQL, because this
+environment has no sandbox and no failing model:
+```
+empty: Running | 0 | Queued | 0 | Need you | 0 | Completed (24h) | 0 | Failed (24h) | 0
+in progress while answering: In progress | Long job | stub · started just now | queued
+after auto-refresh, in progress: In progress | No active work | Running and queued tasks appear here.
+stats: Running | 0 | Queued | 0 | Need you | 1 | Completed (24h) | 1 | Failed (24h) | 1
+attention: Needs attention | 2 | Plan a garden | Wants to run run_command | needs you | Write a packing list | provider_error: auth: Unauthorized | failed
+recent: Recently completed | Long job | stub · 190 tokens · just now | completed
+usage: Model usage (24h) | Model Tasks In tokens Out tokens | stub 2 300 80 | Spend is not shown: no model prices are configured.
+db usage: stub|2|300|80
+approval row opens: /chat/76672ddf-3e7f-45e1-9084-5c1909823e6c
+390px horizontal overflow px: 0
+```
+
+**Not tested:** a real failed run or real approval on this page (states were set
+by SQL); the compose stack and the deploy; query time with a long task history.
+
+**Open questions:** model prices and the monthly budget, needed for spend (D-012).

@@ -21,6 +21,19 @@ const SYSTEM = {
   },
 };
 
+const OVERVIEW = {
+  status: 200,
+  body: {
+    window_hours: 24,
+    generated_at: "2026-10-29T12:00:00Z",
+    counts: { queued: 0, running: 0, waiting: 0, completed: 0, failed: 0, canceled: 0 },
+    attention: [],
+    active: [],
+    recent: [],
+    usage: [],
+  },
+};
+
 describe("authentication gate", () => {
   it("shows sign-in when signed out, surfaces errors, and enters the shell on success", async () => {
     let signedIn = false;
@@ -32,6 +45,7 @@ describe("authentication gate", () => {
         return ME;
       },
       "GET /api/v1/system": SYSTEM,
+      "GET /api/v1/overview?hours=24": OVERVIEW,
     });
     const user = userEvent.setup();
     const { container } = renderApp(<App />);
@@ -72,7 +86,11 @@ describe("authentication gate", () => {
 
 describe("workspace shell", () => {
   it("navigates with the command palette and the G-chord, and passes axe", async () => {
-    mockApi({ "GET /api/v1/auth/me": ME, "GET /api/v1/system": SYSTEM });
+    mockApi({
+      "GET /api/v1/auth/me": ME,
+      "GET /api/v1/system": SYSTEM,
+      "GET /api/v1/overview?hours=24": OVERVIEW,
+    });
     const user = userEvent.setup();
     const { container } = renderApp(<App />);
     await screen.findByText("System health");
@@ -89,7 +107,11 @@ describe("workspace shell", () => {
   });
 
   it("changes theme from Settings and persists it", async () => {
-    mockApi({ "GET /api/v1/auth/me": ME, "GET /api/v1/system": SYSTEM });
+    mockApi({
+      "GET /api/v1/auth/me": ME,
+      "GET /api/v1/system": SYSTEM,
+      "GET /api/v1/overview?hours=24": OVERVIEW,
+    });
     const user = userEvent.setup();
     renderApp(<App />, "/settings");
     await user.click(await screen.findByRole("radio", { name: /dark/i }));
@@ -99,7 +121,11 @@ describe("workspace shell", () => {
   });
 
   it("renders a not-found page for unknown routes", async () => {
-    mockApi({ "GET /api/v1/auth/me": ME, "GET /api/v1/system": SYSTEM });
+    mockApi({
+      "GET /api/v1/auth/me": ME,
+      "GET /api/v1/system": SYSTEM,
+      "GET /api/v1/overview?hours=24": OVERVIEW,
+    });
     renderApp(<App />, "/nope");
     expect(await screen.findByText("This page does not exist")).toBeInTheDocument();
   });
@@ -111,6 +137,7 @@ describe("workspace shell", () => {
     mockApi({
       "GET /api/v1/auth/me": ME,
       "GET /api/v1/system": SYSTEM,
+      "GET /api/v1/overview?hours=24": OVERVIEW,
       "POST /api/v1/auth/logout": { status },
     });
     const user = userEvent.setup();

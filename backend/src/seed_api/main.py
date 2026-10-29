@@ -13,6 +13,7 @@ from .chat.store import ChatStore
 from .config import Settings, get_settings
 from .errors import install_error_handlers
 from .flow import api as tasks_api
+from .flow import overview
 from .flow.db import make_pool, migrate
 from .flow.store import TaskStore
 
@@ -65,6 +66,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(models.router)
     app.include_router(tasks_api.router)
     app.include_router(chat_api.router)
+    app.include_router(overview.router)
 
     @app.get("/healthz", tags=["ops"])
     def healthz() -> dict[str, str]:

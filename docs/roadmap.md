@@ -7,7 +7,7 @@
 | 2 | Core Agent Runtime | Provider adapters, conversation loop, tool registry, streaming, lifecycle, errors; real model + tool execution | Done (PR #2); live model comparison in ADR-0007 |
 | 3 | Durable Task Infrastructure | Persistent tasks, workers, transitions, checkpoints, cancel, retry, recovery; survive API/worker restarts | Done: task store, worker, Tasks API (ADR-0008), live SSE with replay and Tasks UI; Postgres users, revocable sessions, CSRF and audit log (ADR-0009); sandbox for commands (ADR-0010) |
 | 4 | Integrated Native Chat | Persistent conversations, streaming, task integration, tool activity, approvals, continuation | In progress: saved conversations whose turns run as tasks, live replies, Markdown (ADR-0011); approvals for commands (ADR-0012); rename, delete and search (D-010); edit and regenerate as kept versions (ADR-0013). Remaining: attachments and artifact references (with M6) |
-| 5 | Command Center & Inspector | Real metrics, live dashboard, timelines, agent activity, failures, cost | Not started |
+| 5 | Command Center & Inspector | Real metrics, live dashboard, timelines, agent activity, failures, cost | In progress: live Command Center from the task store (D-012). Next: Inspector |
 | 6 | Projects, Memory, Artifacts | Workspaces, memory, artifact storage, preview, versions | Not started |
 | 7 | Multi-Agent Orchestration | Specialists, delegation, worker assignment, routing, agent mgmt | Not started |
 | 8 | Integrations & Automation | Gateways, scheduling, notifications, tools, integration mgmt | Not started |
