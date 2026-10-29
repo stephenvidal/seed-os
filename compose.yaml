@@ -3,6 +3,7 @@ name: seed
 x-seed-env: &seed-env
   SEED_COOKIE_SECURE: ${SEED_COOKIE_SECURE:-false}
   SEED_DATABASE_URL: postgresql://seed:${SEED_POSTGRES_PASSWORD:?set SEED_POSTGRES_PASSWORD in .env}@db:5432/seed
+  SEED_ARTIFACT_ROOT: /var/lib/seed/artifacts
 services:
   db:
     image: postgres:17-alpine
@@ -27,6 +28,9 @@ services:
       db:
         condition: service_healthy
     restart: unless-stopped
+    # Studio reads saved files; only the worker writes them.
+    volumes:
+      - artifacts:/var/lib/seed/artifacts:ro
     read_only: true
     tmpfs: [/tmp]
     mem_limit: 256m
@@ -37,7 +41,6 @@ services:
     environment:
       <<: *seed-env
       SEED_SANDBOX_URL: http://sandbox:8100
-      SEED_ARTIFACT_ROOT: /var/lib/seed/artifacts
     depends_on:
       db:
         condition: service_healthy

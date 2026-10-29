@@ -132,6 +132,8 @@ const TERMINATION_TEXT: Record<string, string> = {
   provider_error: "Stopped: model provider error",
 };
 
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
 /** Folds the event log into a readable timeline: lifecycle notes and model steps. */
 export function toTimeline(events: TaskEvent[]): TimelineItem[] {
   const items: TimelineItem[] = [];
@@ -243,6 +245,38 @@ export function toTimeline(events: TaskEvent[]): TimelineItem[] {
         break;
       case "task_released":
         note(e, "warning", "Worker shut down; task handed back to the queue");
+        break;
+      case "artifacts_saved": {
+        const saved = (d.saved ?? []) as { path: string; version: number; deleted: boolean }[];
+        const skipped = (d.skipped ?? []) as { path: string; reason: string }[];
+        const named = saved
+          .slice(0, 5)
+          .map((s) => (s.deleted ? `${s.path} (deleted)` : `${s.path} v${s.version}`));
+        const more = saved.length > 5 ? `, and ${saved.length - 5} more` : "";
+        if (saved.length)
+          note(e, "accent", `Saved ${plural(saved.length, "file")}: ${named.join(", ")}${more}`);
+        if (skipped.length)
+          note(
+            e,
+            "warning",
+            `Not saved: ${skipped.map((s) => `${s.path} (${s.reason.replace("_", " ")})`).join(", ")}`,
+          );
+        if (d.truncated) note(e, "warning", "Too many files to save them all");
+        break;
+      }
+      case "workspace_restored":
+        note(
+          e,
+          "neutral",
+          `Workspace was empty; put back ${plural(Number(d.files), "saved file")}`,
+        );
+        break;
+      case "artifacts_failed":
+        note(
+          e,
+          "danger",
+          `${d.stage === "restore" ? "Restoring" : "Saving"} files failed: ${String(d.error)}`,
+        );
         break;
       case "lease_expired":
         note(

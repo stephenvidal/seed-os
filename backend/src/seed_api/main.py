@@ -3,6 +3,7 @@
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,6 +17,8 @@ from .flow import api as tasks_api
 from .flow import overview
 from .flow.db import make_pool, migrate
 from .flow.store import TaskStore
+from .studio import api as studio_api
+from .studio.store import ArtifactStore
 
 logging.basicConfig(
     level=logging.INFO, format='{"ts":"%(asctime)s","level":"%(levelname)s","msg":"%(message)s"}'
@@ -40,6 +43,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.task_store = TaskStore(pool)
             app.state.chat_store = ChatStore(pool)
             app.state.auth_store = auth.AuthStore(pool)
+            root = settings.artifact_root
+            app.state.artifact_store = ArtifactStore(pool, Path(root) if root else None)
             await auth.bootstrap_admin(app.state.auth_store, settings)
             yield
         finally:
@@ -67,6 +72,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(tasks_api.router)
     app.include_router(chat_api.router)
     app.include_router(overview.router)
+    app.include_router(studio_api.router)
+    app.include_router(studio_api.previews)
 
     @app.get("/healthz", tags=["ops"])
     def healthz() -> dict[str, str]:

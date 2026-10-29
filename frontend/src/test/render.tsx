@@ -5,7 +5,8 @@ import { MemoryRouter } from "react-router-dom";
 import { vi } from "vitest";
 import { ThemeProvider } from "../lib/theme";
 
-type Route = { status: number; body?: unknown };
+/** `raw` is sent as is, for routes that return files rather than JSON. */
+type Route = { status: number; body?: unknown; raw?: string };
 
 /** Stubs fetch by "METHOD path" so tests exercise the real api client and error mapping. */
 export function mockApi(routes: Record<string, Route | (() => Route)>) {
@@ -14,6 +15,7 @@ export function mockApi(routes: Record<string, Route | (() => Route)>) {
     const r = routes[key];
     const route = typeof r === "function" ? r() : r;
     if (!route) throw new TypeError(`unmocked ${key}`);
+    if (route.raw !== undefined) return new Response(route.raw, { status: route.status });
     return new Response(route.body === undefined ? null : JSON.stringify(route.body), {
       status: route.status,
     });
