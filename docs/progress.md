@@ -1190,6 +1190,27 @@ compose stack and the deploy; load time for a task with many thousands of events
 **Open questions:** which milestone owns verification evidence in the Inspector
 (D-013); model prices for cost.
 
+
+## 2026-10-29 — Research: Ollama Cloud pricing and spend API (docs only)
+
+**Definition of done:** find out whether Ollama Cloud costs are published and
+whether spend can be read by API; record it.
+
+**Changed:** `docs/decisions.md` (D-014), `docs/roadmap.md` (M5 row). No code.
+
+**Tested:** read https://ollama.com/pricing and the Ollama docs pages for
+balance and cloud usage. One read-only call with the deploy key:
+```
+GET https://ollama.com/api/balance -> HTTP 200
+{"included":{"balance_usd":12.24676,"allowance_usd":60,"period":{"from":"2026-10-11T07:31:35Z","until":"2026-11-11T07:31:35Z"}},"purchased":{"balance_usd":0}}
+```
+
+**Not tested:** `/api/usage` (not called); that the token counts SEED stores
+reproduce Ollama's billed figures; the legacy-plan response shape.
+
+**Open questions:** the monthly budget; with about $12 of $60 left, whether to
+top up before heavier testing.
+
 ## 2026-10-29 — Increment 12: M6 step 1 (part 1), saved files with versions
 
 **Iteration:** M6 step 1, part 1. Definition of done: after every run the worker

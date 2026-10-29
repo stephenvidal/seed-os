@@ -330,6 +330,39 @@ page reads 1000 per request. Not shown: delegation (M7), cost (no prices), and
 verification. Open question: which milestone owns verification evidence in the
 Inspector; no milestone names it.
 
+
+## D-014 — Spend comes from Ollama's published prices and balance API
+
+**Date:** 2026-10-29
+
+**Context:** M5 shows no spend because no model prices were configured (D-012,
+D-013). Ollama Cloud publishes per-token prices at https://ollama.com/pricing
+(USD per million tokens; deepseek-v4.1-flash is $0.30 input, $0.006 cached
+input, $1.20 output, half price outside 12:00-18:00 UTC on weekdays and all
+weekend). The same API key can read `GET https://ollama.com/api/balance`
+(included and purchased USD, plan period; 10 requests a minute) and
+`GET https://ollama.com/api/usage?range=24h|7d|30d&group_by=model` (USD, tokens
+and request counts). Chat responses carry `prompt_eval_count`,
+`prompt_eval_cached_count` and `eval_count`. Read 2026-10-29 from
+https://docs.ollama.com/api/balance.md and /api/cloud-usage.md; a read-only
+`/api/balance` call with the deploy key returned HTTP 200.
+
+**Options:** keep tokens-only; hard-code prices; configure a per-model price
+table and read the balance API.
+
+**Choice:** Plan to estimate each task's cost from its token counts and a
+configured per-model price table (including the cached-input rate and the
+off-peak window), and show the remaining balance from `/api/balance`, with
+`/api/usage` as a cross-check. Not built yet; scheduled as the next step of M5.
+
+**Reason:** The figures are published and queryable, so SEED need not guess.
+Prices change, so they are configuration, not code.
+
+**Consequences:** The monthly budget stays an open owner question for hard
+stops (docs/model-strategy.md). The balance endpoint is rate limited, so the
+server polls it at most once a minute. Legacy plans return session and weekly
+percentages instead of USD; the code must handle both shapes.
+
 ## D-015 — Which files become artifacts
 
 **Date:** 2026-10-29
