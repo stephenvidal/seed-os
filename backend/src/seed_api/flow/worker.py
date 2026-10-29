@@ -18,10 +18,17 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Literal
 
+from ..agents.delegation import (
+    DelegateInput,
+    agent_system_prompt,
+    delegate_tool,
+    delegated_prompt,
+)
+from ..agents.store import AgentCopy, AgentStore
 from ..chat.summary import SummaryFailed, summary_through
 from ..config import Settings, get_settings
 from ..core.agent import Checkpoint, RunEvent, RunLimits, RunResult, Termination, run_agent
-from ..core.messages import Message, Usage
+from ..core.messages import Message, ToolCall, Usage
 from ..core.providers.base import Provider, ProviderError
 from ..core.tools import ToolFailure, ToolRegistry
 from ..core.workspace_tools import workspace_tools
@@ -130,7 +137,13 @@ class Worker:
             local = Path(self.settings.workspace_root) / str(task.workspace)
             tools = workspace_tools(local)
             files = LocalFiles(local)
-        if task.project_id is not None:
+        if task.agent is not None:  # an agent's task (D-025): only the tools it may use
+            if task.project_id is not None:
+                tools.append(
+                    knowledge_tool(KnowledgeStore(self.store.pool), project_id=task.project_id)
+                )
+            tools = [t for t in tools if t.name in task.agent.tools]
+        elif task.project_id is not None:
             tools.append(
                 remember_tool(
                     MemoryStore(self.store.pool),
@@ -142,6 +155,10 @@ class Worker:
             tools.append(
                 knowledge_tool(KnowledgeStore(self.store.pool), project_id=task.project_id)
             )
+        if task.agent is None:  # agents do not delegate further
+            agents = await AgentStore(self.store.pool).all(task.created_by)
+            if agents:
+                tools.append(delegate_tool(agents))
         gated = set(self.settings.approval_required_tools)
         tools = [
             replace(t, requires_approval=t.requires_approval or t.name in gated) for t in tools
@@ -157,7 +174,9 @@ class Worker:
                 messages=[
                     Message(
                         role="system",
-                        content=system_prompt(task.instructions, task.memory, summary),
+                        content=agent_system_prompt(task.agent)
+                        if task.agent is not None
+                        else system_prompt(task.instructions, task.memory, summary),
                     ),
                     *(Message(role=m.role, content=m.content) for m in task.context),
                     Message(role="user", content=task.prompt),
@@ -172,12 +191,13 @@ class Worker:
                 on_checkpoint=on_checkpoint,
                 resume=task.checkpoint,
                 approvals={call_id: d.approved for call_id, d in task.approvals.items()},
+                delegated=task.delegations,
                 cancel=cancel,
             )
             if not why["lost"]:
                 await self._save(task, lease, files)
             await self._settle(
-                lease, result.model_copy(update={"usage": result.usage + extra}), why
+                task, lease, result.model_copy(update={"usage": result.usage + extra}), why
             )
         except LeaseLost:
             log.warning("task %s attempt %d: lease lost; abandoning", task.id, lease.attempt)
@@ -213,6 +233,24 @@ class Worker:
         )
         return made.text, made.usage
 
+    async def _delegate(self, task: Task, lease: Lease, call: ToolCall) -> None:
+        """Start the agent task a delegate call asks for, or answer the call at
+        once when there is no such agent (D-025). The loop already checked the
+        call's arguments."""
+        inp = DelegateInput.model_validate(call.arguments)
+        agents = AgentStore(self.store.pool)
+        agent = await agents.named(task.created_by, inp.agent)
+        if agent is None:
+            names = ", ".join(a.name for a in await agents.all(task.created_by)) or "none"
+            reason = f"No agent named {inp.agent!r}. Agents: {names}."
+            await self.store.refuse_delegation(lease, call, reason)
+            log.info("task %s: %s", task.id, reason)
+            return
+        child = await self.store.delegate(
+            lease, call, agent=AgentCopy.of(agent), prompt=delegated_prompt(inp), about=inp.task
+        )
+        log.info("task %s delegated to %s as task %s", task.id, agent.name, child)
+
     async def _restore(self, task: Task, lease: Lease, files: WorkspaceFiles) -> None:
         """Refill a workspace the sandbox lost (it restarted) from saved artifacts."""
         if self.artifacts is None:
@@ -233,12 +271,16 @@ class Worker:
         save is recorded and does not change how the task ended."""
         if self.artifacts is None:
             return
+        conversation_id = task.conversation_id
+        if task.parent_task_id is not None:  # an agent's files belong to its parent's chat
+            parent = await self.store.get(task.parent_task_id)
+            conversation_id = parent.conversation_id if parent else None
         try:
             report = await save_changes(
                 files,
                 self.artifacts,
                 workspace_id=task.workspace,
-                conversation_id=task.conversation_id,
+                conversation_id=conversation_id,
                 task_id=task.id,
             )
         except (ToolFailure, OSError) as e:
@@ -250,12 +292,17 @@ class Worker:
         if report.saved or report.skipped or report.truncated:
             await self.store.append_event(lease, "artifacts_saved", report.model_dump())
 
-    async def _settle(self, lease: Lease, result: RunResult, why: dict[str, bool]) -> None:
+    async def _settle(
+        self, task: Task, lease: Lease, result: RunResult, why: dict[str, bool]
+    ) -> None:
         if why["lost"]:
             raise LeaseLost(str(lease.task_id))
         if result.termination == "awaiting_approval" and result.awaiting is not None:
             await self.store.pause(lease, result.awaiting)
             log.info("task %s waiting for approval of %s", lease.task_id, result.awaiting.name)
+            return
+        if result.termination == "awaiting_delegation" and result.awaiting is not None:
+            await self._delegate(task, lease, result.awaiting)
             return
         if result.termination == "cancelled" and why["shutdown"] and not why["user"]:
             await self.store.release(lease)

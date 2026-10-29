@@ -12,6 +12,10 @@ A tool that requires approval is not run until a person decides. The run pauses
 on it (termination `awaiting_approval`) after checkpointing the step's calls that
 have not run yet; resumed with that person's decisions, it runs them in order
 (a denied call's result tells the model so) and carries on.
+
+A deferred tool (delegation, D-025) pauses the run the same way (termination
+`awaiting_delegation`); resumed with the call's result in `delegated`, the loop
+records that result as the call's and carries on.
 """
 
 import asyncio
@@ -19,11 +23,11 @@ import time
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from .messages import ChatRequest, ChatResult, Completed, Message, TextDelta, ToolCall, Usage
 from .providers.base import Provider, ProviderError
-from .tools import ToolOutcome, ToolRegistry
+from .tools import Tool, ToolOutcome, ToolRegistry
 
 Termination = Literal[
     "completed",
@@ -33,6 +37,7 @@ Termination = Literal[
     "provider_error",
     "cancelled",
     "awaiting_approval",
+    "awaiting_delegation",
 ]
 
 
@@ -54,6 +59,7 @@ EventType = Literal[
     "step_completed",
     "provider_retry",
     "approval_requested",
+    "delegation_requested",
     "run_finished",
 ]
 
@@ -71,14 +77,15 @@ class RunResult(BaseModel):
     usage: Usage
     messages: list[Message]
     error: str | None = None
-    # Set when termination is awaiting_approval: the call that waits for a person.
+    # Set when termination is awaiting_approval or awaiting_delegation: the call
+    # that waits for a person or for a delegated task.
     awaiting: ToolCall | None = None
 
 
 class Checkpoint(BaseModel):
     """A resume-safe point: every tool call the model asked for has a recorded
     result, except `pending`: the last step's calls not run yet because the first
-    of them waits for approval."""
+    of them waits for approval or for a delegated task."""
 
     messages: list[Message]
     steps: int
@@ -94,8 +101,26 @@ WRAP_UP = (
     "unfinished, say what is done and what is left."
 )
 
+
+class DelegatedResult(BaseModel):
+    """What a delegated call came back with (D-025)."""
+
+    ok: bool
+    content: str
+
+
 EventSink = Callable[[RunEvent], Awaitable[None]]
 CheckpointSink = Callable[[Checkpoint], Awaitable[None]]
+
+
+def _valid(tool: Tool, call: ToolCall) -> bool:
+    """Whether the call's arguments fit the tool. A deferred call that does not is
+    run like any other, so the registry reports the invalid arguments."""
+    try:
+        tool.input_model.model_validate(call.arguments)
+    except ValidationError:
+        return False
+    return True
 
 
 class _Emitter:
@@ -121,10 +146,12 @@ async def run_agent(
     on_checkpoint: CheckpointSink | None = None,
     resume: Checkpoint | None = None,
     approvals: Mapping[str, bool] | None = None,
+    delegated: Mapping[str, DelegatedResult] | None = None,
 ) -> RunResult:
     """Run the loop. With `resume`, `messages` is ignored and the run continues from
     the checkpoint; the step and token limits count across the whole run.
-    `approvals` maps tool call ids to a person's decision (True = approved)."""
+    `approvals` maps tool call ids to a person's decision (True = approved);
+    `delegated` maps deferred calls' ids to the results that came back."""
     emit = _Emitter(on_event)
     cancel = cancel or asyncio.Event()
     history = list(resume.messages if resume else messages)
@@ -154,12 +181,16 @@ async def run_agent(
             awaiting=awaiting,
         )
 
-    async def run_calls(calls: list[ToolCall], offset: int, announced: str | None) -> int | None:
+    async def run_calls(
+        calls: list[ToolCall], offset: int, announced: str | None
+    ) -> tuple[int, Termination] | None:
         """Run one step's calls in order (`offset` = index of calls[0] in the step).
-        Returns the index in `calls` of the first that waits for approval, having
-        run none from it on; None once all have results. `announced` is a call
-        whose tool_call event was already emitted before a pause."""
+        Returns the index in `calls` of the first that waits for approval or for a
+        delegated task, and which, having run none from it on; None once all have
+        results. `announced` is a call whose tool_call event was already emitted
+        before a pause."""
         decided = approvals or {}
+        returned = delegated or {}
         for i, call in enumerate(calls):
             if cancel.is_set():
                 raise _Cancelled
@@ -178,8 +209,29 @@ async def run_agent(
                     name=call.name,
                     arguments=call.arguments,
                 )
-                return i
-            if not within_cap:
+                return i, "awaiting_approval"
+            deferred = within_cap and tool is not None and tool.deferred
+            if deferred and call.id in returned:
+                back = returned[call.id]
+                outcome_content = back.content
+                await emit(
+                    "tool_result",
+                    step=steps,
+                    id=call.id,
+                    tool=call.name,
+                    ok=back.ok,
+                    **({} if back.ok else {"error": "The delegated task did not complete."}),
+                )
+            elif deferred and tool is not None and _valid(tool, call):
+                await emit(
+                    "delegation_requested",
+                    step=steps,
+                    id=call.id,
+                    name=call.name,
+                    arguments=call.arguments,
+                )
+                return i, "awaiting_delegation"
+            elif not within_cap:
                 outcome_content = (
                     '{"error": "limit", "message": "Too many tool calls in one step; skipped."}'
                 )
@@ -210,13 +262,13 @@ async def run_agent(
             waiting = await run_calls(calls, offset, announced)
         except _Cancelled:
             return await finish("cancelled")
-        pending = [] if waiting is None else calls[waiting:]
+        pending = [] if waiting is None else calls[waiting[0] :]
         if on_checkpoint is not None:
             await on_checkpoint(
                 Checkpoint(messages=history, steps=steps, usage=usage, pending=pending)
             )
         if waiting is not None:
-            return await finish("awaiting_approval", awaiting=calls[waiting])
+            return await finish(waiting[1], awaiting=calls[waiting[0]])
         return None
 
     await emit(

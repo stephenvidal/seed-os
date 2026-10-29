@@ -3,7 +3,9 @@
 The registry validates model-supplied arguments against the tool's input model,
 enforces the timeout, and turns every failure into a typed outcome the model can
 read. A tool that `requires_approval` runs only when the caller says a person
-approved this call (the agent loop pauses for that); otherwise it is refused.
+approved this call (the agent loop pauses for that); otherwise it is refused. A
+`deferred` tool never runs in the loop: its result arrives later from outside
+the run (a delegated task, D-025), and the loop pauses until it does.
 """
 
 import asyncio
@@ -33,6 +35,7 @@ class Tool:
     permission: Permission
     timeout_s: float = 10.0
     requires_approval: bool = False
+    deferred: bool = False
     max_output_chars: int = 20_000
 
     def spec(self) -> ToolSpec:

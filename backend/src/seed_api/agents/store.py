@@ -23,6 +23,16 @@ TOOL_NAMES: tuple[ToolName, ...] = (
 )
 
 
+# How the assistant's delegate tool names each tool when it lists an agent.
+AGENT_TOOL_LABELS: dict[str, str] = {
+    "list_files": "list files",
+    "read_file": "read files",
+    "write_file": "write files",
+    "run_command": "run commands",
+    "search_knowledge": "search project knowledge",
+}
+
+
 class Agent(BaseModel):
     id: uuid.UUID
     owner: str
@@ -65,6 +75,22 @@ STARTERS: tuple[tuple[str, str, str, tuple[ToolName, ...]], ...] = (
 )
 
 
+class AgentCopy(BaseModel):
+    """An agent's definition as a delegated task got it (D-025): later edits to
+    the agent do not change a task already handed over."""
+
+    id: uuid.UUID
+    name: str
+    description: str
+    instructions: str
+    model: str | None
+    tools: list[ToolName]
+
+    @classmethod
+    def of(cls, agent: Agent) -> "AgentCopy":
+        return cls.model_validate(agent.model_dump(include=set(cls.model_fields)))
+
+
 class NameTaken(Exception):
     """The owner already has an agent with this name."""
 
@@ -99,6 +125,16 @@ class AgentStore:
                 "SELECT * FROM agents WHERE owner = %s ORDER BY lower(name), id", (owner,)
             )
             return [Agent.model_validate(r) for r in await cur.fetchall()]
+
+    async def named(self, owner: str, name: str) -> Agent | None:
+        """The owner's agent with this name, ignoring case."""
+        async with self.pool.connection() as conn:
+            cur = await conn.execute(
+                "SELECT * FROM agents WHERE owner = %s AND lower(name) = lower(%s)",
+                (owner, " ".join(name.split())),
+            )
+            row = await cur.fetchone()
+        return Agent.model_validate(row) if row else None
 
     async def get(self, owner: str, agent_id: uuid.UUID) -> Agent | None:
         async with self.pool.connection() as conn:

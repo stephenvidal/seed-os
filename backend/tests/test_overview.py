@@ -68,6 +68,7 @@ def test_an_empty_overview(api: TestClient) -> None:
         "queued": 0,
         "running": 0,
         "waiting": 0,
+        "delegating": 0,
         "completed": 0,
         "failed": 0,
         "canceled": 0,
@@ -96,12 +97,20 @@ def test_overview_counts_lists_and_usage(api: TestClient, db_url: str) -> None:
     set_state(db_url, done_old, "completed", hours_ago=50, tokens=(1, 1))
     canceled = make(api, "canceled", model="m-b")
     set_state(db_url, canceled, "canceled", hours_ago=3, tokens=(7, 0))
+    delegating = make(api, "delegating")
+    with psycopg.connect(db_url) as conn:  # waiting for an agent, not for a person
+        conn.execute(
+            "UPDATE tasks SET state = 'waiting', awaiting_delegation = "
+            """'{"id": "d", "name": "delegate", "arguments": {}}'::jsonb WHERE id = %s""",
+            (delegating,),
+        )
 
     body = api.get("/api/v1/overview").json()
     assert body["counts"] == {
         "queued": 2,
         "running": 1,
         "waiting": 1,
+        "delegating": 1,
         "completed": 2,
         "failed": 1,
         "canceled": 1,
@@ -109,8 +118,8 @@ def test_overview_counts_lists_and_usage(api: TestClient, db_url: str) -> None:
     # Waiting first (a person must act), then failures in the window, newest first.
     assert [t["id"] for t in body["attention"]] == [waiting, failed]
     assert body["attention"][0]["awaiting_approval"]["name"] == "run_command"
-    # Running first, then queued in the order workers take them.
-    assert [t["id"] for t in body["active"]] == [running, queued_old, queued_new]
+    # Running first, then queued and delegating in the order they were created.
+    assert [t["id"] for t in body["active"]] == [running, queued_old, queued_new, delegating]
     assert [t["id"] for t in body["recent"]] == [done_b, done_a]
     assert body["usage"] == [
         {"model": "m-a", "tasks": 2, "input_tokens": 300, "output_tokens": 30},
