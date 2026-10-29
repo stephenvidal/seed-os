@@ -39,6 +39,8 @@ const turn = (over: Record<string, unknown> = {}) => ({
   finished_at: "2026-10-29T01:00:05Z",
   conversation_id: "c1",
   turn: 1,
+  summary_of: null,
+  summary: null,
   ...over,
   versions: (over.versions as string[] | undefined) ?? [String(over.id ?? "t1")],
 });
@@ -182,6 +184,31 @@ describe("Chat", () => {
     await user.type(screen.getByLabelText("Message"), "Too soon{Enter}");
     const turns = spy.mock.calls.filter((c) => String(c[0]) === "/api/v1/conversations/c1/turns");
     expect(turns).toHaveLength(1);
+  });
+
+  it("marks where the model starts seeing earlier messages as a summary", async () => {
+    const detail = {
+      conversation,
+      turns: [
+        turn({ id: "t1", summary: "Older turn summary" }),
+        turn({ id: "t2", turn: 2, summary: "Newer summary" }),
+        turn({ id: "t3", turn: 3, summary_of: "t2" }),
+      ],
+    };
+    mockApi({
+      "GET /api/v1/auth/me": ME,
+      "GET /api/v1/models": MODELS,
+      "GET /api/v1/conversations?limit=200": { status: 200, body: [summary] },
+      "GET /api/v1/conversations/c1": { status: 200, body: detail },
+    });
+    const user = userEvent.setup();
+    renderApp(<App />, "/chat/c1");
+
+    const note = await screen.findByText("The model now sees the messages above as a summary");
+    expect(screen.getAllByText(/as a summary/)).toHaveLength(1); // only where it applies now
+    expect(screen.queryByText("Older turn summary")).toBeNull();
+    await user.click(note);
+    expect(screen.getByText("Newer summary")).toBeVisible();
   });
 
   it("stops an answer, and offers to try a failed last turn again", async () => {

@@ -98,6 +98,20 @@ describe("toTimeline", () => {
       ["danger", "Restoring files failed: gone"],
     ]);
   });
+
+  it("says when earlier turns were summarized for the model", () => {
+    seq = 0;
+    const notes = toTimeline([
+      ev("context_summarized", { through: "t1", turns: 3 }),
+      ev("context_summarized", { through: "t1", turns: 0 }),
+      ev("summary_failed", { error: "timeout" }),
+    ]).map((i) => i.kind === "note" && [i.tone, i.text]);
+    expect(notes).toEqual([
+      ["neutral", "Summarized 3 earlier turns for the model"],
+      ["neutral", "Gave the model the saved summary of earlier turns"],
+      ["warning", "Could not summarize earlier turns: timeout"],
+    ]);
+  });
 });
 
 describe("approvals", () => {

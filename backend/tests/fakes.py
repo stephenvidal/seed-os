@@ -53,7 +53,13 @@ class ScriptedProvider:
         self.closed = False
 
     async def complete(self, request: ChatRequest) -> ChatResult:
-        raise NotImplementedError
+        self.requests.append(request.model_copy(deep=True))
+        step = self.script.pop(0)
+        if isinstance(step, float):
+            raise AssertionError("complete() steps cannot hang")
+        if isinstance(step, ProviderError):
+            raise step
+        return step
 
     async def stream(self, request: ChatRequest) -> AsyncIterator[StreamEvent]:
         self.requests.append(request.model_copy(deep=True))

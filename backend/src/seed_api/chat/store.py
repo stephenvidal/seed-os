@@ -82,6 +82,13 @@ def context_of(rows: list[DictRow], max_turns: int) -> list[ContextMessage]:
     return out
 
 
+def left_out(rows: list[DictRow], max_turns: int) -> uuid.UUID | None:
+    """The newest completed turn too old for `context_of`: the run gets the
+    summary of the path through it (D-022). None while every turn fits."""
+    done = [r for r in rows if r["state"] == "completed"]
+    return done[-max_turns - 1]["id"] if len(done) > max_turns else None
+
+
 _TREE = (
     "SELECT id, parent_id, turn, prompt, result_text, state, created_at FROM tasks "
     "WHERE conversation_id = %s ORDER BY created_at, id"
@@ -252,6 +259,7 @@ class ChatStore:
                 idempotency_key=idempotency_key,
                 parent=path[-1]["id"] if path else None,
                 context=context_of(path, context_turns),
+                summary_of=left_out(path, context_turns),
                 turn=len(path) + 1,
             ), True
 
@@ -284,6 +292,7 @@ class ChatStore:
                 if existing is not None:
                     return _same_turn(existing, conversation_id, text), False
             _busy(rows)
+            earlier = path_to(rows, target["parent_id"])
             return await self._add_turn(
                 conn,
                 conv,
@@ -293,7 +302,8 @@ class ChatStore:
                 max_attempts=max_attempts,
                 idempotency_key=idempotency_key,
                 parent=target["parent_id"],
-                context=context_of(path_to(rows, target["parent_id"]), context_turns),
+                context=context_of(earlier, context_turns),
+                summary_of=left_out(earlier, context_turns),
                 turn=target["turn"],
             ), True
 
@@ -337,6 +347,7 @@ class ChatStore:
         idempotency_key: str | None,
         parent: uuid.UUID | None,
         context: list[ContextMessage],
+        summary_of: uuid.UUID | None,
         turn: int,
     ) -> Task:
         """Insert a turn under the conversation lock and make it the shown path's end."""
@@ -353,6 +364,7 @@ class ChatStore:
             turn=turn,
             parent_id=parent,
             context=context,
+            summary_of=summary_of,
             **await _project(conn, owner, conv["project_id"]),
         )
         if row is None:  # pragma: no cover - the key was checked under the lock

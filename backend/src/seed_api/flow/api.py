@@ -62,6 +62,10 @@ class TaskView(BaseModel):
     # Set when the task is a chat turn: its conversation and position in it.
     conversation_id: uuid.UUID | None
     turn: int | None
+    # Session summaries (D-022): the newest earlier turn this turn's model saw
+    # only in summary, and this turn's own summary of the chat through it.
+    summary_of: uuid.UUID | None
+    summary: str | None
     # Set while state is waiting: the tool call that needs a person's decision.
     awaiting_approval: ToolCall | None
 

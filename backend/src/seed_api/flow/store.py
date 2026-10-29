@@ -71,6 +71,11 @@ class Task(BaseModel):
     project_id: uuid.UUID | None
     instructions: str | None
     memory: str | None
+    # Session summaries (D-022): the newest completed turn left out of `context`,
+    # whose summary the run gets, and this turn's own summary once a later turn
+    # needed it.
+    summary_of: uuid.UUID | None
+    summary: str | None
     workspace_id: uuid.UUID | None
     awaiting_approval: ToolCall | None
     approvals: dict[str, Decision]
@@ -132,6 +137,7 @@ async def insert_task(
     project_id: uuid.UUID | None = None,
     instructions: str | None = None,
     memory: str | None = None,
+    summary_of: uuid.UUID | None = None,
 ) -> DictRow | None:
     """Insert a queued task and its first event. Returns None, inserting nothing,
     when this creator already used the idempotency key. Call inside a transaction."""
@@ -139,8 +145,8 @@ async def insert_task(
         """
         INSERT INTO tasks (id, created_by, title, model, prompt, state, idempotency_key,
                            max_attempts, last_seq, conversation_id, turn, parent_id, context,
-                           workspace_id, project_id, instructions, memory)
-        VALUES (%s, %s, %s, %s, %s, 'queued', %s, %s, 1, %s, %s, %s, %s, %s, %s, %s, %s)
+                           workspace_id, project_id, instructions, memory, summary_of)
+        VALUES (%s, %s, %s, %s, %s, 'queued', %s, %s, 1, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (created_by, idempotency_key) DO NOTHING
         RETURNING *
         """,
@@ -160,6 +166,7 @@ async def insert_task(
             project_id,
             instructions,
             memory,
+            summary_of,
         ),
     )
     row = await cur.fetchone()

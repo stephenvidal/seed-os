@@ -29,15 +29,23 @@ SYSTEM_PROMPT = (
 )
 
 
-def system_prompt(instructions: str | None, memory: str | None = None) -> str:
+def system_prompt(
+    instructions: str | None, memory: str | None = None, summary: str | None = None
+) -> str:
     """The system prompt, with the project's instructions and memory when the
     turn has them. Instructions come from the owner, so unlike tool results they
-    are instructions; memory notes are facts the owner approved."""
+    are instructions; memory notes are facts the owner approved. The summary of
+    earlier turns (D-022) is background, like the turns themselves."""
     parts = [SYSTEM_PROMPT]
     if instructions:
         parts.append(f"The owner's instructions for this project:\n{instructions}")
     if memory:
         parts.append(f"Notes from this project's memory, approved by the owner:\n{memory}")
+    if summary:
+        parts.append(
+            "Earlier turns of this conversation are no longer shown in full. "
+            f"A summary of them:\n{summary}"
+        )
     return "\n\n".join(parts)
 
 

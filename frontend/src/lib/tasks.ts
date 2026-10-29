@@ -28,6 +28,10 @@ export type Task = {
   /** Set when the task is a chat turn. */
   conversation_id: string | null;
   turn: number | null;
+  /** The newest earlier turn the model saw only in summary (chat turns). */
+  summary_of: string | null;
+  /** The summary of the chat through this turn, once a later turn needed it. */
+  summary: string | null;
   /** Set while the task is waiting: the call that needs a person's decision. */
   awaiting_approval: ToolCallInfo | null;
 };
@@ -277,6 +281,18 @@ export function toTimeline(events: TaskEvent[]): TimelineItem[] {
           "danger",
           `${d.stage === "restore" ? "Restoring" : "Saving"} files failed: ${String(d.error)}`,
         );
+        break;
+      case "context_summarized":
+        note(
+          e,
+          "neutral",
+          Number(d.turns)
+            ? `Summarized ${plural(Number(d.turns), "earlier turn")} for the model`
+            : "Gave the model the saved summary of earlier turns",
+        );
+        break;
+      case "summary_failed":
+        note(e, "warning", `Could not summarize earlier turns: ${String(d.error)}`);
         break;
       case "lease_expired":
         note(
