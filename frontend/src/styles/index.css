@@ -119,6 +119,54 @@
   }
 }
 
+/* Model output rendered by components/ui/Markdown.tsx. */
+@layer components {
+  .markdown > * + * {
+    margin-top: 0.75rem;
+  }
+  .markdown :where(h1, h2, h3, h4) {
+    @apply font-semibold text-fg;
+    margin-top: 1.25rem;
+  }
+  .markdown h1 {
+    @apply text-base;
+  }
+  .markdown :where(ul, ol) {
+    padding-left: 1.25rem;
+  }
+  .markdown ul {
+    list-style: disc;
+  }
+  .markdown ol {
+    list-style: decimal;
+  }
+  .markdown li + li {
+    margin-top: 0.25rem;
+  }
+  .markdown a {
+    @apply text-accent underline underline-offset-2;
+  }
+  .markdown :not(pre) > code {
+    @apply rounded-[4px] bg-surface-3 px-1 py-px font-mono text-[12.5px];
+  }
+  .markdown pre {
+    @apply overflow-x-auto rounded-control border border-border bg-surface-2 px-3 py-2.5 font-mono text-xs leading-5;
+  }
+  .markdown blockquote {
+    @apply border-l-2 border-border-strong pl-3 text-fg-muted;
+  }
+  .markdown table {
+    @apply block w-max max-w-full overflow-x-auto text-xs;
+    border-collapse: collapse;
+  }
+  .markdown :where(th, td) {
+    @apply border border-border px-2 py-1 text-left;
+  }
+  .markdown hr {
+    @apply border-border;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

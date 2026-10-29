@@ -26,6 +26,13 @@ TaskState = Literal["queued", "running", "completed", "failed", "canceled"]
 TERMINAL: frozenset[str] = frozenset({"completed", "failed", "canceled"})
 
 
+class ContextMessage(BaseModel):
+    """One earlier message of a conversation, as a chat turn's task carries it."""
+
+    role: Literal["user", "assistant"]
+    content: str
+
+
 class Task(BaseModel):
     id: uuid.UUID
     created_by: str
@@ -49,6 +56,15 @@ class Task(BaseModel):
     updated_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
+    conversation_id: uuid.UUID | None
+    turn: int | None
+    context: list[ContextMessage]
+    workspace_id: uuid.UUID | None
+
+    @property
+    def workspace(self) -> uuid.UUID:
+        """The id the task's files live under: its conversation's, or its own."""
+        return self.workspace_id or self.id
 
 
 class TaskEvent(BaseModel):
@@ -86,6 +102,63 @@ async def _log(
     )
 
 
+async def insert_task(
+    conn: AsyncConnection[DictRow],
+    *,
+    created_by: str,
+    title: str,
+    model: str,
+    prompt: str,
+    max_attempts: int,
+    idempotency_key: str | None,
+    conversation_id: uuid.UUID | None = None,
+    turn: int | None = None,
+    context: list[ContextMessage] | None = None,
+) -> DictRow | None:
+    """Insert a queued task and its first event. Returns None, inserting nothing,
+    when this creator already used the idempotency key. Call inside a transaction."""
+    cur = await conn.execute(
+        """
+        INSERT INTO tasks (id, created_by, title, model, prompt, state, idempotency_key,
+                           max_attempts, last_seq, conversation_id, turn, context, workspace_id)
+        VALUES (%s, %s, %s, %s, %s, 'queued', %s, %s, 1, %s, %s, %s, %s)
+        ON CONFLICT (created_by, idempotency_key) DO NOTHING
+        RETURNING *
+        """,
+        (
+            uuid.uuid4(),
+            created_by,
+            title,
+            model,
+            prompt,
+            idempotency_key,
+            max_attempts,
+            conversation_id,
+            turn,
+            Jsonb([m.model_dump() for m in context or []]),
+            conversation_id,
+        ),
+    )
+    row = await cur.fetchone()
+    if row is not None:
+        data: dict[str, Any] = {"model": model, "title": title}
+        if conversation_id is not None:
+            data |= {"conversation_id": str(conversation_id), "turn": turn}
+        await _log(conn, row, "task_created", data)
+    return row
+
+
+async def task_by_key(
+    conn: AsyncConnection[DictRow], created_by: str, idempotency_key: str | None
+) -> Task | None:
+    cur = await conn.execute(
+        "SELECT * FROM tasks WHERE created_by = %s AND idempotency_key = %s",
+        (created_by, idempotency_key),
+    )
+    row = await cur.fetchone()
+    return Task.model_validate(row) if row else None
+
+
 class TaskStore:
     def __init__(self, pool: Pool) -> None:
         self.pool = pool
@@ -105,28 +178,21 @@ class TaskStore:
         """Insert a queued task. With an idempotency key already used by this
         creator, returns the existing task and False instead."""
         async with self.pool.connection() as conn, conn.transaction():
-            cur = await conn.execute(
-                """
-                INSERT INTO tasks (id, created_by, title, model, prompt, state,
-                                   idempotency_key, max_attempts, last_seq)
-                VALUES (%s, %s, %s, %s, %s, 'queued', %s, %s, 1)
-                ON CONFLICT (created_by, idempotency_key) DO NOTHING
-                RETURNING *
-                """,
-                (uuid.uuid4(), created_by, title, model, prompt, idempotency_key, max_attempts),
+            row = await insert_task(
+                conn,
+                created_by=created_by,
+                title=title,
+                model=model,
+                prompt=prompt,
+                max_attempts=max_attempts,
+                idempotency_key=idempotency_key,
             )
-            row = await cur.fetchone()
             if row is not None:
-                await _log(conn, row, "task_created", {"model": model, "title": title})
                 return Task.model_validate(row), True
-            cur = await conn.execute(
-                "SELECT * FROM tasks WHERE created_by = %s AND idempotency_key = %s",
-                (created_by, idempotency_key),
-            )
-            existing = await cur.fetchone()
+            existing = await task_by_key(conn, created_by, idempotency_key)
             if existing is None:  # pragma: no cover - the conflict implies the row exists
                 raise RuntimeError("idempotency conflict without an existing task")
-            return Task.model_validate(existing), False
+            return existing, False
 
     async def get(self, task_id: uuid.UUID) -> Task | None:
         async with self.pool.connection() as conn:
@@ -180,8 +246,16 @@ class TaskStore:
 
     async def retry(self, task_id: uuid.UUID, *, extra_attempts: int) -> Task | None:
         """Re-queue a failed or canceled task as a fresh run (the checkpoint is
-        dropped). Returns None when the task is missing or not retryable."""
+        dropped). Returns None when the task is missing or not retryable, which
+        includes a chat turn while another turn of its conversation is unfinished:
+        turns share a workspace, so two of them must never run at once."""
         async with self.pool.connection() as conn, conn.transaction():
+            # The same lock a new turn takes (chat store), so the check below holds.
+            await conn.execute(
+                "SELECT 1 FROM conversations WHERE id = "
+                "(SELECT conversation_id FROM tasks WHERE id = %s) FOR UPDATE",
+                (task_id,),
+            )
             cur = await conn.execute(
                 """
                 UPDATE tasks SET
@@ -189,6 +263,10 @@ class TaskStore:
                     checkpoint = NULL, termination = NULL, error = NULL, result_text = NULL,
                     finished_at = NULL, last_seq = last_seq + 1, updated_at = now()
                 WHERE id = %s AND state IN ('failed', 'canceled')
+                  AND NOT EXISTS (
+                      SELECT 1 FROM tasks other
+                      WHERE other.conversation_id = tasks.conversation_id
+                        AND other.state IN ('queued', 'running'))
                 RETURNING *
                 """,
                 (extra_attempts, task_id),

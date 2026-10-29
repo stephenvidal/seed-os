@@ -7,7 +7,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import __version__, auth, runs, system
+from . import __version__, auth, models, system
+from .chat import api as chat_api
+from .chat.store import ChatStore
 from .config import Settings, get_settings
 from .errors import install_error_handlers
 from .flow import api as tasks_api
@@ -26,7 +28,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if settings.database_url is None:
             logging.getLogger("seed").warning(
-                "SEED_DATABASE_URL unset: sign-in and tasks are disabled"
+                "SEED_DATABASE_URL unset: sign-in, tasks and chat are disabled"
             )
             yield
             return
@@ -35,6 +37,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             await migrate(pool)
             app.state.task_store = TaskStore(pool)
+            app.state.chat_store = ChatStore(pool)
             app.state.auth_store = auth.AuthStore(pool)
             await auth.bootstrap_admin(app.state.auth_store, settings)
             yield
@@ -59,8 +62,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     install_error_handlers(app)
     app.include_router(auth.router)
     app.include_router(system.router)
-    app.include_router(runs.router)
+    app.include_router(models.router)
     app.include_router(tasks_api.router)
+    app.include_router(chat_api.router)
 
     @app.get("/healthz", tags=["ops"])
     def healthz() -> dict[str, str]:
