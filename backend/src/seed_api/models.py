@@ -24,12 +24,16 @@ SYSTEM_PROMPT = (
 )
 
 
-def system_prompt(instructions: str | None) -> str:
-    """The system prompt, with the project's instructions when the turn has them.
-    They come from the owner, so unlike tool results they are instructions."""
-    if not instructions:
-        return SYSTEM_PROMPT
-    return f"{SYSTEM_PROMPT}\n\nThe owner's instructions for this project:\n{instructions}"
+def system_prompt(instructions: str | None, memory: str | None = None) -> str:
+    """The system prompt, with the project's instructions and memory when the
+    turn has them. Instructions come from the owner, so unlike tool results they
+    are instructions; memory notes are facts the owner approved."""
+    parts = [SYSTEM_PROMPT]
+    if instructions:
+        parts.append(f"The owner's instructions for this project:\n{instructions}")
+    if memory:
+        parts.append(f"Notes from this project's memory, approved by the owner:\n{memory}")
+    return "\n\n".join(parts)
 
 
 AdminOnly = Annotated[Principal, Depends(require_role("admin"))]

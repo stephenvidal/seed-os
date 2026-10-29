@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from ..auth import AuthStoreDep, Principal, client_ip, require_role
 from ..errors import ApiError
+from .memory import MAX_NOTE_CHARS, Memory, MemoryStore, Status
 from .store import ProjectStore, ProjectSummary
 
 router = APIRouter(prefix="/api/v1/projects", tags=["projects"])
@@ -27,6 +28,18 @@ def get_projects(request: Request) -> ProjectStore:
 
 
 ProjectsDep = Annotated[ProjectStore, Depends(get_projects)]
+
+
+def get_memory(request: Request) -> MemoryStore:
+    store: MemoryStore | None = getattr(request.app.state, "memory_store", None)
+    if store is None:
+        raise ApiError(
+            503, "database_not_configured", "Projects need a database. Set SEED_DATABASE_URL."
+        )
+    return store
+
+
+MemoryDep = Annotated[MemoryStore, Depends(get_memory)]
 
 
 def tidy_name(v: str) -> str:
@@ -152,5 +165,109 @@ async def delete_project(
         target=str(project_id),
         ip=client_ip(request),
         detail={"conversations": released},
+    )
+    return Response(status_code=204)
+
+
+def tidy_note(v: str) -> str:
+    """Runs of whitespace become one space; the result must not be blank."""
+    v = " ".join(v.split())
+    if not v:
+        raise ValueError("The note must not be blank.")
+    return v
+
+
+class NewNote(BaseModel):
+    content: str = Field(max_length=MAX_NOTE_CHARS)
+
+    _content = field_validator("content")(tidy_note)
+
+
+class NoteChange(BaseModel):
+    # Left out: unchanged.
+    content: str | None = Field(default=None, max_length=MAX_NOTE_CHARS)
+    # True approves a proposed note (it then reaches the model).
+    approve: bool = False
+
+    @field_validator("content")
+    @classmethod
+    def content_ok(cls, v: str | None) -> str | None:
+        return None if v is None else tidy_note(v)
+
+
+@router.get("/{project_id}/memories", response_model=list[Memory])
+async def list_memories(
+    project_id: uuid.UUID,
+    principal: AdminOnly,
+    store: ProjectsDep,
+    memory: MemoryDep,
+    status: Status | None = None,
+) -> list[Memory]:
+    """The project's memory: proposals waiting for approval first, then approved
+    notes, newest first. `status` keeps one kind."""
+    await _project(store, principal.username, project_id)
+    return await memory.list(principal.username, project_id, status=status)
+
+
+@router.post("/{project_id}/memories", response_model=Memory, status_code=201)
+async def add_memory(
+    project_id: uuid.UUID,
+    body: NewNote,
+    request: Request,
+    principal: AdminOnly,
+    memory: MemoryDep,
+    audit: AuthStoreDep,
+) -> Memory:
+    """Add a note; the owner's own notes are approved as written."""
+    note = await memory.add(principal.username, project_id, body.content)
+    if note is None:
+        raise ApiError(404, "not_found", "No such project.")
+    await audit.audit(
+        "memory_added", actor=principal.username, target=str(note.id), ip=client_ip(request)
+    )
+    return note
+
+
+@router.patch("/{project_id}/memories/{memory_id}", response_model=Memory)
+async def update_memory(
+    project_id: uuid.UUID,
+    memory_id: uuid.UUID,
+    body: NoteChange,
+    request: Request,
+    principal: AdminOnly,
+    memory: MemoryDep,
+    audit: AuthStoreDep,
+) -> Memory:
+    """Edit a note, approve a proposal (`approve: true`), or both. Changes reach the
+    model from the next message sent in the project."""
+    note = await memory.update(
+        principal.username, project_id, memory_id, content=body.content, approve=body.approve
+    )
+    if note is None:
+        raise ApiError(404, "not_found", "No such note.")
+    await audit.audit(
+        "memory_approved" if body.approve else "memory_updated",
+        actor=principal.username,
+        target=str(memory_id),
+        ip=client_ip(request),
+        detail={"edited": body.content is not None},
+    )
+    return note
+
+
+@router.delete("/{project_id}/memories/{memory_id}", status_code=204)
+async def delete_memory(
+    project_id: uuid.UUID,
+    memory_id: uuid.UUID,
+    request: Request,
+    principal: AdminOnly,
+    memory: MemoryDep,
+    audit: AuthStoreDep,
+) -> Response:
+    """Delete a note, or reject a proposal."""
+    if not await memory.delete(principal.username, project_id, memory_id):
+        raise ApiError(404, "not_found", "No such note.")
+    await audit.audit(
+        "memory_deleted", actor=principal.username, target=str(memory_id), ip=client_ip(request)
     )
     return Response(status_code=204)

@@ -4,6 +4,11 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
 
 ## [Unreleased]
 ### Added
+- Project memory (M6, D-018): the `remember` tool (in a project's turns only)
+  proposes a note; the owner approves, edits or rejects it on the project page,
+  and can add, edit and delete notes. Approved notes are copied into each turn and
+  added to the system prompt. API `/api/v1/projects/{id}/memories`,
+  `proposed_memories` on projects; migration 0009.
 - Projects (M6, D-017): `/projects` and `/projects/{id}` (name, instructions, the
   project's chats and files); new chats start in a project from its page; a chat's
   header moves it in or out. API `/api/v1/projects`, `PUT

@@ -26,6 +26,7 @@ from ..core.tools import ToolFailure, ToolRegistry
 from ..core.workspace_tools import workspace_tools
 from ..errors import ApiError
 from ..models import make_provider, system_prompt
+from ..projects.memory import MemoryStore, remember_tool
 from ..sandbox.client import SandboxClient, sandbox_tools
 from ..studio.capture import restore, save_changes
 from ..studio.store import ArtifactStore
@@ -127,6 +128,15 @@ class Worker:
             local = Path(self.settings.workspace_root) / str(task.workspace)
             tools = workspace_tools(local)
             files = LocalFiles(local)
+        if task.project_id is not None:
+            tools.append(
+                remember_tool(
+                    MemoryStore(self.store.pool),
+                    project_id=task.project_id,
+                    task_id=task.id,
+                    conversation_id=task.conversation_id,
+                )
+            )
         gated = set(self.settings.approval_required_tools)
         tools = [
             replace(t, requires_approval=t.requires_approval or t.name in gated) for t in tools
@@ -139,7 +149,7 @@ class Worker:
                 provider=provider,
                 model=task.model,
                 messages=[
-                    Message(role="system", content=system_prompt(task.instructions)),
+                    Message(role="system", content=system_prompt(task.instructions, task.memory)),
                     *(Message(role=m.role, content=m.content) for m in task.context),
                     Message(role="user", content=task.prompt),
                 ],
