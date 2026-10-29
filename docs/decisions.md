@@ -570,3 +570,40 @@ already deployed, and word search with stemming suits notes and documentation.
 different words than the document can miss. Embeddings can be added later behind
 the same tool if that proves a problem. PDFs and Word files are not accepted.
 Uploads go through nginx, which now accepts request bodies up to 2 MiB.
+
+## D-022 — Session summaries roll forward, per turn, made by the worker
+
+**Date:** 2026-10-29
+
+**Context:** The memory requirements list "session summaries" and say "no
+unbounded history". A chat message carries its last `SEED_CHAT_CONTEXT_TURNS`
+(20) answered turns; older ones were silently dropped. The owner chose on
+2026-10-29 to finish M6 (knowledge, then summaries) before M7. Conversations are
+trees (ADR-0013): a new version of a message shares the turns before it.
+
+**Options:** (1) summarize when a turn finishes, in the background; (2) summarize
+in the worker just before the turn that first needs it; (3) summarize per
+conversation instead of per turn; (4) keep dropping old turns.
+
+**Choice:** Option 2, stored per turn. Sending a message records `summary_of`, the
+newest answered turn left out of its context. Before the run, the worker gets the
+summary of the path through that turn: stored on that turn if it exists, otherwise
+made from the newest earlier summary on the path plus the turns after it, at most
+10 turns per model call, with the turn's own model, and stored on the turns it
+runs through. The summary (at most 250 words asked, 4,000 characters kept) goes in
+the system prompt as background. Its tokens are added to that turn's usage; the
+timeline gets `context_summarized` or, if it fails, `summary_failed`, and the turn
+runs without it.
+
+**Reason:** A summary stored on a turn covers a fixed path, so every version built
+on that turn can reuse it, which a per-conversation summary (3) cannot. Making it
+just before the run (2) needs no extra job, never races the next message, and
+costs nothing for chats that stay inside the window. Rolling keeps each call
+bounded however long the chat gets.
+
+**Consequences:** The first message past the window waits for one extra model
+call. A summary loses detail; the turns stay in the database and the chat. A run
+resumed from a checkpoint already holds its summary in its messages, so no new
+summary is made; if a turn pauses for an approval after summarizing, the
+summary's tokens are not added to its usage (the checkpoint keeps the run's own).
+The owner cannot edit a summary yet.

@@ -18,10 +18,11 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Literal
 
+from ..chat.summary import SummaryFailed, summary_through
 from ..config import Settings, get_settings
 from ..core.agent import Checkpoint, RunEvent, RunLimits, RunResult, Termination, run_agent
-from ..core.messages import Message
-from ..core.providers.base import Provider
+from ..core.messages import Message, Usage
+from ..core.providers.base import Provider, ProviderError
 from ..core.tools import ToolFailure, ToolRegistry
 from ..core.workspace_tools import workspace_tools
 from ..errors import ApiError
@@ -149,11 +150,15 @@ class Worker:
         beat = asyncio.create_task(heartbeat())
         try:
             await self._restore(task, lease, files)
+            summary, extra = await self._summary(task, lease, provider)
             result = await run_agent(
                 provider=provider,
                 model=task.model,
                 messages=[
-                    Message(role="system", content=system_prompt(task.instructions, task.memory)),
+                    Message(
+                        role="system",
+                        content=system_prompt(task.instructions, task.memory, summary),
+                    ),
                     *(Message(role=m.role, content=m.content) for m in task.context),
                     Message(role="user", content=task.prompt),
                 ],
@@ -171,13 +176,42 @@ class Worker:
             )
             if not why["lost"]:
                 await self._save(task, lease, files)
-            await self._settle(lease, result, why)
+            await self._settle(
+                lease, result.model_copy(update={"usage": result.usage + extra}), why
+            )
         except LeaseLost:
             log.warning("task %s attempt %d: lease lost; abandoning", task.id, lease.attempt)
         finally:
             cancel.set()
             beat.cancel()
             await provider.aclose()
+
+    async def _summary(
+        self, task: Task, lease: Lease, provider: Provider
+    ) -> tuple[str | None, Usage]:
+        """The summary of the turns left out of this turn's context, and the tokens
+        spent making it (D-022). A run resumed from a checkpoint already has it in
+        its messages. A failed summary is recorded; the turn runs without it."""
+        if task.summary_of is None or task.checkpoint is not None:
+            return None, Usage()
+        try:
+            made = await summary_through(self.store.pool, provider, task.model, task.summary_of)
+        except (ProviderError, SummaryFailed) as e:
+            log.error("task %s: summarizing earlier turns failed: %s", task.id, e)
+            await self.store.append_event(lease, "summary_failed", {"error": str(e)})
+            return None, Usage()
+        if made is None:
+            return None, Usage()
+        await self.store.append_event(
+            lease,
+            "context_summarized",
+            {
+                "through": str(task.summary_of),
+                "turns": made.turns,
+                "usage": made.usage.model_dump(),
+            },
+        )
+        return made.text, made.usage
 
     async def _restore(self, task: Task, lease: Lease, files: WorkspaceFiles) -> None:
         """Refill a workspace the sandbox lost (it restarted) from saved artifacts."""

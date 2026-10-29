@@ -20,7 +20,7 @@ import {
   Wrench,
   XCircle,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ApprovalPrompt } from "../components/tasks/ApprovalPrompt";
@@ -220,6 +220,21 @@ function Versions({
         <ChevronRight size={14} aria-hidden />
       </button>
     </span>
+  );
+}
+
+/**
+ * Where the model's view of the chat changes (D-022): it sees the turns above
+ * only as this summary, and the turns below in full.
+ */
+function SummaryNote({ text }: { text: string }) {
+  return (
+    <details className="rounded-control border border-dashed border-border px-3 py-2 text-xs text-fg-muted">
+      <summary className="cursor-pointer select-none">
+        The model now sees the messages above as a summary
+      </summary>
+      <p className="mt-2 whitespace-pre-wrap text-fg">{text}</p>
+    </details>
   );
 }
 
@@ -820,17 +835,19 @@ function ConversationView({ id }: { id: string }) {
       <div className="min-h-0 flex-1 overflow-y-auto rounded-panel border border-border bg-surface-1">
         <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-5 sm:px-6">
           {turns.map((t, i) => (
-            <TurnView
-              key={t.id}
-              turn={t}
-              conversationId={id}
-              last={i === turns.length - 1}
-              locked={locked}
-              onEnd={refresh}
-              onRetry={() => act.mutate({ task: t, action: "retry" })}
-              onVersion={(prompt) => version.mutateAsync({ turn: t, prompt })}
-              onShow={(turnId) => show.mutate(turnId)}
-            />
+            <Fragment key={t.id}>
+              <TurnView
+                turn={t}
+                conversationId={id}
+                last={i === turns.length - 1}
+                locked={locked}
+                onEnd={refresh}
+                onRetry={() => act.mutate({ task: t, action: "retry" })}
+                onVersion={(prompt) => version.mutateAsync({ turn: t, prompt })}
+                onShow={(turnId) => show.mutate(turnId)}
+              />
+              {t.summary && t.id === turns.at(-1)?.summary_of && <SummaryNote text={t.summary} />}
+            </Fragment>
           ))}
           <div ref={endRef} />
         </div>

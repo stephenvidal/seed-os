@@ -1630,3 +1630,70 @@ errors: the 401 from the sign-in check before login
 nginx (config checked with `nginx -t` only); Firefox and Safari.
 
 **Open questions:** none new. Session summaries are next.
+
+## Increment 17 — Session summaries (M6 step 4)
+
+**Iteration:** M6 step 4, session summaries. **Done when:** a chat turn whose
+earlier answered turns exceed the context window gives the model a summary of the
+ones left out instead of dropping them; the summary rolls forward, is reused by
+versions, counts toward usage, survives a provider failure, and the chat shows
+where it applies — each shown by a test that fails when the behavior breaks, and
+in a browser.
+
+**Changed**
+- Migration `0011_summaries`: `tasks.summary` (≤ 4,000 chars) and
+  `tasks.summary_of` (FK to tasks, `ON DELETE SET NULL`).
+- `chat/store.py`: `left_out()`; send and add-version record `summary_of`.
+- `chat/summary.py` (new): `summary_through()` — reuse, or roll forward from the
+  newest stored summary in batches of 10 turns; stored per turn.
+- Worker: summary before the run (not on a checkpoint resume), into the system
+  prompt (`system_prompt(…, summary)`), events `context_summarized` /
+  `summary_failed`, summary tokens added to the turn's usage.
+- `TaskView`: `summary_of`, `summary`. Web: the chat note at the cut, timeline
+  notes for both events.
+- Test fake: `ScriptedProvider.complete()` now follows the script (it raised).
+- D-022, README, CHANGELOG, roadmap. Requirements WS-5 no longer lists knowledge
+  as not built (Increment 16 left it in both lists).
+
+**Tested**
+```
+backend: ruff check → All checks passed! · ruff format --check → 64 files already formatted
+         mypy → Success: no issues found in 43 source files
+         pytest (DB) → 156 passed, 1 skipped
+frontend: typecheck ok · lint ok · format ok · vitest → Test Files 13 passed (13), Tests 93 passed (93)
+```
+Mutation checks (each made, tests run, reverted), backend 14/14 caught (the first
+run had one survivor, the guard for a turn that has no answer; a test for it was
+added):
+```
+window counted one short (>=)             → CAUGHT   wrong turn left out               → CAUGHT
+versions record no summary_of             → CAUGHT   summary not in the system prompt  → CAUGHT
+summary tokens not added                  → CAUGHT   provider error not caught         → CAUGHT
+stored summaries ignored (no rolling)     → CAUGHT   no batching                       → CAUGHT
+summary not cut to its limit              → CAUGHT   stored on the wrong turn          → CAUGHT
+empty summary accepted                    → CAUGHT   unanswered turn summarized        → CAUGHT
+system_prompt drops the summary           → CAUGHT   API hides the summary             → CAUGHT
+```
+Frontend 4/4 caught: note shown at every summarized turn; note text not shown;
+reuse/made wording swapped; failure note missing.
+
+Browser (Chromium) on the Vite dev server with the real API, worker and Postgres,
+`SEED_CHAT_CONTEXT_TURNS=1`, and an Ollama-wire stub whose summaries list what the
+person said and whose answers repeat what the model was given:
+```
+turn 1: Summary given: none. In full: nothing.
+turn 2: Summary given: none. In full: My cat is Miso.
+turn 3: Summary given: The person said: My cat is Miso. In full: I live in Lyon.
+turn 4: Summary given: The person said: My cat is Miso; I live in Lyon. In full: I like tea.
+notes shown: 1
+note text: The person said: My cat is Miso; I live in Lyon
+overflow at 390: 0
+errors: the 401 from the sign-in check before login
+```
+Turn 3's usage showed 11 in / 5 out (4/2 for the answer plus 7/3 for the summary).
+
+**Not tested:** summary quality with a real model; a turn resumed from a
+checkpoint (the code skips summarizing then; no test drives it); Firefox and
+Safari.
+
+**Open questions:** none new. M6 has lone tasks in projects left.
