@@ -653,6 +653,48 @@ describe("Chat", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
+  it("keeps links to the agents' tasks under a finished turn", async () => {
+    const ev = (seq: number, type: string, data: Record<string, unknown>) => ({
+      seq,
+      attempt: 1,
+      type,
+      data,
+      created_at: "2026-10-29T01:00:05Z",
+    });
+    mockApi({
+      "GET /api/v1/auth/me": ME,
+      "GET /api/v1/models": MODELS,
+      "GET /api/v1/conversations?limit=200": { status: 200, body: [summary] },
+      "GET /api/v1/conversations/c1": { status: 200, body: { conversation, turns: [turn()] } },
+      "GET /api/v1/artifacts?limit=500&conversation_id=c1": { status: 200, body: [] },
+      "GET /api/v1/tasks/t1/events?after=0&limit=1000": {
+        status: 200,
+        body: {
+          events: [
+            ev(2, "delegated", { id: "c", agent: "Researcher", task_id: "t9" }),
+            ev(3, "delegated", { id: "d", agent: "Coder", task_id: "t8" }),
+            ev(4, "delegation_finished", { id: "d", agent: "Coder", state: "failed" }),
+            ev(5, "delegation_finished", { id: "c", agent: "Researcher", state: "completed" }),
+          ],
+          last_seq: 5,
+          state: "completed",
+        },
+      },
+    });
+    const user = userEvent.setup();
+    renderApp(<App />, "/chat/c1");
+    await user.click(await screen.findByRole("button", { name: /Show activity/ }));
+    const list = await screen.findByRole("list", { name: "Agent tasks" });
+    const [researcher, coder] = within(list).getAllByRole("listitem");
+    expect(within(researcher!).getByRole("link", { name: "Researcher's task" })).toHaveAttribute(
+      "href",
+      "/tasks/t9",
+    );
+    expect(researcher).toHaveTextContent("reported back");
+    expect(coder).toHaveTextContent("Coder's task");
+    expect(coder).toHaveTextContent("failed");
+  });
+
   it("shows no file links when the chat saved nothing", async () => {
     mockApi({
       "GET /api/v1/auth/me": ME,

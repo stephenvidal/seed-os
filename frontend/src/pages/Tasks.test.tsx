@@ -152,6 +152,91 @@ describe("Tasks", () => {
     expect(screen.getByText("Asking").closest("a")).toHaveTextContent("needs you");
   });
 
+  it("links an agent's task to the task that handed it over, and back", async () => {
+    mockApi({
+      "GET /api/v1/auth/me": ME,
+      "GET /api/v1/tasks/t9": {
+        status: 200,
+        body: task({
+          id: "t9",
+          title: "Researcher: find the questions",
+          state: "completed",
+          parent_task_id: "t1",
+          agent: { id: "a1", name: "Researcher", description: "Reads" },
+        }),
+      },
+      "GET /api/v1/tasks/t1": {
+        status: 200,
+        body: task({ id: "t1", title: "What is still open?", state: "completed" }),
+      },
+    });
+    vi.stubGlobal("EventSource", FakeEventSource);
+    renderApp(<App />, "/tasks/t9");
+    const up = await screen.findByRole("link", { name: "What is still open?" });
+    expect(up).toHaveAttribute("href", "/tasks/t1");
+    expect(screen.getByText("Handed over by")).toBeInTheDocument();
+    expect(screen.getByText("Agent")).toBeInTheDocument();
+  });
+
+  it("lists the agent tasks a task handed work to, and keeps them after it ends", async () => {
+    mockApi({
+      "GET /api/v1/auth/me": ME,
+      "GET /api/v1/tasks/t1": {
+        status: 200,
+        body: task({ state: "completed", termination: "completed", result_text: "Done" }),
+      },
+    });
+    vi.stubGlobal("EventSource", FakeEventSource);
+    renderApp(<App />, "/tasks/t1");
+    await screen.findByRole("heading", { name: "Write the report" });
+    expect(screen.queryByRole("list", { name: "Agent tasks" })).toBeNull();
+    const es = FakeEventSource.last!;
+    act(() => {
+      es.emit(1, "delegated", { id: "c", agent: "Researcher", task_id: "t9" });
+      es.emit(2, "delegated", { id: "d", agent: "Coder", task_id: "t8" });
+    });
+    const list = await screen.findByRole("list", { name: "Agent tasks" });
+    expect(list).toHaveTextContent("Researcher's task");
+    expect(list).toHaveTextContent("working");
+    act(() => {
+      es.emit(3, "delegation_finished", { id: "c", agent: "Researcher", state: "completed" });
+      es.emit(4, "run_finished", { termination: "completed" });
+      es.end();
+    });
+    await waitFor(() => expect(list).toHaveTextContent("reported back"));
+    expect(screen.getByRole("link", { name: "Coder's task" })).toHaveAttribute("href", "/tasks/t8");
+  });
+
+  it("starts a task's page afresh when moving to another task", async () => {
+    mockApi({
+      "GET /api/v1/auth/me": ME,
+      "GET /api/v1/tasks/t9": {
+        status: 200,
+        body: task({
+          id: "t9",
+          title: "Researcher: find it",
+          state: "completed",
+          parent_task_id: "t1",
+        }),
+      },
+      "GET /api/v1/tasks/t1": {
+        status: 200,
+        body: task({ id: "t1", title: "What is still open?", state: "completed" }),
+      },
+    });
+    vi.stubGlobal("EventSource", FakeEventSource);
+    const user = userEvent.setup();
+    renderApp(<App />, "/tasks/t9");
+    await screen.findByRole("heading", { name: "Researcher: find it" });
+    act(() => FakeEventSource.last!.emit(7, "attempt_started", { resumed_at_step: null }));
+    expect(screen.getByText("Attempt 1 started")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("link", { name: "What is still open?" }));
+    await screen.findByRole("heading", { name: "What is still open?" });
+    expect(screen.queryByText("Attempt 1 started")).toBeNull(); // the other task's events
+    await waitFor(() => expect(FakeEventSource.last?.url).toBe("/api/v1/tasks/t1/stream?after=0"));
+  });
+
   it("follows a running task live and cancels it", async () => {
     let current = task();
     mockApi({

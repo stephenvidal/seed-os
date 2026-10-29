@@ -23,6 +23,7 @@ import {
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { AgentTaskLinks } from "../components/tasks/AgentTaskLinks";
 import { ApprovalPrompt } from "../components/tasks/ApprovalPrompt";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
@@ -40,6 +41,7 @@ import {
   followTask,
   isFinished,
   pendingApproval,
+  delegatedTasks,
   pendingDelegations,
   tasksApi,
   toTimeline,
@@ -190,8 +192,12 @@ function PastActivity({ task }: { task: Task }) {
   });
   if (open && events.data) {
     const tools = steps(toTimeline(events.data.events)).flatMap((x) => x.tools);
-    return tools.length ? (
-      <ToolList tools={tools} live={false} />
+    const agents = delegatedTasks(events.data.events);
+    return tools.length || agents.length ? (
+      <>
+        {tools.length > 0 && <ToolList tools={tools} live={false} />}
+        <AgentTaskLinks agents={agents} />
+      </>
     ) : (
       <p className="text-xs text-fg-subtle">No tools used.</p>
     );

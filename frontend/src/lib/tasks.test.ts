@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pendingApproval, pendingDelegations, toTimeline } from "./tasks";
+import { delegatedTasks, pendingApproval, pendingDelegations, toTimeline } from "./tasks";
 import type { TaskEvent } from "./tasks";
 
 let seq = 0;
@@ -205,5 +205,21 @@ describe("delegation", () => {
     expect(
       pendingDelegations([handed, ev("run_finished", { termination: "provider_error" })]),
     ).toEqual([]);
+  });
+
+  it("lists every agent task handed work to, and how each ended, after the run is over", () => {
+    const coder = ev("delegated", { id: "c2", agent: "Coder", task_id: "t8" });
+    expect(delegatedTasks([ev("task_created")])).toEqual([]);
+    expect(
+      delegatedTasks([
+        handed,
+        coder,
+        ev("delegation_finished", { id: "c2", state: "failed" }),
+        ev("run_finished", { termination: "completed" }),
+      ]),
+    ).toEqual([
+      { id: "c1", agent: "Researcher", taskId: "t9" },
+      { id: "c2", agent: "Coder", taskId: "t8", state: "failed" },
+    ]);
   });
 });
