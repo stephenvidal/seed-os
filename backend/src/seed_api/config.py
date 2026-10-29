@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     worker_poll_seconds: float = Field(default=2.0, gt=0, le=60)
     # Tasks one worker process runs at once (D-026): a task waiting for its agents
     # must not hold up the agents' own tasks.
-    worker_concurrency: int = Field(default=2, ge=1, le=16)
+    worker_concurrency: int = Field(default=4, ge=1, le=16)
     # Delegation limits (D-026): agent tasks one task may have working at once, may
     # start in all, and how deep agents may hand work on (1 = agents do not delegate).
     delegation_max_parallel: int = Field(default=3, ge=1, le=8)
