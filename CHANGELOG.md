@@ -2,7 +2,14 @@
 
 All notable changes. Format: Keep a Changelog; versions follow the milestones.
 
-## [Unreleased] — M4 Saved chats (increment 6)
+## [Unreleased]
+### Fixed
+- A run that spent its step limit on tool calls ended with no answer
+  ("Stopped: step limit reached"). The last allowed step now gets no tools and is
+  told to answer with what it has; it ends `max_steps` only if the model still
+  asks for a tool. Found by the owner's manual tests 9 and 10.
+
+## M4 Saved chats (increment 6)
 ### Added
 - Saved conversations (`/api/v1/conversations`). Each message runs as a task
   carrying the earlier completed turns, so replies survive leaving the page and

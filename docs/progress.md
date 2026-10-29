@@ -837,3 +837,30 @@ task through the real sandbox app); the deploy.
 **Open questions:** in D-007 (conversation privacy once there are other roles;
 token-based context limits). If you press Enter before the model list has
 loaded, nothing is sent and the text stays in the box.
+
+## 2026-10-29 — Fix: the last step of a run answers without tools
+
+**Iteration:** fix for the owner's manual tests 9 and 10 (runbook), which ended
+"Stopped: step limit reached" with no answer (22005 in / 4679 out and 31607 in /
+7777 out tokens on deepseek-v4.1-flash). Definition of done: a run that spends
+its steps on tools still ends with an answer; tested and able to fail.
+
+**Changed:** `core/agent.py`: on the last allowed step (when `max_steps` > 1) the
+request carries no tools and a `WRAP_UP` system note, not stored in the history;
+`step_started` carries `wrap_up: true`; a tool call on that step ends the run
+`max_steps` without running it. Tests in `test_agent.py`; README, CHANGELOG, D-008.
+
+**Tested**
+```
+backend: ruff check → All checks passed! · mypy → Success: no issues found in 30 source files
+         pytest (DB, SEED_REQUIRE_ROOT_TESTS=1, as root) → 100 passed, 1 skipped
+```
+Mutation checks on `core/agent.py`:
+```
+never wrap up                          → 2 failed
+wrap up on a one-step run too          → 1 failed
+run tool calls on the wrap-up step     → 1 failed
+```
+
+**Not tested:** the real model on the wrap-up step (no key in this session). Which
+tools the failed runs used is not confirmed yet; asked the owner for their timeline.

@@ -185,3 +185,25 @@ time. Failed turns are left out of later context. Open questions: whether
 conversations are private to their owner once there are roles besides admin
 (today they are listed per owner, while the Tasks list shows every task); how much
 context to carry once answers get long (now a turn count, not tokens).
+
+## D-008 — The last step of a run answers without tools
+
+**Date:** 2026-10-29
+
+**Context:** In the owner's manual tests, two writing requests ("a 600-word story",
+"a 1500-word essay") on deepseek-v4.1-flash used all 8 steps on tool calls and ended
+`max_steps` with no answer, after 22k and 32k input tokens.
+
+**Options:** raise the step limit; make the last allowed step answer.
+
+**Choice:** On the last allowed step the model gets no tools and a system note to
+answer now (`WRAP_UP` in `core/agent.py`); the note is sent only on that request and
+is not kept in the history. If the model still asks for a tool, the run ends
+`max_steps` as before. Runs limited to one step keep their tools.
+
+**Reason:** A higher limit only moves the cliff and costs tokens; a forced final
+answer always gives the user something and says what is unfinished.
+
+**Consequences:** A run that hits the limit now usually ends `completed`, so the
+limit is visible only as a `wrap_up` flag on the last `step_started` event. Open
+question: whether the default of 8 steps suits command-heavy tasks.
