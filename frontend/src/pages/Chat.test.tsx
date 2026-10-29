@@ -277,4 +277,152 @@ describe("Chat", () => {
     renderApp(<App />, "/chat/nope");
     expect(await screen.findByText("No such conversation")).toBeInTheDocument();
   });
+
+  it("renames a conversation, and Escape leaves it as it was", async () => {
+    let current = conversation;
+    const spy = mockApi({
+      "GET /api/v1/auth/me": ME,
+      "GET /api/v1/models": MODELS,
+      "GET /api/v1/conversations?limit=200": () => ({
+        status: 200,
+        body: [{ ...summary, title: current.title }],
+      }),
+      "GET /api/v1/conversations/c1": () => ({
+        status: 200,
+        body: { conversation: current, turns: [turn()] },
+      }),
+      "PATCH /api/v1/conversations/c1": () => {
+        current = { ...conversation, title: "Week plan" };
+        return { status: 200, body: current };
+      },
+    });
+    const user = userEvent.setup();
+    renderApp(<App />, "/chat/c1");
+
+    await user.click(await screen.findByRole("button", { name: "Rename conversation" }));
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("heading", { name: "Plan my week" })).toBeInTheDocument();
+    expect(spy.mock.calls.some((c) => c[1]?.method === "PATCH")).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: "Rename conversation" }));
+    const input = screen.getByLabelText("Conversation title");
+    expect(input).toHaveValue("Plan my week");
+    await user.clear(input);
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    await user.type(input, "  Week   plan {Enter}");
+    expect(await screen.findByRole("heading", { name: "Week plan" })).toBeInTheDocument();
+    expect(bodyOf(spy, "PATCH", "/api/v1/conversations/c1")?.body).toEqual({ title: "Week plan" });
+    const nav = screen.getByRole("navigation", { name: "Conversations" });
+    expect(await within(nav).findByRole("link", { name: "Week plan" })).toBeInTheDocument();
+  });
+
+  it("deletes a conversation only after a confirm, then goes back to a new chat", async () => {
+    let list = [summary];
+    const spy = mockApi({
+      "GET /api/v1/auth/me": ME,
+      "GET /api/v1/models": MODELS,
+      "GET /api/v1/conversations?limit=200": () => ({ status: 200, body: list }),
+      "GET /api/v1/conversations/c1": {
+        status: 200,
+        body: { conversation, turns: [turn(), turn({ id: "t2", turn: 2 })] },
+      },
+      "DELETE /api/v1/conversations/c1": () => {
+        list = [];
+        return { status: 204 };
+      },
+    });
+    const user = userEvent.setup();
+    renderApp(<App />, "/chat/c1");
+
+    await user.click(await screen.findByRole("button", { name: "Delete conversation" }));
+    const confirm = screen.getByRole("alertdialog", { name: "Delete conversation" });
+    expect(confirm).toHaveTextContent("its 2 messages");
+    await user.click(within(confirm).getByRole("button", { name: "Keep" }));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(spy.mock.calls.some((c) => c[1]?.method === "DELETE")).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: "Delete conversation" }));
+    await user.click(
+      within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete" }),
+    );
+    expect(await screen.findByText("Ask SEED to do something")).toBeInTheDocument();
+    expect(await screen.findByText("Saved conversations appear here.")).toBeInTheDocument();
+    expect(spy.mock.calls.filter((c) => c[1]?.method === "DELETE")).toHaveLength(1);
+  });
+
+  it("cannot delete while answering, and shows a refusal", async () => {
+    let state = "running";
+    mockApi({
+      "GET /api/v1/auth/me": ME,
+      "GET /api/v1/models": MODELS,
+      "GET /api/v1/conversations?limit=200": { status: 200, body: [summary] },
+      "GET /api/v1/conversations/c1": () => ({
+        status: 200,
+        body: { conversation, turns: [turn({ state, result_text: null })] },
+      }),
+      "POST /api/v1/tasks/t1/cancel": () => {
+        state = "canceled";
+        return { status: 200, body: turn({ state }) };
+      },
+      "DELETE /api/v1/conversations/c1": {
+        status: 409,
+        body: {
+          error: { code: "turn_in_progress", message: "A message is still being answered." },
+        },
+      },
+    });
+    vi.stubGlobal("EventSource", FakeEventSource);
+    const user = userEvent.setup();
+    renderApp(<App />, "/chat/c1");
+
+    expect(await screen.findByRole("button", { name: "Delete conversation" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Stop" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Delete conversation" })).toBeEnabled(),
+    );
+    await user.click(screen.getByRole("button", { name: "Delete conversation" }));
+    await user.click(
+      within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete" }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent("still being answered");
+    expect(screen.getByRole("heading", { name: "Plan my week" })).toBeInTheDocument();
+  });
+
+  it("searches conversations after a pause in typing", async () => {
+    const spy = mockApi({
+      "GET /api/v1/auth/me": ME,
+      "GET /api/v1/models": MODELS,
+      "GET /api/v1/conversations?limit=200": {
+        status: 200,
+        body: [summary, { ...summary, id: "c2", title: "Lisbon trip" }],
+      },
+      "GET /api/v1/conversations?limit=200&q=lisbon%20%25": {
+        status: 200,
+        body: [{ ...summary, id: "c2", title: "Lisbon trip" }],
+      },
+      "GET /api/v1/conversations?limit=200&q=zzz": { status: 200, body: [] },
+    });
+    const user = userEvent.setup();
+    renderApp(<App />, "/chat");
+
+    const nav = await screen.findByRole("navigation", { name: "Conversations" });
+    expect(await within(nav).findByRole("link", { name: "Plan my week" })).toBeInTheDocument();
+    await user.type(
+      within(nav).getByRole("searchbox", { name: "Search conversations" }),
+      " lisbon % ",
+    );
+    await waitFor(() =>
+      expect(within(nav).queryByRole("link", { name: "Plan my week" })).toBeNull(),
+    );
+    expect(within(nav).getByRole("link", { name: "Lisbon trip" })).toBeInTheDocument();
+    // One request for the finished phrase, not one per key.
+    const searches = spy.mock.calls.filter((c) => String(c[0]).includes("&q="));
+    expect(searches.map((c) => String(c[0]))).toEqual([
+      "/api/v1/conversations?limit=200&q=lisbon%20%25",
+    ]);
+
+    await user.clear(within(nav).getByRole("searchbox"));
+    await user.type(within(nav).getByRole("searchbox"), "zzz");
+    expect(await within(nav).findByText("No conversations match “zzz”.")).toBeInTheDocument();
+  });
 });

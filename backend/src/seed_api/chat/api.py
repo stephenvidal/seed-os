@@ -5,7 +5,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from ..auth import AuthStoreDep, Principal, client_ip, require_role
 from ..config import Settings, get_settings
@@ -59,6 +59,21 @@ class SendMessage(BaseModel):
     model: str | None = Field(default=None, min_length=1, max_length=200)
 
 
+class Rename(BaseModel):
+    title: str = Field(max_length=200)
+
+    @field_validator("title")
+    @classmethod
+    def tidy(cls, v: str) -> str:
+        """Runs of whitespace become one space; the result must be 1-80 characters."""
+        v = " ".join(v.split())
+        if not v:
+            raise ValueError("Title must not be blank.")
+        if len(v) > 80:
+            raise ValueError("Title must be at most 80 characters.")
+        return v
+
+
 class ConversationDetail(BaseModel):
     conversation: Conversation
     turns: list[TaskView]
@@ -102,9 +117,11 @@ async def list_conversations(
     principal: AdminOnly,
     chat: ChatDep,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    q: Annotated[str | None, Query(min_length=1, max_length=200)] = None,
 ) -> list[ConversationSummary]:
-    """The signed-in user's conversations, most recently active first."""
-    return await chat.list(principal.username, limit=limit)
+    """The signed-in user's conversations, most recently active first. `q` keeps
+    those whose title, messages or answers contain it, ignoring case."""
+    return await chat.list(principal.username, limit=limit, query=q)
 
 
 @router.get("/{conversation_id}", response_model=ConversationDetail)
@@ -116,6 +133,54 @@ async def get_conversation(
         raise ApiError(404, "not_found", "No such conversation.")
     turns = await chat.turns(conversation_id)
     return ConversationDetail(conversation=conv, turns=[TaskView.of(t) for t in turns])
+
+
+@router.patch("/{conversation_id}", response_model=Conversation)
+async def rename_conversation(
+    conversation_id: uuid.UUID,
+    body: Rename,
+    request: Request,
+    principal: AdminOnly,
+    chat: ChatDep,
+    audit: AuthStoreDep,
+) -> Conversation:
+    """Rename a conversation."""
+    try:
+        conv = await chat.rename(conversation_id, owner=principal.username, title=body.title)
+    except ChatError as e:
+        raise _api_error(e) from e
+    await audit.audit(
+        "conversation_renamed",
+        actor=principal.username,
+        target=str(conversation_id),
+        ip=client_ip(request),
+        detail={"title": conv.title},
+    )
+    return conv
+
+
+@router.delete("/{conversation_id}", status_code=204)
+async def delete_conversation(
+    conversation_id: uuid.UUID,
+    request: Request,
+    principal: AdminOnly,
+    chat: ChatDep,
+    audit: AuthStoreDep,
+) -> Response:
+    """Delete a conversation with all its turns and their timelines. Answers 409
+    turn_in_progress while a message is still being answered or waits for approval."""
+    try:
+        turns = await chat.delete(conversation_id, owner=principal.username)
+    except ChatError as e:
+        raise _api_error(e) from e
+    await audit.audit(
+        "conversation_deleted",
+        actor=principal.username,
+        target=str(conversation_id),
+        ip=client_ip(request),
+        detail={"turns": turns},
+    )
+    return Response(status_code=204)
 
 
 @router.post("/{conversation_id}/turns", response_model=TaskView, status_code=201)

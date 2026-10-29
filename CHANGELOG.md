@@ -10,6 +10,10 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
 - `POST /api/v1/tasks/{id}/decision`, task state `waiting`, events
   `approval_requested`/`approval_decided`, audit actions `tool_approved`/`tool_denied`.
 - `SEED_APPROVAL_REQUIRED_TOOLS` (default `["run_command"]`).
+- Rename, delete and search conversations: `PATCH`/`DELETE
+  /api/v1/conversations/{id}`, `GET /api/v1/conversations?q=`, a search box in
+  the conversation list and rename/delete in the conversation header (D-010).
+  Audit actions `conversation_renamed`/`conversation_deleted`.
 ### Changed
 - A waiting task cancels at once; a chat turn waiting for approval blocks the
   next message like any unfinished turn.

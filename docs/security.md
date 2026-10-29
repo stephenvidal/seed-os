@@ -42,6 +42,9 @@
 - Tool approvals are one global list (`SEED_APPROVAL_REQUIRED_TOOLS`, default
   `run_command`), not per user, project or argument; any admin may decide.
   Network egress for tools and prompt-injection handling: not built yet.
+- Deleting a conversation removes its records but not its workspace files, which
+  stay in the sandbox's tmpfs until it restarts (only the worker can reach the
+  sandbox). File lifecycle comes with artifact storage (M6); see D-010.
 - Sandbox: tasks share one kernel and container (no gVisor); no per-task disk
   quota inside the 256 MiB workspace tmpfs.
 - Artifact previews must be served from a separate origin (M6).

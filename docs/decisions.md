@@ -227,3 +227,29 @@ and approving each one would interrupt most tasks.
 **Consequences:** Every command pauses its task until someone answers; there is no
 "approve all for this chat" yet. Open questions: per-conversation or per-command
 allow lists; who may approve once there are roles besides admin.
+
+## D-010 — Deleting, renaming and searching conversations
+
+**Date:** 2026-10-29
+
+**Context:** M4 lists rename, delete and search for chat. Turns are tasks with
+events, and a conversation's files live in a sandbox workspace that only the worker
+can reach.
+
+**Options:** delete: hard delete vs. a hidden "deleted" flag; refuse vs. cancel an
+unfinished turn first. Search: `ILIKE` scan vs. a full-text index.
+
+**Choice:** Hard delete of the conversation, its turns and their events, refused
+with 409 `turn_in_progress` while a turn is queued, running or waiting (the person
+stops it first). The audit log keeps the deletion. Rename also retitles the turns,
+so the Tasks list matches, and does not move the conversation up the list. Search is
+a case-insensitive substring match over titles, prompts and answers, with `%` and
+`_` taken literally.
+
+**Reason:** Delete means gone; a hidden flag would keep data the person asked to
+remove. Refusing keeps delete from racing a worker mid-turn. One person's
+conversations are few enough that a scan is fast; an index can come when it is not.
+
+**Consequences:** Workspace files of a deleted conversation stay until the sandbox
+restarts (tmpfs). Open questions: deleting workspace files with the conversation
+(needs a worker-side path, or M6 artifact storage); search snippets and ranking.

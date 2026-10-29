@@ -925,3 +925,57 @@ and the deploy.
 
 **Open questions:** "approve all for this chat"; per-command allow lists; who may
 approve once roles exist (D-009).
+
+## 2026-10-29 — Increment 8: M4 step 3a, rename, delete and search conversations
+
+**Iteration:** M4 step 3a (step 3 split: edit/regenerate is 3b). Definition of done:
+a conversation can be renamed (its turns follow), deleted with its turns and events
+after a confirm, never while a turn is unfinished, and found by a word in its title,
+messages or answers; each is audited and owner-scoped.
+
+**Changed**
+- `chat/store.py`: `rename`, `delete` (conversation lock, refuses unfinished turns),
+  `list(query=)` with literal `%`/`_`.
+- `chat/api.py`: `PATCH` and `DELETE /api/v1/conversations/{id}`, `?q=` on the
+  list; audit `conversation_renamed` (title) and `conversation_deleted` (turn count).
+- Web: search box in the conversation list (250 ms pause before searching), title
+  header with Rename and Delete (inline confirm; disabled while answering).
+- D-010, README, security (workspace files outlive a deleted conversation),
+  roadmap, requirements WS-2, CHANGELOG.
+
+**Tested**
+```
+backend: ruff check → All checks passed! · mypy → Success: no issues found in 30 source files
+         pytest (DB) → 115 passed, 1 skipped
+frontend: typecheck ok · lint ok · format ok · vitest → Tests 35 passed (35)
+```
+Mutation checks (each made, suite run, reverted):
+```
+search wildcards not escaped        → CAUGHT     rename leaves turn titles   → CAUGHT
+rename bumps updated_at             → CAUGHT     delete ignores busy turns   → CAUGHT
+delete ignores the owner            → CAUGHT     search skips answers        → CAUGHT
+title over 80 chars accepted        → CAUGHT     delete not audited          → CAUGHT
+delete without the confirm          → CAUGHT     search on every keystroke   → CAUGHT
+title whitespace not collapsed      → CAUGHT     delete enabled while busy   → CAUGHT
+```
+Browser (Chromium; API, worker without sandbox, Postgres, Ollama-wire stub):
+```
+delete disabled while answering: true
+renamed survives reload: yes
+tasks list shows new title: yes
+search "earlier messages": Lisbon trip | Plan a garden
+search "garden": Plan a garden
+search "50%": Lisbon trip
+search "zzz": No conversations match “zzz”.
+confirm: Delete this conversation and its 1 message? Their timelines go too. This cannot be undone. | Delete | Keep
+after delete list: Lisbon trip
+deleted url shows: No such conversation
+390px horizontal overflow px: 0
+errors: [401 before sign-in, 404 for the deleted conversation — both expected]
+```
+
+**Not tested:** the compose stack and the deploy; search speed with many
+conversations (a sequential scan, D-010).
+
+**Open questions:** delete a conversation's workspace files with it; search
+snippets and ranking (D-010).

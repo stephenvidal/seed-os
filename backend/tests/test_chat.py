@@ -222,6 +222,104 @@ async def test_a_resumed_turn_does_not_repeat_its_context(
     assert done is not None and done.state == "completed" and done.result_text == "a2"
 
 
+@pytest.mark.anyio
+async def test_rename_retitles_the_turns_but_not_the_order(
+    chat: ChatStore, tasks: TaskStore, pool: Pool
+) -> None:
+    older = await begin(chat, "older")
+    newer = await begin(chat, "newer")
+    conv = await chat.rename(older, owner="admin", title="Renamed")
+    assert conv.title == "Renamed"
+    [turn] = await chat.turns(older)
+    assert turn.title == "Renamed"  # the Tasks list shows turns by this title
+    [other] = await chat.turns(newer)
+    assert other.title == "newer"
+    # Renaming is not activity: the older conversation stays below the newer one.
+    assert [c.id for c in await chat.list("admin", limit=10)] == [newer, older]
+    with pytest.raises(ChatError) as e:
+        await chat.rename(older, owner="someone-else", title="Mine")
+    assert e.value.code == "not_found"
+    assert (await chat.get("admin", older)).title == "Renamed"  # type: ignore[union-attr]
+
+
+@pytest.mark.anyio
+async def test_delete_removes_the_turns_and_their_events(
+    chat: ChatStore, tasks: TaskStore, wsettings: Settings, pool: Pool
+) -> None:
+    keep = await begin(chat, "keep")
+    await answer(tasks, wsettings, [reply("kept")])
+    gone = await begin(chat, "gone")
+    with pytest.raises(ChatError) as e:
+        await chat.delete(gone, owner="admin")
+    assert e.value.code == "turn_in_progress"  # queued: a worker could claim it
+    await answer(tasks, wsettings, [reply("one")])
+    await send(chat, gone, "two")
+    await answer(tasks, wsettings, [reply("two")])
+    [first, second] = await chat.turns(gone)
+    with pytest.raises(ChatError) as e:
+        await chat.delete(gone, owner="someone-else")
+    assert e.value.code == "not_found"
+
+    assert await chat.delete(gone, owner="admin") == 2
+    assert await chat.get("admin", gone) is None
+    assert await tasks.get(first.id) is None and await tasks.get(second.id) is None
+    async with pool.connection() as conn:
+        cur = await conn.execute(
+            "SELECT count(*) AS n FROM task_events WHERE task_id = ANY(%s)",
+            ([first.id, second.id],),
+        )
+        assert (await cur.fetchone())["n"] == 0  # type: ignore[index]
+    with pytest.raises(ChatError) as e:
+        await chat.delete(gone, owner="admin")
+    assert e.value.code == "not_found"
+    assert [c.id for c in await chat.list("admin", limit=10)] == [keep]
+    assert [t.result_text for t in await chat.turns(keep)] == ["kept"]
+
+
+@pytest.mark.anyio
+async def test_delete_waits_for_a_turn_that_waits_for_approval(chat: ChatStore, pool: Pool) -> None:
+    cid = await begin(chat)
+    async with pool.connection() as conn:
+        await conn.execute(
+            "UPDATE tasks SET state = 'waiting', awaiting_approval = %s WHERE conversation_id = %s",
+            ('{"id": "c", "name": "run_command", "arguments": {}}', cid),
+        )
+    with pytest.raises(ChatError) as e:
+        await chat.delete(cid, owner="admin")
+    assert e.value.code == "turn_in_progress"
+
+
+@pytest.mark.anyio
+async def test_search_matches_titles_messages_and_answers(
+    chat: ChatStore, tasks: TaskStore, wsettings: Settings
+) -> None:
+    by_title = await begin(chat, "Garden plan")
+    await answer(tasks, wsettings, [reply("Plant tomatoes.")])
+    await chat.rename(by_title, owner="admin", title="Allotment")
+    by_answer = await begin(chat, "what is 50% of 8?")
+    await answer(tasks, wsettings, [reply("It is FOUR.")])
+    by_prompt = await begin(chat, "rename my_file")
+    await answer(tasks, wsettings, [reply("Done.")])
+
+    async def ids(q: str) -> list[uuid.UUID]:
+        return [c.id for c in await chat.list("admin", limit=10, query=q)]
+
+    assert await ids("allot") == [by_title]
+    assert await ids("garden") == [by_title]  # an earlier message, not the title
+    assert await ids("tomatoes") == [by_title]
+    assert await ids("four") == [by_answer]
+    # Wildcards are literal: "%" and "_" match only themselves.
+    assert await ids("50%") == [by_answer]
+    assert await ids("%") == [by_answer]
+    assert await ids("y_f") == [by_prompt]
+    assert await ids("_") == [by_prompt]
+    assert await ids("nothing like this") == []
+    assert await ids("o") == [by_prompt, by_answer, by_title]  # newest first
+    assert await chat.list("someone-else", limit=10, query="o") == []
+    [hit] = await chat.list("admin", limit=10, query="four")
+    assert hit.turns == 1 and hit.last_state == "completed"
+
+
 # --- HTTP API -----------------------------------------------------------------
 
 
@@ -336,3 +434,55 @@ def test_a_turn_waiting_for_approval_blocks_the_next(api: TestClient, db_url: st
         )
     r = api.post(f"/api/v1/conversations/{cid}/turns", json={"prompt": "next"})
     assert r.status_code == 409 and r.json()["error"]["code"] == "turn_in_progress"
+
+
+def test_rename_delete_and_search(api: TestClient, db_url: str) -> None:
+    detail = api.post("/api/v1/conversations", json={"model": MODEL, "prompt": "Trip ideas"}).json()
+    cid, tid = detail["conversation"]["id"], detail["turns"][0]["id"]
+    url = f"/api/v1/conversations/{cid}"
+
+    r = api.patch(url, json={"title": "  Lisbon\n trip  "})
+    assert r.status_code == 200 and r.json()["title"] == "Lisbon trip"
+    assert api.get(f"/api/v1/tasks/{tid}").json()["title"] == "Lisbon trip"
+    for bad in ("   ", "x" * 81):
+        bad_r = api.patch(url, json={"title": bad})
+        assert bad_r.status_code == 422, bad
+    assert api.patch(url, json={}).status_code == 422
+    assert (
+        api.patch(f"/api/v1/conversations/{uuid.uuid4()}", json={"title": "x"}).status_code == 404
+    )
+
+    assert [c["id"] for c in api.get("/api/v1/conversations?q=LISBON").json()] == [cid]
+    assert api.get("/api/v1/conversations?q=paris").json() == []
+    assert api.get("/api/v1/conversations?q=").status_code == 422
+    assert api.get(f"/api/v1/conversations?q={'x' * 201}").status_code == 422
+
+    busy = api.delete(url)
+    assert busy.status_code == 409 and busy.json()["error"]["code"] == "turn_in_progress"
+    api.post(f"/api/v1/tasks/{tid}/cancel")
+    r = api.delete(url)
+    assert r.status_code == 204 and r.content == b""
+    assert api.get(url).status_code == 404
+    assert api.get(f"/api/v1/tasks/{tid}").status_code == 404
+    assert api.delete(url).status_code == 404
+
+    with psycopg.connect(db_url) as conn:
+        audit = conn.execute(
+            "SELECT action, target, detail FROM audit_log "
+            "WHERE action IN ('conversation_renamed', 'conversation_deleted') ORDER BY id"
+        ).fetchall()
+    assert audit == [
+        ("conversation_renamed", cid, {"title": "Lisbon trip"}),
+        ("conversation_deleted", cid, {"turns": 1}),
+    ]
+
+
+def test_rename_and_delete_need_csrf(api: TestClient) -> None:
+    cid = api.post("/api/v1/conversations", json={"model": MODEL, "prompt": "hi"}).json()[
+        "conversation"
+    ]["id"]
+    token = api.headers.pop("X-CSRF-Token")
+    assert api.patch(f"/api/v1/conversations/{cid}", json={"title": "x"}).status_code == 403
+    assert api.delete(f"/api/v1/conversations/{cid}").status_code == 403
+    api.headers["X-CSRF-Token"] = token
+    assert api.get(f"/api/v1/conversations/{cid}").json()["conversation"]["title"] == "hi"

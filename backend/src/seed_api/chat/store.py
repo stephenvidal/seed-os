@@ -4,7 +4,9 @@ event stream for free.
 
 Turns of one conversation run one at a time: they share a workspace, and each
 turn's context must include the answer before it. Sending a turn locks the
-conversation row and refuses while an earlier turn is unfinished.
+conversation row and refuses while an earlier turn is unfinished. Deleting a
+conversation takes the same lock and the same refusal, so it never removes a turn
+a worker is running.
 """
 
 import uuid
@@ -38,6 +40,15 @@ class ChatError(Exception):
         super().__init__(message)
         self.code = code
         self.message = message
+
+
+UNFINISHED = ("queued", "running", "waiting")
+
+
+def _like(text: str) -> str:
+    """An ILIKE pattern matching `text` anywhere, with its wildcards taken literally."""
+    escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
 
 
 class _KeyTaken(Exception):
@@ -155,7 +166,7 @@ class ChatStore:
                 (conversation_id,),
             )
             rows = await cur.fetchall()
-            if any(r["state"] in ("queued", "running", "waiting") for r in rows):
+            if any(r["state"] in UNFINISHED for r in rows):
                 raise ChatError(
                     "turn_in_progress",
                     "The previous message is still being answered. Wait for it, or cancel it.",
@@ -181,6 +192,44 @@ class ChatStore:
             )
             return Task.model_validate(row), True
 
+    async def rename(self, conversation_id: uuid.UUID, *, owner: str, title: str) -> Conversation:
+        """Retitle a conversation and its turns (the Tasks list shows turns by it).
+        Not counted as activity: the list order stays. Raises ChatError not_found."""
+        async with self.pool.connection() as conn, conn.transaction():
+            cur = await conn.execute(
+                "UPDATE conversations SET title = %s WHERE id = %s AND owner = %s RETURNING *",
+                (title, conversation_id, owner),
+            )
+            row = await cur.fetchone()
+            if row is None:
+                raise ChatError("not_found", "No such conversation.")
+            await conn.execute(
+                "UPDATE tasks SET title = %s WHERE conversation_id = %s", (title, conversation_id)
+            )
+            return Conversation.model_validate(row)
+
+    async def delete(self, conversation_id: uuid.UUID, *, owner: str) -> int:
+        """Delete a conversation with its turns and their events; returns how many
+        turns it had. Raises ChatError not_found or turn_in_progress."""
+        async with self.pool.connection() as conn, conn.transaction():
+            cur = await conn.execute(
+                "SELECT id FROM conversations WHERE id = %s AND owner = %s FOR UPDATE",
+                (conversation_id, owner),
+            )
+            if await cur.fetchone() is None:
+                raise ChatError("not_found", "No such conversation.")
+            cur = await conn.execute(
+                "SELECT state FROM tasks WHERE conversation_id = %s", (conversation_id,)
+            )
+            states = [r["state"] for r in await cur.fetchall()]
+            if any(s in UNFINISHED for s in states):
+                raise ChatError(
+                    "turn_in_progress",
+                    "A message is still being answered. Stop it before deleting the conversation.",
+                )
+            await conn.execute("DELETE FROM conversations WHERE id = %s", (conversation_id,))
+            return len(states)
+
     async def _get(
         self, conn: AsyncConnection[DictRow], owner: str, conversation_id: Any
     ) -> Conversation | None:
@@ -202,19 +251,29 @@ class ChatStore:
             rows = await cur.fetchall()
         return [Task.model_validate(r) for r in rows]
 
-    async def list(self, owner: str, *, limit: int) -> list[ConversationSummary]:
+    async def list(
+        self, owner: str, *, limit: int, query: str | None = None
+    ) -> list[ConversationSummary]:
+        """Most recently active first. With `query`, only conversations whose title,
+        or any message or answer, contains it (case-insensitive)."""
+        pattern = None if query is None else _like(query)
         async with self.pool.connection() as conn:
             cur = await conn.execute(
                 """
                 SELECT c.*, count(t.id)::int AS turns,
                        (array_agg(t.state ORDER BY t.turn DESC))[1] AS last_state
                 FROM conversations c LEFT JOIN tasks t ON t.conversation_id = c.id
-                WHERE c.owner = %s
+                WHERE c.owner = %(owner)s
+                  AND (%(pattern)s::text IS NULL
+                       OR c.title ILIKE %(pattern)s
+                       OR EXISTS (SELECT 1 FROM tasks m WHERE m.conversation_id = c.id
+                                  AND (m.prompt ILIKE %(pattern)s
+                                       OR m.result_text ILIKE %(pattern)s)))
                 GROUP BY c.id
                 ORDER BY c.updated_at DESC, c.id
-                LIMIT %s
+                LIMIT %(limit)s
                 """,
-                (owner, limit),
+                {"owner": owner, "pattern": pattern, "limit": limit},
             )
             rows = await cur.fetchall()
         return [ConversationSummary.model_validate(r) for r in rows]
