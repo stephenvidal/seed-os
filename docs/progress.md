@@ -752,3 +752,88 @@ themselves until this PR's run.
 
 **Open questions:** per-task disk quota; gVisor or similar before any
 multi-tenant use; which tools beyond Python and coreutils the image should carry.
+
+## 2026-10-29 — Increment 6: M4 step 1, saved chats on durable tasks
+
+**Iteration:** M4 step 1. Definition of done: conversations and their messages are
+stored in Postgres; each message runs as a task carrying the conversation so far;
+replies stream through the Tasks SSE; answers render as Markdown; the in-request
+`/runs` path is removed. The owner agreed to start here ("Starting with step 1 is
+fine with me").
+
+**Changed**
+- Migration `0003_conversations`: `conversations` table; `tasks` gains
+  `conversation_id`, `turn`, `context` and `workspace_id` (ADR-0011).
+- `seed_api/chat/`: store (start, send with a conversation row lock and
+  `turn_in_progress`, list, get, turns) and `/api/v1/conversations` routes, with
+  idempotency keys shared with tasks and audit entries.
+- Worker: sends system + context + prompt; file tools and the sandbox use the
+  task's workspace (the conversation's for a turn). Task retry is refused while
+  another turn of the same conversation is unfinished.
+- `runs.py` → `models.py` (provider config, system prompt, `/models`);
+  `POST /api/v1/runs` and `SEED_MAX_CONCURRENT_RUNS` removed;
+  `SEED_CHAT_CONTEXT_TURNS` added.
+- Chat page rewritten: conversation list, `/chat/:id`, live reply from the task
+  stream, past activity on demand, Markdown via react-markdown + remark-gfm (no
+  raw HTML, links open with `noopener`), Stop, Try again, model switch. Chat is
+  loaded lazily so other pages don't carry the Markdown code.
+- ADR-0011, D-007, README, architecture, roadmap, CHANGELOG.
+
+**Tested**
+```
+backend: ruff check → All checks passed! · ruff format --check → 44 files already formatted
+         mypy → Success: no issues found in 30 source files
+         pytest (DB, SEED_REQUIRE_ROOT_TESTS=1, as root) → 98 passed, 1 skipped
+frontend: typecheck ok · lint ok · format ok · vitest → Tests 26 passed (26)
+build: index-*.js 461.78 kB │ gzip 146.80 kB · Chat-*.js 174.93 kB │ gzip 53.12 kB
+       (main before this change: 467.50 kB │ gzip 147.77 kB)
+```
+Mutation checks (each change made, suite run, reverted):
+```
+backend
+worker drops the context                         → CAUGHT (1 failed)
+worker uses the task id as workspace             → CAUGHT (1 failed)
+retry ignores unfinished sibling turns           → CAUGHT (1 failed)
+send ignores an unfinished turn                  → CAUGHT (1 failed)
+failed turns included in context                 → CAUGHT (1 failed)
+context not limited to the last N turns          → CAUGHT (1 failed)
+get ignores the owner                            → CAUGHT (1 failed)
+list ignores the owner                           → CAUGHT (1 failed)
+replay accepts a lone task's key                 → CAUGHT (1 failed)
+replay accepts another conversation's key        → CAUGHT (1 failed)
+/tasks replay accepts a chat turn's key          → CAUGHT (1 failed)
+frontend
+stream duplicates not dropped                    → CAUGHT (1 failed)
+links without rel=noopener                       → CAUGHT (1 failed)
+model switch not sent                            → CAUGHT (1 failed)
+live text not rendered as Markdown               → CAUGHT (1 failed)
+stream end does not refresh the conversation     → CAUGHT (1 failed)
+Enter sends while an answer is running           → CAUGHT (1 failed)
+```
+Browser (Chromium via Playwright; API, one worker, Postgres, Vite dev server,
+and an Ollama-wire stub that streams Markdown, not a model):
+```
+url /chat/a84fd407-9120-469d-8143-d2831bd4e69d
+live: stop button visible = true
+meta: 250 in / 50 out tokens
+turn 1: Done | I can see 0 earlier messages in this conversation. | first point | second point | code block |
+heading tag: Done | strong: 0 earlier messages
+turn 2: Done | I can see 2 earlier messages in this conversation. | first point | second point | code block |
+list: Make a file notes.md with my checklist
+turns after reload: 2
+horizontal overflow at 390px: 0
+errors: ["Failed to load resource: the server responded with a status of 401 (Unauthorized)"]
+```
+The second message was sent, then the page went to Tasks for 6 s and came back:
+the answer had arrived meanwhile. The 401 is the signed-out `/auth/me` before
+sign-in. Database afterwards: both turns `completed`, turn 2 carried 2 context
+messages, `workspace_id` equals the conversation id, and `notes.md` written by
+turn 1 sits in `<workspace_root>/<conversation id>/`.
+
+**Not tested:** a real model (this session has no Ollama key); chat turns through
+the sandbox container (the sandbox API is unchanged and the flow test covers a
+task through the real sandbox app); the deploy.
+
+**Open questions:** in D-007 (conversation privacy once there are other roles;
+token-based context limits). If you press Enter before the model list has
+loaded, nothing is sent and the text stays in the box.

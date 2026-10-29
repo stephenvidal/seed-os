@@ -7,7 +7,7 @@ it — with full visibility and control.
 | | |
 |---|---|
 | Directive | v1.1 — [DIRECTIVE.md](DIRECTIVE.md) |
-| Current milestone | M2 Core agent runtime (see [progress](docs/progress.md)) |
+| Current milestone | M4 Integrated native chat (see [progress](docs/progress.md)) |
 | Stack | React + Vite + TS + Tailwind · Python + FastAPI · Docker Compose |
 
 ## What works today
@@ -18,11 +18,14 @@ it — with full visibility and control.
 - **Command Center** with live host telemetry from the API (memory, load, uptime,
   API RSS) and an honest component status list.
 - **Settings:** theme selection, account, system details.
-- **Chat (M2):** pick a model from the configured provider (Ollama),
-  send a request, and watch the agent stream its answer and its tool calls. The
-  agent has list/read/write file tools confined to a per-run workspace. Runs are
-  bounded (steps, time, tokens) and **not saved**: leaving the page stops the run
-  (durable runs are M3/M4).
+- **Chat (M4):** saved conversations, listed newest first. Each message you send
+  runs as a task with the conversation so far, so the answer keeps coming if you
+  leave the page, survives a restart, and its steps show up under Tasks. The
+  reply streams live with its tool calls, and finished answers render as
+  Markdown (no raw HTML). All turns of a conversation share one workspace, so a
+  later message can use files an earlier one made. One message at a time: Stop
+  cancels the answer in progress, and a failed or stopped last answer can be
+  tried again. The model can be changed between messages.
 - **Tasks (M3):** create a task, then follow its timeline live: steps, tool calls
   and lifecycle notes (attempts, resumes, retries, interruptions). Tasks run in
   the worker, so they keep going when the page is closed; the timeline is rebuilt
@@ -43,22 +46,27 @@ it — with full visibility and control.
 | GET | `/api/v1/auth/me` | session | `{username, role}`; 401 `unauthenticated` |
 | GET | `/api/v1/system` | session | host/process telemetry |
 | GET | `/api/v1/models` | admin | `{provider, default_model, models[]}` from the provider; 503 `provider_not_configured`, 502 `provider_<kind>` |
-| POST | `/api/v1/runs` | admin | `{model, prompt, history[]}` → `text/event-stream` of run events (`run_id`, `run_started`, `step_started`, `text_delta`, `tool_call`, `tool_result`, `step_completed`, `provider_retry`, `run_finished`); 429 `busy` at the concurrency limit |
+| POST | `/api/v1/conversations` | admin | `{model, prompt}`, optional `Idempotency-Key` → 201 `{conversation, turns[]}` with the first message queued as a task; 200 with the original on a repeated key; 409 `idempotency_conflict`; 503 `provider_not_configured` |
+| GET | `/api/v1/conversations` | admin | The caller's conversations, most recently active first: `{id, title, model, turns, last_state, …}`; `?limit=1..200` |
+| GET | `/api/v1/conversations/{id}` | admin | `{conversation, turns[]}`, each turn a task (prompt, state, `result_text`, usage, `turn`); 404 `not_found` (also for another user's conversation) |
+| POST | `/api/v1/conversations/{id}/turns` | admin | `{prompt, model?}`, optional `Idempotency-Key` → 201 task carrying the earlier completed turns as context; `model` switches the conversation's model; 409 `turn_in_progress` while a turn is unfinished; 404 `not_found` |
 | POST | `/api/v1/tasks` | admin | `{model, prompt, title?}`, optional `Idempotency-Key` header → 201 task (`queued`); 200 with the existing task on a repeated key; 409 `idempotency_conflict`; 503 `provider_not_configured` |
 | GET | `/api/v1/tasks` | admin | Newest first; `?state=queued\|running\|completed\|failed\|canceled`, `?limit=1..100` |
-| GET | `/api/v1/tasks/{id}` | admin | Task: state, attempt, termination, error, result, usage, `last_seq`, `resumable_from_step`; 404 `not_found` |
+| GET | `/api/v1/tasks/{id}` | admin | Task: state, attempt, termination, error, result, usage, `last_seq`, `resumable_from_step`, and for a chat turn `conversation_id` and `turn`; 404 `not_found` |
 | GET | `/api/v1/tasks/{id}/events` | admin | `{events[], last_seq, state}`; `?after=<seq>&limit=` for incremental reads. Events: `task_created`, `attempt_started`, run events, `cancel_requested`, `task_requeued`, `task_released`, `lease_expired` |
 | GET | `/api/v1/tasks/{id}/stream` | admin | `text/event-stream`: each stored event as `id: <seq>` + JSON data, then `event: end` once the task is finished. Resumes after `Last-Event-ID` (or `?after=`); 404 `not_found` |
 | POST | `/api/v1/tasks/{id}/cancel` | admin | Queued → `canceled` at once; running → stops at the worker's next heartbeat; 409 `not_cancelable` |
-| POST | `/api/v1/tasks/{id}/retry` | admin | Failed/canceled → `queued` as a fresh run; 409 `not_retryable` |
+| POST | `/api/v1/tasks/{id}/retry` | admin | Failed/canceled → `queued` as a fresh run; 409 `not_retryable` (also for a chat turn while another turn of its conversation is unfinished) |
 
 Every authenticated request other than GET/HEAD/OPTIONS must send the `seed_csrf`
 cookie's value in `X-CSRF-Token`, or it gets 403 `csrf_failed` (ADR-0009). Sign-ins,
-sign-outs, user changes and task create/cancel/retry are recorded in `audit_log`.
+sign-outs, user changes, new conversations and task create/cancel/retry (chat turns
+included) are recorded in `audit_log`.
 
 Without `SEED_DATABASE_URL` there is no sign-in (503 `auth_not_configured`), so
 every protected route answers that.
-Tasks are executed by the worker (`python -m seed_api.flow.worker`), not by the API.
+Tasks, chat turns included, are executed by the worker (`python -m seed_api.flow.worker`),
+not by the API; follow a turn's reply on `/api/v1/tasks/{id}/stream`.
 
 Errors are always `{"error": {"code", "message"}}`. OpenAPI at `/api/docs`.
 
@@ -93,14 +101,14 @@ docker compose exec api python -m seed_api.users list    # in the compose stack
 | `SEED_COOKIE_SECURE` | `false` | Set `true` behind HTTPS |
 | `SEED_LOGIN_MAX_FAILURES` / `SEED_LOGIN_WINDOW_SECONDS` | `5` / `60` | Failed sign-ins per username per window before 429 |
 | `SEED_CORS_ORIGINS` | `[]` | JSON list; only needed if the UI is served from another origin |
-| `SEED_OLLAMA_API_KEY` | unset | Ollama Cloud key; unset disables Chat (typed 503) |
+| `SEED_OLLAMA_API_KEY` | unset | Ollama Cloud key; unset disables Chat and new tasks (typed 503) |
 | `SEED_OLLAMA_BASE_URL` | `https://ollama.com` | Point at a self-hosted Ollama to use local models |
 | `SEED_DEFAULT_MODEL` | unset | Model preselected in Chat |
 | `SEED_PROVIDER_TIMEOUT_SECONDS` | `120` | Per-request provider timeout |
-| `SEED_MAX_CONCURRENT_RUNS` | `2` | Concurrent agent runs |
-| `SEED_RUN_MAX_STEPS` / `SEED_RUN_MAX_RUNTIME_SECONDS` / `SEED_RUN_MAX_TOTAL_TOKENS` | `8` / `300` / `200000` | Per-run limits |
-| `SEED_WORKSPACE_ROOT` | `/tmp/seed-workspaces` | Per-run/per-task workspace dirs (ephemeral until M6) |
-| `SEED_DATABASE_URL` | unset | Postgres URL (`postgresql://user:pass@host/db`); unset disables sign-in and tasks. Compose builds it from `SEED_POSTGRES_PASSWORD` |
+| `SEED_RUN_MAX_STEPS` / `SEED_RUN_MAX_RUNTIME_SECONDS` / `SEED_RUN_MAX_TOTAL_TOKENS` | `8` / `300` / `200000` | Per-run limits (each task attempt, chat turns included) |
+| `SEED_CHAT_CONTEXT_TURNS` | `20` | How many earlier completed turns a new chat message carries |
+| `SEED_WORKSPACE_ROOT` | `/tmp/seed-workspaces` | Worker without a sandbox: workspace dirs (one per task, or per conversation for chat; ephemeral until M6) |
+| `SEED_DATABASE_URL` | unset | Postgres URL (`postgresql://user:pass@host/db`); unset disables sign-in, tasks and chat. Compose builds it from `SEED_POSTGRES_PASSWORD` |
 | `SEED_TASK_MAX_ATTEMPTS` | `3` | Attempts per task (and per retry) before it is dead-lettered as `failed/abandoned` |
 | `SEED_WORKER_LEASE_SECONDS` | `30` | Worker lease; renewed every third of it. A crashed worker's task is resumed after this |
 | `SEED_WORKER_POLL_SECONDS` | `2` | Idle worker poll interval |

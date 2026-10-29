@@ -13,11 +13,12 @@ ratified target (Directive v1.1, ADRs in `decisions/`).
                       │   ├─ seed_api.auth     sessions, roles
                       │   ├─ seed_api.system   host telemetry
                       │   ├─ core/      SEED Core: providers, agent loop, tools [M2: built]
-                      │   ├─ seed_api.runs  /models, /runs (SSE, in-request)  [M2: built]
-                      │   ├─ flow/      SEED Flow tasks/events  [M3: store, API built]
+                      │   ├─ seed_api.models  provider config, /models     [M2: built]
+                      │   ├─ flow/      SEED Flow tasks/events  [M3: built]
+                      │   ├─ chat/      conversations; a turn is a task [M4: built, ADR-0011]
                       │   ├─ memory/, studio/, connect/          [M6–M8]
                       ▼
-                    postgres (tasks, events, artifacts meta)   [M3: tasks, events built]
+                    postgres (tasks, events, artifacts meta)   [built: tasks, events, users, conversations]
                       ▲
                     worker(s) (lease + heartbeat, run loops)   [M3: built, ADR-0008]
                       │
