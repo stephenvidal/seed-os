@@ -90,6 +90,45 @@ describe("Tasks", () => {
     expect(headers["Idempotency-Key"]).toMatch(/^[0-9a-f-]{36}$/);
   });
 
+  it("starts a task in the project it was opened from, and links back to it", async () => {
+    const projects = {
+      status: 200,
+      body: [
+        { id: "p1", name: "Garden" },
+        { id: "p2", name: "Other" },
+      ],
+    };
+    const created = task({ id: "t2", state: "queued", project_id: "p1", conversation_id: null });
+    const spy = mockApi({
+      "GET /api/v1/auth/me": ME,
+      "GET /api/v1/models": MODELS,
+      "GET /api/v1/projects": projects,
+      "GET /api/v1/tasks?limit=100": { status: 200, body: [] },
+      "POST /api/v1/tasks": { status: 201, body: created },
+      "GET /api/v1/tasks/t2": { status: 200, body: created },
+    });
+    vi.stubGlobal("EventSource", FakeEventSource);
+    const user = userEvent.setup();
+    renderApp(<App />, "/tasks?project=p1");
+
+    await screen.findByRole("option", { name: "Garden" });
+    expect(screen.getByLabelText("Project")).toHaveValue("p1");
+    await screen.findByRole("option", { name: "m-default" });
+    await user.type(screen.getByLabelText("What should SEED do?"), "Plan the beds");
+    await user.click(screen.getByRole("button", { name: "Create task" }));
+    await waitFor(() => expect(FakeEventSource.last?.url).toBe("/api/v1/tasks/t2/stream?after=0"));
+    const post = spy.mock.calls.find((c) => c[1]?.method === "POST");
+    expect(JSON.parse(String(post?.[1]?.body))).toEqual({
+      model: "m-default",
+      prompt: "Plan the beds",
+      project_id: "p1",
+    });
+    expect(await screen.findByRole("link", { name: "Garden" })).toHaveAttribute(
+      "href",
+      "/projects/p1",
+    );
+  });
+
   it("follows a running task live and cancels it", async () => {
     let current = task();
     mockApi({

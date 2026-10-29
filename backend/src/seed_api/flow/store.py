@@ -204,9 +204,14 @@ class TaskStore:
         prompt: str,
         max_attempts: int,
         idempotency_key: str | None,
+        project_id: uuid.UUID | None = None,
+        instructions: str | None = None,
+        memory: str | None = None,
     ) -> tuple[Task, bool]:
-        """Insert a queued task. With an idempotency key already used by this
-        creator, returns the existing task and False instead."""
+        """Insert a queued task, in a project when `project_id` is given (with what
+        it copies from the project, see chat/store.py project_context). With an
+        idempotency key already used by this creator, returns the existing task and
+        False instead."""
         async with self.pool.connection() as conn, conn.transaction():
             row = await insert_task(
                 conn,
@@ -216,6 +221,9 @@ class TaskStore:
                 prompt=prompt,
                 max_attempts=max_attempts,
                 idempotency_key=idempotency_key,
+                project_id=project_id,
+                instructions=instructions,
+                memory=memory,
             )
             if row is not None:
                 return Task.model_validate(row), True
@@ -230,12 +238,18 @@ class TaskStore:
             row = await cur.fetchone()
         return Task.model_validate(row) if row else None
 
-    async def list_tasks(self, *, limit: int, state: TaskState | None = None) -> list[Task]:
+    async def list_tasks(
+        self, *, limit: int, state: TaskState | None = None, project_id: uuid.UUID | None = None
+    ) -> list[Task]:
+        """Newest first. With `project_id`, only the project's tasks started outside
+        a chat (its chats' turns are listed with the chats)."""
         async with self.pool.connection() as conn:
             cur = await conn.execute(
                 "SELECT * FROM tasks WHERE (%(state)s::text IS NULL OR state = %(state)s) "
+                "AND (%(project)s::uuid IS NULL "
+                "     OR (project_id = %(project)s AND conversation_id IS NULL)) "
                 "ORDER BY created_at DESC, id LIMIT %(limit)s",
-                {"state": state, "limit": limit},
+                {"state": state, "limit": limit, "project": project_id},
             )
             rows = await cur.fetchall()
         return [Task.model_validate(r) for r in rows]

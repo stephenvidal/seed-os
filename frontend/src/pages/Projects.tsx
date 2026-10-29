@@ -26,6 +26,8 @@ import {
 } from "../lib/projects";
 import type { Memory, Project } from "../lib/projects";
 import { studioApi } from "../lib/studio";
+import { tasksApi } from "../lib/tasks";
+import { StateBadge } from "../components/tasks/StateBadge";
 
 const MAX_INSTRUCTIONS = 20_000;
 const field =
@@ -639,6 +641,53 @@ function Chats({ project }: { project: Project }) {
   );
 }
 
+/** Tasks started in the project outside a chat (D-023). */
+function Tasks({ project }: { project: Project }) {
+  const tasks = useQuery({
+    queryKey: ["tasks", "project", project.id],
+    queryFn: () => tasksApi.inProject(project.id),
+    retry: false,
+  });
+  return (
+    <Panel
+      title="Tasks"
+      action={
+        <Link
+          to={`/tasks?project=${project.id}`}
+          className="flex items-center gap-1 text-xs text-accent hover:underline"
+        >
+          <Plus size={13} aria-hidden /> New task
+        </Link>
+      }
+    >
+      {tasks.isPending ? (
+        <Loading />
+      ) : tasks.isError ? (
+        <Failure error={tasks.error} />
+      ) : tasks.data.length === 0 ? (
+        <p className="px-4 py-4 text-sm text-fg-muted">
+          No tasks yet. A task started here runs in the background with the project&apos;s
+          instructions, memory and knowledge.
+        </p>
+      ) : (
+        <ul aria-label="Project tasks" className="divide-y divide-border">
+          {tasks.data.map((t) => (
+            <li key={t.id}>
+              <Link
+                to={`/tasks/${t.id}`}
+                className="flex items-center gap-3 px-4 py-2.5 hover:bg-surface-2"
+              >
+                <span className="min-w-0 flex-1 truncate text-sm text-fg">{t.title}</span>
+                <StateBadge task={t} />
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Panel>
+  );
+}
+
 function Files({ project }: { project: Project }) {
   const files = useQuery({
     queryKey: ["artifacts", "project", project.id],
@@ -716,6 +765,7 @@ export function ProjectPage() {
         <Knowledge project={project.data} />
         <div className="grid gap-4 lg:grid-cols-2">
           <Chats project={project.data} />
+          <Tasks project={project.data} />
           <Files project={project.data} />
         </div>
       </div>

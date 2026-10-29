@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ApprovalPrompt } from "../components/tasks/ApprovalPrompt";
 import { StateBadge } from "../components/tasks/StateBadge";
 import { Badge } from "../components/ui/Badge";
@@ -22,6 +22,7 @@ import { Markdown } from "../components/ui/Markdown";
 import { Panel } from "../components/ui/Panel";
 import { Spinner } from "../components/ui/Spinner";
 import { ApiError, api } from "../lib/api";
+import { PROJECTS, projectsApi } from "../lib/projects";
 import { followTask, isFinished, pendingApproval, tasksApi, toTimeline } from "../lib/tasks";
 import type { Task, TaskEvent, TimelineItem } from "../lib/tasks";
 
@@ -51,13 +52,21 @@ function NewTask() {
   const models = useQuery({ queryKey: ["models"], queryFn: api.models, retry: false });
   const [model, setModel] = useState("");
   const [prompt, setPrompt] = useState("");
+  const projects = useQuery({ queryKey: PROJECTS, queryFn: projectsApi.list, retry: false });
+  // A project's page links here with ?project=<id> to start a task in it.
+  const [params] = useSearchParams();
+  const [project, setProject] = useState(params.get("project") ?? "");
   // One key per intended task: resubmitting after a network error cannot duplicate it.
   const key = useRef(crypto.randomUUID());
   const navigate = useNavigate();
   const qc = useQueryClient();
   const selected = model || models.data?.default_model || models.data?.models[0]?.id || "";
   const create = useMutation({
-    mutationFn: () => tasksApi.create({ model: selected, prompt: prompt.trim() }, key.current),
+    mutationFn: () =>
+      tasksApi.create(
+        { model: selected, prompt: prompt.trim(), ...(project && { project_id: project }) },
+        key.current,
+      ),
     onSuccess: (task) => {
       key.current = crypto.randomUUID();
       setPrompt("");
@@ -100,6 +109,26 @@ function NewTask() {
               ))}
             </select>
           </label>
+          {(projects.data?.length || project) && (
+            <label className="flex min-w-0 items-center gap-2 text-xs text-fg-muted">
+              Project
+              <select
+                value={project}
+                onChange={(e) => {
+                  setProject(e.target.value);
+                  key.current = crypto.randomUUID(); // a different task now
+                }}
+                className="h-8 max-w-48 min-w-0 rounded-control border border-border bg-surface-1 px-2 text-xs text-fg"
+              >
+                <option value="">None</option>
+                {projects.data?.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <Button
             type="submit"
             variant="primary"
@@ -269,6 +298,12 @@ export function TaskDetailPage() {
   const { id = "" } = useParams();
   const qc = useQueryClient();
   const task = useQuery({ queryKey: ["task", id], queryFn: () => tasksApi.get(id), retry: false });
+  const projects = useQuery({
+    queryKey: PROJECTS,
+    queryFn: projectsApi.list,
+    retry: false,
+    enabled: Boolean(task.data?.project_id),
+  });
   const [events, setEvents] = useState<TaskEvent[]>([]);
   const lastSeq = useRef(0);
   // Set once the server ends the stream: every event of the finished task has arrived.
@@ -405,6 +440,16 @@ export function TaskDetailPage() {
             </dd>
             <dt className="text-fg-muted">Tokens</dt>
             <dd className="font-mono text-fg">{tokens(t) ?? "—"}</dd>
+            {t.project_id && !t.conversation_id && (
+              <>
+                <dt className="text-fg-muted">Project</dt>
+                <dd className="truncate">
+                  <Link to={`/projects/${t.project_id}`} className="text-accent hover:underline">
+                    {projects.data?.find((p) => p.id === t.project_id)?.name ?? "Open project"}
+                  </Link>
+                </dd>
+              </>
+            )}
             <dt className="text-fg-muted">Created</dt>
             <dd className="text-fg">{when(t.created_at)}</dd>
             {t.finished_at && (
