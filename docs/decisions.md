@@ -769,3 +769,35 @@ limit raises concurrency with it; the README says so.
 **Consequences:** One worker process may run four model calls at once. Each
 worker's pool use grows the pool to 10 connections. Agents of different tasks
 share the same slots, so heavy use still queues the oldest task first.
+
+## D-028 — The Tools page reads the worker's own tool definitions
+
+**Date:** 2026-10-29
+
+**Context:** M8 starts with tools and integration management. The Tools & Skills
+page was a placeholder. Requirements WS-9 ask for tools, permissions, policies,
+usage history and diagnostics, and the tool requirements say every tool declares
+its schemas, permissions, timeout and limits.
+
+**Options:** (1) a hand-written list for the page; (2) build the catalog from the
+same `Tool` definitions the worker registers, so it cannot drift; (3) have the
+worker publish its registry to the database.
+
+**Choice:** Option 2. `GET /api/v1/tools` builds the tools with no stores or
+sandbox behind them (their handlers are never called) and reports what each
+declares. Approval is the tool's own flag or `SEED_APPROVAL_REQUIRED_TOOLS`, read
+from the API's settings; the deploy shares one environment between the API and the
+worker, and the page says the setting is the server's. Where a tool is offered is a
+fixed text per tool that mirrors `flow/worker.py`. Usage counts `tool_result`
+events that name their tool in a window (default 24 h): calls, successes, failures
+by kind, average time. Results that name no tool (the per-step call cap) are not
+counted. A partial index on those events keeps the count cheap.
+
+**Reason:** One source of truth for what a tool is; no placeholder data; no new
+state to keep in step.
+
+**Consequences:** The API cannot tell whether the worker has a sandbox, so the page
+says a command needs one instead of claiming a status. Skills are not built, and no
+document defines what a skill is: open question for Stephen, who decides if M8 owns
+them. A tool added to the worker must be added to the catalog and to `AVAILABLE_IN`;
+a missing text fails the catalog test rather than showing a blank.

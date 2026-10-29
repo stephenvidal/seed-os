@@ -2047,3 +2047,47 @@ errors: the 401 from the sign-in check before login
 
 **Open questions:** the roadmap still lists workload and routing views and agent
 metrics beyond tokens for M7; what to build next there is Stephen's call.
+
+## Increment 25 — Tools & Skills page (M8 step 1)
+
+**Iteration:** M8 step 1. **Done when:** the Tools page lists the real tools with
+their permission, the approval policy in force and limits, and shows usage from
+recorded tool results, with no placeholder content — each shown by a test that fails
+when it breaks, and in a browser.
+
+**Changed**
+- `tools_api.py`: `GET /api/v1/tools` (catalog from the worker's tool definitions;
+  usage from `tool_result` events in the window); migration
+  `0015_tool_result_index` (partial index on tool results).
+- Web: `Tools.tsx` (tool list with details on demand, approval policy, usage table,
+  a Skills empty state); `lib/tools.ts`; the placeholder in `areas.tsx` removed.
+- D-028, README, CHANGELOG, roadmap, requirements WS-9.
+
+**Tested**
+```
+backend: ruff check → All checks passed! · ruff format --check → clean
+         mypy → Success: no issues found in 48 source files
+         pytest (DB) → 182 passed, 1 skipped
+frontend: typecheck ok · lint ok · format ok · vitest → Test Files 15 passed (15), Tests 115 passed (115)
+```
+Breakage checks: backend 9/9 caught; frontend 9/10 (the survivor is a badge colour).
+The backend run first let two things through: a vacuous "no roster stub" assertion
+and, equivalently, the tools' own approval flag (none sets it today); the first was
+tightened.
+
+Browser (Chromium), real API, worker and Postgres, stub model that calls
+`list_files` then `read_file` on a missing file:
+```
+tools: list_files, read_file, write_file, run_command, remember, search_knowledge, delegate
+run_command row: run_command runs code asks you first Tasks run by a worker with a sandbox (SEED_SANDBOX_URL)
+usage before: No tool calls recorded
+usage after: list_files 1 1 0 0 ms — · read_file 1 0 1 0 ms tool error 1
+overflow at 390: 0
+errors: the 401 from the sign-in check before login
+```
+
+**Not tested:** the live site; a tool added later keeping the catalog in step (only a
+missing `AVAILABLE_IN` text is caught); approval policy when the API and worker run
+with different settings.
+
+**Open questions:** what a "skill" is and whether M8 owns it (D-028).

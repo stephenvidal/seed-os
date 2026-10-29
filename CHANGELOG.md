@@ -8,6 +8,10 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
   they now render (D-020). The per-step output cap is 16,384 tokens, up from 4,096.
 
 ### Added
+- Tools & Skills (M8, D-028): the page lists the worker's tools with permission,
+  approval policy, limits, arguments and where each is offered, and how often each
+  was used and failed, from recorded results. `GET /api/v1/tools`; migration 0015
+  (index on tool results).
 - Delegation in the Inspector and Command Center (M7): the Inspector lists a
   task's hand-offs and links agent tasks to their parent and back; the overview
   gains `agents` and the Command Center an Agent activity panel; tasks in
