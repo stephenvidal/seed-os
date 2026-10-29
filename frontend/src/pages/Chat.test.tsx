@@ -506,4 +506,94 @@ describe("Chat", () => {
     expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Edit" })).toBeNull(); // not finished yet
   });
+
+  it("links the files an answer saved and opens them in a dialog", async () => {
+    const user = userEvent.setup();
+    const ver = (n: number) => ({
+      version: n,
+      task_id: "t1",
+      size: 12,
+      deleted: false,
+      created_at: "2026-10-29T01:00:05Z",
+    });
+    const page = {
+      id: "a1",
+      path: "site/index.html",
+      media_type: "text/html; charset=utf-8",
+      conversation_id: "c1",
+      source_title: "Plan my week",
+      task_id: null,
+      versions: 1,
+      latest: ver(1),
+      created_at: "2026-10-29T01:00:05Z",
+      updated_at: "2026-10-29T01:00:05Z",
+    };
+    mockApi({
+      "GET /api/v1/auth/me": ME,
+      "GET /api/v1/models": MODELS,
+      "GET /api/v1/conversations?limit=200": { status: 200, body: [summary] },
+      "GET /api/v1/conversations/c1": { status: 200, body: { conversation, turns: [turn()] } },
+      "GET /api/v1/artifacts?limit=500&conversation_id=c1": {
+        status: 200,
+        body: [page, { ...page, id: "a2", path: "gone.txt" }],
+      },
+      "GET /api/v1/tasks/t1/events?after=0&limit=1000": {
+        status: 200,
+        body: {
+          events: [
+            {
+              seq: 5,
+              attempt: 1,
+              type: "artifacts_saved",
+              data: {
+                saved: [
+                  { path: "site/index.html", version: 1, deleted: false },
+                  { path: "gone.txt", version: 1, deleted: true },
+                ],
+              },
+              created_at: "2026-10-29T01:00:05Z",
+            },
+          ],
+          last_seq: 5,
+          state: "completed",
+        },
+      },
+      "GET /api/v1/artifacts/a1": { status: 200, body: { artifact: page, versions: [ver(1)] } },
+      "POST /api/v1/artifacts/a1/preview": {
+        status: 201,
+        body: { url: "/api/v1/previews/tok/site/index.html", expires_in: 3600 },
+      },
+    });
+    renderApp(<App />, "/chat/c1");
+
+    const files = await screen.findByRole("list", { name: "Files saved to Studio" });
+    // Deleted files get no link.
+    expect(within(files).getAllByRole("button")).toHaveLength(1);
+    await user.click(within(files).getByRole("button", { name: "site/index.html" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "site/index.html" });
+    expect(await within(dialog).findByTitle("Preview of site/index.html")).toHaveAttribute(
+      "src",
+      "/api/v1/previews/tok/site/index.html",
+    );
+    expect(within(dialog).getByRole("link", { name: "Open in Studio" })).toHaveAttribute(
+      "href",
+      "/studio/a1",
+    );
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("shows no file links when the chat saved nothing", async () => {
+    mockApi({
+      "GET /api/v1/auth/me": ME,
+      "GET /api/v1/models": MODELS,
+      "GET /api/v1/conversations?limit=200": { status: 200, body: [summary] },
+      "GET /api/v1/conversations/c1": { status: 200, body: { conversation, turns: [turn()] } },
+      "GET /api/v1/artifacts?limit=500&conversation_id=c1": { status: 200, body: [] },
+    });
+    renderApp(<App />, "/chat/c1");
+    expect(await screen.findByText(/the plan/)).toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: "Files saved to Studio" })).toBeNull();
+  });
 });

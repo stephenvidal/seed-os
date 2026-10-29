@@ -8,6 +8,9 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
   they now render (D-020). The per-step output cap is 16,384 tokens, up from 4,096.
 
 ### Added
+- Chat links to the files an answer saved (D-021): each appears under the answer
+  and opens in a dialog with the same viewer as Studio (sandboxed preview, Source
+  switch, Phone / Desktop frame), with a link on to Studio.
 - Project knowledge (M6, D-021): text documents on a project's page, split into
   passages and indexed with Postgres full-text search; the `search_knowledge` tool
   in the project's turns. API `/api/v1/projects/{id}/documents`, `documents` on
