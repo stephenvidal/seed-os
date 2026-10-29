@@ -75,8 +75,32 @@ async def test_tool_round_trip_really_writes_and_reads(tmp_path: Path) -> None:
 
 async def test_stops_at_max_steps(tmp_path: Path) -> None:
     loop = [calls(("list_files", {})) for _ in range(5)]
-    result, _ = await run(ScriptedProvider(loop), tmp_path, max_steps=3)
+    result, events = await run(ScriptedProvider(loop), tmp_path, max_steps=3)
     assert result.termination == "max_steps" and result.steps == 3
+    # The last step's tool call is not run: tools were withheld on that step.
+    assert len([e for e in events if e.type == "tool_result"]) == 2
+
+
+async def test_last_step_answers_without_tools(tmp_path: Path) -> None:
+    """A run that spends its steps on tools still ends with an answer."""
+    provider = ScriptedProvider(
+        [calls(("list_files", {})), calls(("list_files", {})), reply("Here is the story.")]
+    )
+    result, events = await run(provider, tmp_path, max_steps=3)
+    assert result.termination == "completed" and result.steps == 3
+    assert result.final_text == "Here is the story."
+    assert [bool(r.tools) for r in provider.requests] == [True, True, False]
+    last = provider.requests[-1].messages
+    assert last[-1].role == "system" and "step limit" in last[-1].content
+    assert all(m.content != last[-1].content for m in result.messages)  # not kept in history
+    started = [e.data for e in events if e.type == "step_started"]
+    assert started[-1] == {"step": 3, "wrap_up": True} and "wrap_up" not in started[0]
+
+
+async def test_a_one_step_run_keeps_its_tools(tmp_path: Path) -> None:
+    provider = ScriptedProvider([reply("ok")])
+    await run(provider, tmp_path, max_steps=1)
+    assert provider.requests[0].tools
 
 
 async def test_stops_at_token_budget(tmp_path: Path) -> None:
@@ -173,7 +197,7 @@ async def test_checkpoints_after_tool_rounds_and_resumes_from_one(tmp_path: Path
         model="fake",
         messages=[Message(role="user", content="ignored on resume")],
         tools=ToolRegistry(workspace_tools(tmp_path)),
-        limits=RunLimits(max_steps=2),
+        limits=RunLimits(max_steps=3),
         on_event=no_event,
         resume=saved[0],
     )

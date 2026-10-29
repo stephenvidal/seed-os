@@ -69,6 +69,12 @@ class Checkpoint(BaseModel):
     usage: Usage
 
 
+WRAP_UP = (
+    "You have reached the step limit for this request and can no longer use tools. "
+    "Reply now with your final answer, using what you already have. If the work is "
+    "unfinished, say what is done and what is left."
+)
+
 EventSink = Callable[[RunEvent], Awaitable[None]]
 CheckpointSink = Callable[[Checkpoint], Awaitable[None]]
 
@@ -143,11 +149,14 @@ async def run_agent(
             return await finish("token_budget")
 
         steps += 1
-        await emit("step_started", step=steps)
+        # The last allowed step gets no tools and is told to answer, so a run that
+        # spent its steps on tool calls still ends with an answer, not nothing.
+        wrap_up = limits.max_steps > 1 and steps == limits.max_steps
+        await emit("step_started", step=steps, **({"wrap_up": True} if wrap_up else {}))
         request = ChatRequest(
             model=model,
-            messages=history,
-            tools=specs,
+            messages=[*history, Message(role="system", content=WRAP_UP)] if wrap_up else history,
+            tools=[] if wrap_up else specs,
             max_output_tokens=limits.max_output_tokens_per_step,
         )
 
@@ -186,6 +195,8 @@ async def run_agent(
         )
         if not calls:
             return await finish("completed")
+        if wrap_up:  # tools were withheld; a model that still asks for them gets none
+            return await finish("max_steps")
 
         for i, call in enumerate(calls):
             if cancel.is_set():

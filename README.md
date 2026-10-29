@@ -105,7 +105,7 @@ docker compose exec api python -m seed_api.users list    # in the compose stack
 | `SEED_OLLAMA_BASE_URL` | `https://ollama.com` | Point at a self-hosted Ollama to use local models |
 | `SEED_DEFAULT_MODEL` | unset | Model preselected in Chat |
 | `SEED_PROVIDER_TIMEOUT_SECONDS` | `120` | Per-request provider timeout |
-| `SEED_RUN_MAX_STEPS` / `SEED_RUN_MAX_RUNTIME_SECONDS` / `SEED_RUN_MAX_TOTAL_TOKENS` | `8` / `300` / `200000` | Per-run limits (each task attempt, chat turns included) |
+| `SEED_RUN_MAX_STEPS` / `SEED_RUN_MAX_RUNTIME_SECONDS` / `SEED_RUN_MAX_TOTAL_TOKENS` | `8` / `300` / `200000` | Per-run limits (each task attempt, chat turns included). The last allowed step gets no tools and is told to answer with what it has |
 | `SEED_CHAT_CONTEXT_TURNS` | `20` | How many earlier completed turns a new chat message carries |
 | `SEED_WORKSPACE_ROOT` | `/tmp/seed-workspaces` | Worker without a sandbox: workspace dirs (one per task, or per conversation for chat; ephemeral until M6) |
 | `SEED_DATABASE_URL` | unset | Postgres URL (`postgresql://user:pass@host/db`); unset disables sign-in, tasks and chat. Compose builds it from `SEED_POSTGRES_PASSWORD` |
