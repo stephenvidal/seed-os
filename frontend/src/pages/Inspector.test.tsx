@@ -1,4 +1,5 @@
 import { screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { axe } from "vitest-axe";
 import { App } from "../App";
@@ -125,6 +126,53 @@ describe("Inspector", () => {
     expect(log).toHaveTextContent("run_finished");
     expect(log).not.toHaveTextContent("text_delta");
     expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it("shows the agents a task handed work to, and an agent's task links back", async () => {
+    const parentEvents = [
+      e(1, 0, "task_created"),
+      e(2, 1, "delegated", { id: "c1", agent: "Researcher", task_id: "t9" }),
+      e(3, 1, "delegation_refused", { id: "c2", reason: "No agent named 'X'." }),
+      e(4, 1, "delegation_finished", { id: "c1", agent: "Researcher", state: "completed" }),
+    ];
+    const child = {
+      ...TASK,
+      id: "t9",
+      title: "Researcher: find it",
+      conversation_id: null,
+      parent_task_id: "t1",
+      agent: { id: "a1", name: "Researcher", description: "Reads" },
+    };
+    mockApi({
+      "GET /api/v1/auth/me": ME,
+      "GET /api/v1/tasks/t1": { status: 200, body: TASK },
+      "GET /api/v1/tasks/t1/events?after=0&limit=1000": {
+        status: 200,
+        body: { events: parentEvents, last_seq: 4, state: "completed" },
+      },
+      "GET /api/v1/tasks/t9": { status: 200, body: child },
+      "GET /api/v1/tasks/t9/events?after=0&limit=1000": {
+        status: 200,
+        body: { events: [e(1, 0, "task_created")], last_seq: 1, state: "completed" },
+      },
+    });
+    const user = userEvent.setup();
+    const { container } = renderApp(<App />, "/inspector/t1");
+    const panel = await screen.findByRole("region", { name: "Delegations" });
+    const [done, refused] = within(panel).getAllByRole("row").slice(1);
+    expect(done).toHaveTextContent("Researcher");
+    expect(done).toHaveTextContent("completed");
+    expect(refused).toHaveTextContent("refused: No agent named 'X'.");
+    expect(await axe(container)).toHaveNoViolations();
+
+    await user.click(within(done!).getByRole("link", { name: "Researcher" }));
+    const summary = await screen.findByRole("region", { name: "Summary" });
+    expect(summary).toHaveTextContent("AgentResearcher");
+    expect(within(summary).getByRole("link", { name: /task that delegated it/ })).toHaveAttribute(
+      "href",
+      "/inspector/t1",
+    );
+    expect(screen.queryByRole("region", { name: "Delegations" })).toBeNull();
   });
 
   it("explains a task that no longer exists", async () => {

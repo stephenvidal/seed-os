@@ -54,6 +54,7 @@ const EMPTY = {
   active: [],
   recent: [],
   usage: [],
+  agents: [],
 };
 
 afterEach(() => vi.restoreAllMocks());
@@ -86,7 +87,12 @@ describe("Command Center", () => {
               state: "running",
               started_at: "2026-10-29T11:55:00Z",
             }),
-            task({ id: "q", title: "Next job", state: "queued" }),
+            task({
+              id: "q",
+              title: "Next job",
+              state: "queued",
+              agent: { id: "a1", name: "Coder", description: "Writes" },
+            }),
           ],
           recent: [
             task({
@@ -97,6 +103,17 @@ describe("Command Center", () => {
             }),
           ],
           usage: [{ model: "m-a", tasks: 3, input_tokens: 12000, output_tokens: 3400 }],
+          agents: [
+            {
+              name: "Researcher",
+              working: 2,
+              completed: 4,
+              failed: 1,
+              canceled: 0,
+              input_tokens: 1000,
+              output_tokens: 234,
+            },
+          ],
         },
       },
     });
@@ -119,6 +136,8 @@ describe("Command Center", () => {
       expect.stringContaining("Next job"),
     ]);
     expect(rows[0]).toHaveTextContent("started 5m ago");
+    expect(rows[0]).not.toHaveTextContent("Coder");
+    expect(rows[1]).toHaveTextContent("Coder · "); // an agent's task says whose it is
 
     const recent = screen.getByRole("region", { name: "Recently completed" });
     expect(within(recent).getByRole("link", { name: /Done job/ })).toHaveTextContent(
@@ -130,6 +149,10 @@ describe("Command Center", () => {
     const usage = screen.getByRole("region", { name: "Model usage (24h)" });
     expect(within(usage).getByRole("row", { name: /m-a/ })).toHaveTextContent("m-a312,0003,400");
     expect(usage).toHaveTextContent("Spend is not shown: no model prices are configured.");
+    const agents = screen.getByRole("region", { name: "Agent activity (24h)" });
+    expect(within(agents).getByRole("row", { name: /Researcher/ })).toHaveTextContent(
+      "Researcher24101,234",
+    );
     expect(await axe(container)).toHaveNoViolations();
   });
 
@@ -144,6 +167,7 @@ describe("Command Center", () => {
     expect(screen.getByText("No active work")).toBeInTheDocument();
     expect(screen.getByText("No completed work yet")).toBeInTheDocument();
     expect(screen.getByText("No model use yet")).toBeInTheDocument();
+    expect(screen.getByText("No agent work yet")).toBeInTheDocument();
     expect(screen.queryByText(/Arrives in/)).toBeNull(); // built now: no milestone note
   });
 

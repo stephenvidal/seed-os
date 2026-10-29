@@ -168,4 +168,36 @@ describe("inspect", () => {
     expect([y.attempts, y.steps, y.tools, y.checkpoints]).toEqual([[], [], [], []]);
     expect(y.totals.inputTokens).toBe(0);
   });
+
+  it("lists hand-offs to agents, how each ended, and the ones refused", () => {
+    const log: TaskEvent[] = [
+      ev(1, "delegated", { id: "c1", agent: "Researcher", task_id: "t9" }),
+      ev(1, "delegated", { id: "c2", agent: "Coder", task_id: "t8" }),
+      ev(1, "delegation_refused", { id: "c3", reason: "No agent named 'X'." }),
+      ev(1, "delegation_finished", { id: "c2", agent: "Coder", state: "failed" }),
+    ];
+    const rows = inspect(log).delegations;
+    expect(rows.map((r) => [r.id, r.agent, r.taskId, r.state, r.refused])).toEqual([
+      ["c1", "Researcher", "t9", null, null],
+      ["c2", "Coder", "t8", "failed", null],
+      ["c3", null, null, null, "No agent named 'X'."],
+    ]);
+    expect(rows[0]!.endedAt).toBeNull(); // still working
+    expect(rows[1]!.endedAt).not.toBeNull();
+    expect(rows[2]!.endedAt).toBe(rows[2]!.startedAt); // answered at once
+    expect(inspect([ev(0, "task_created")]).delegations).toEqual([]);
+  });
+
+  it("gives a retried task's report to its newest hand-off of the same call id", () => {
+    const rows = inspect([
+      ev(1, "delegated", { id: "c1", agent: "Researcher", task_id: "old" }),
+      ev(1, "delegation_finished", { id: "c1", agent: "Researcher", state: "canceled" }),
+      ev(2, "delegated", { id: "c1", agent: "Researcher", task_id: "new" }),
+      ev(2, "delegation_finished", { id: "c1", agent: "Researcher", state: "completed" }),
+    ]).delegations;
+    expect(rows.map((r) => [r.taskId, r.state])).toEqual([
+      ["old", "canceled"],
+      ["new", "completed"],
+    ]);
+  });
 });

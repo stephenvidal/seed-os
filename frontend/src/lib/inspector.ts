@@ -53,11 +53,25 @@ export type CheckpointRow = {
   pending: number;
 };
 
+/** A hand-off to an agent (D-025): the task it started, or why none was started. */
+export type DelegationRow = {
+  /** The delegate call it answers. */
+  id: string;
+  agent: string | null;
+  taskId: string | null;
+  startedAt: string;
+  endedAt: string | null;
+  /** How the agent's task ended; null while it works or when refused. */
+  state: string | null;
+  refused: string | null;
+};
+
 export type Inspection = {
   attempts: AttemptRow[];
   steps: StepRow[];
   tools: ToolRow[];
   checkpoints: CheckpointRow[];
+  delegations: DelegationRow[];
   totals: {
     inputTokens: number;
     outputTokens: number;
@@ -76,6 +90,7 @@ export function inspect(events: TaskEvent[]): Inspection {
   const steps: StepRow[] = [];
   const tools: ToolRow[] = [];
   const checkpoints: CheckpointRow[] = [];
+  const delegations: DelegationRow[] = [];
   let textDeltas = 0;
   let retries = 0;
 
@@ -179,6 +194,37 @@ export function inspect(events: TaskEvent[]): Inspection {
           pending: num(d.pending) ?? 0,
         });
         break;
+      case "delegated":
+        delegations.push({
+          id: String(d.id),
+          agent: String(d.agent),
+          taskId: String(d.task_id),
+          startedAt: e.created_at,
+          endedAt: null,
+          state: null,
+          refused: null,
+        });
+        break;
+      case "delegation_finished": {
+        // A retried task repeats call ids: the report belongs to the newest hand-off.
+        const row = [...delegations].reverse().find((r) => r.id === String(d.id) && !r.endedAt);
+        if (row) {
+          row.endedAt = e.created_at;
+          row.state = String(d.state);
+        }
+        break;
+      }
+      case "delegation_refused":
+        delegations.push({
+          id: String(d.id),
+          agent: null,
+          taskId: null,
+          startedAt: e.created_at,
+          endedAt: e.created_at,
+          state: null,
+          refused: String(d.reason),
+        });
+        break;
       case "run_finished":
         end(e, String(d.termination));
         break;
@@ -199,6 +245,7 @@ export function inspect(events: TaskEvent[]): Inspection {
     steps,
     tools,
     checkpoints,
+    delegations,
     totals: {
       inputTokens: sum(steps.map((s) => s.inputTokens)),
       outputTokens: sum(steps.map((s) => s.outputTokens)),

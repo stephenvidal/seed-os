@@ -31,6 +31,7 @@ const OVERVIEW = {
     active: [],
     recent: [],
     usage: [],
+    agents: [],
   },
 };
 

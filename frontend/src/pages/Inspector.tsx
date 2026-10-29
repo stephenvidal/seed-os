@@ -123,6 +123,21 @@ function Summary({ task, events }: { task: Task; events: TaskEvent[] }) {
         : "not started";
   const rows: [string, ReactNode][] = [
     ["Model", task.model],
+    ...(task.agent ? [["Agent", task.agent.name] as [string, ReactNode]] : []),
+    ...(task.parent_task_id
+      ? [
+          [
+            "Handed over by",
+            <Link
+              key="parent"
+              to={`/inspector/${task.parent_task_id}`}
+              className="text-accent hover:underline"
+            >
+              the task that delegated it
+            </Link>,
+          ] as [string, ReactNode],
+        ]
+      : []),
     ["Attempts", `${task.attempt} of ${task.max_attempts}`],
     ["Duration", duration],
     ["Model steps", x.steps.length],
@@ -295,6 +310,38 @@ export function InspectorTaskPage() {
             </Table>
           )}
         </Panel>
+
+        {x.delegations.length > 0 && (
+          <Panel title="Delegations">
+            <Table head={["Agent", "Handed over", "Ended", "Elapsed", "Result"]}>
+              {x.delegations.map((d, i) => (
+                <tr key={i}>
+                  <Td>
+                    {d.taskId ? (
+                      <Link to={`/inspector/${d.taskId}`} className="text-accent hover:underline">
+                        {d.agent}
+                      </Link>
+                    ) : (
+                      "—"
+                    )}
+                  </Td>
+                  <Td>{time(d.startedAt)}</Td>
+                  <Td>{d.endedAt ? time(d.endedAt) : "—"}</Td>
+                  <Td>
+                    {d.endedAt && !d.refused
+                      ? ms(Date.parse(d.endedAt) - Date.parse(d.startedAt))
+                      : "—"}
+                  </Td>
+                  <Td wide>
+                    <span title={d.refused ?? undefined}>
+                      {d.refused ? `refused: ${d.refused}` : (d.state ?? "working")}
+                    </span>
+                  </Td>
+                </tr>
+              ))}
+            </Table>
+          </Panel>
+        )}
 
         <Panel title="Checkpoints">
           {x.checkpoints.length === 0 ? (

@@ -74,6 +74,7 @@ def test_an_empty_overview(api: TestClient) -> None:
         "canceled": 0,
     }
     assert body["attention"] == body["active"] == body["recent"] == body["usage"] == []
+    assert body["agents"] == []
     for bad in ("0", "721", "x"):
         assert api.get(f"/api/v1/overview?hours={bad}").status_code == 422
 
@@ -152,3 +153,64 @@ def test_overview_lists_are_capped(api: TestClient, db_url: str) -> None:
     body = api.get("/api/v1/overview").json()
     assert len(body["attention"]) == 5 and len(body["active"]) == 10
     assert body["counts"]["queued"] == len(more)
+
+
+def test_overview_shows_what_each_agent_is_doing(api: TestClient, db_url: str) -> None:
+    def as_agent(task_id: str, name: str) -> None:
+        with psycopg.connect(db_url) as conn:
+            conn.execute(
+                "UPDATE tasks SET agent = jsonb_build_object('id', gen_random_uuid()::text, "
+                "'name', %s::text, 'description', 'd', 'instructions', '', 'model', NULL, "
+                "'tools', '[]'::jsonb) "
+                "WHERE id = %s",
+                (name, task_id),
+            )
+
+    plain = make(api, "not an agent task")
+    set_state(db_url, plain, "completed", hours_ago=1, tokens=(9000, 9000))
+    working = make(api, "researcher running")
+    as_agent(working, "Researcher")
+    set_state(db_url, working, "running", tokens=(50, 5))  # not finished: not counted
+    queued = make(api, "researcher queued")
+    as_agent(queued, "Researcher")
+    done = make(api, "researcher done")
+    as_agent(done, "Researcher")
+    set_state(db_url, done, "completed", hours_ago=2, tokens=(100, 10))
+    old = make(api, "researcher done long ago")
+    as_agent(old, "Researcher")
+    set_state(db_url, old, "completed", hours_ago=48, tokens=(5000, 500))
+    failed = make(api, "coder failed")
+    as_agent(failed, "Coder")
+    set_state(db_url, failed, "failed", hours_ago=1, tokens=(7, 3))
+    canceled = make(api, "coder canceled")
+    as_agent(canceled, "Coder")
+    set_state(db_url, canceled, "canceled", hours_ago=1)
+    idle = make(api, "reviewer long ago")
+    as_agent(idle, "Reviewer")
+    set_state(db_url, idle, "completed", hours_ago=48)
+
+    body = api.get("/api/v1/overview").json()
+    # Busiest first; the agent whose work ended before the window is left out.
+    assert body["agents"] == [
+        {
+            "name": "Researcher",
+            "working": 2,
+            "completed": 1,
+            "failed": 0,
+            "canceled": 0,
+            "input_tokens": 100,
+            "output_tokens": 10,
+        },
+        {
+            "name": "Coder",
+            "working": 0,
+            "completed": 0,
+            "failed": 1,
+            "canceled": 1,
+            "input_tokens": 7,
+            "output_tokens": 3,
+        },
+    ]
+    wide = api.get("/api/v1/overview?hours=72").json()
+    assert [a["name"] for a in wide["agents"]] == ["Researcher", "Coder", "Reviewer"]
+    assert wide["agents"][0]["completed"] == 2 and wide["agents"][0]["input_tokens"] == 5100

@@ -2000,3 +2000,50 @@ The first run failed at the parent panel: that was the stale-events bug above.
 panel lists a task's own children only).
 
 **Open questions:** none new. 4b (Inspector) and 4c (Command Center) remain.
+
+## Increment 24 — Delegation in the Inspector and Command Center (M7 step 4b, 4c)
+
+**Iteration:** M7 step 4b and 4c. **Done when:** the Inspector lists a task's
+hand-offs (and refusals) and links an agent's task to its parent and back; the
+overview and Command Center show what each agent is doing; tasks in progress name
+their agent — each shown by a test that fails when it breaks, and in a browser.
+
+**Changed**
+- `inspect()` gains `delegations` (from `delegated`, `delegation_finished`,
+  `delegation_refused`; a retried task's repeated call ids go to the newest hand-off).
+- Inspector: a "Delegations" panel (agent, handed over, ended, elapsed, result or
+  "refused: reason"); a child's summary shows its agent and "Handed over by".
+- Overview API: `agents` — per agent name, tasks working now and finished within the
+  window by state, and tokens of the finished ones.
+- Command Center: an "Agent activity" panel; in-progress rows name the agent.
+
+**Tested**
+```
+backend: ruff check → All checks passed! · ruff format --check → 71 files already formatted
+         mypy → Success: no issues found in 47 source files
+         pytest (DB) → 178 passed, 1 skipped
+frontend: typecheck ok · lint ok · format ok · vitest → Test Files 14 passed (14), Tests 111 passed (111)
+```
+Breakage checks: Inspector 9/10 caught (the survivor, ignoring "already ended" when
+matching a report to a hand-off, is equivalent while events arrive in order);
+Command Center 5/5; overview agents query 6/6 (a first run let unfinished tasks'
+tokens through; the test now gives the working task tokens).
+
+Browser (Chromium), real API, workers and Postgres, stub agents ("team …"):
+```
+before any agent work: No agent work yet
+agent activity while working: Coder 1 0 0 0 0 · Researcher 1 0 0 0 0 · Reviewer 1 0 0 0 0
+agent activity after: Coder 0 1 0 0 6 · Researcher 0 1 0 0 6 · Reviewer 0 1 0 0 6
+inspector delegations: Researcher … 6.1 s completed · Coder … 5.0 s completed · Reviewer … 11.0 s completed
+child summary: … Agent Coder Handed over by the task that delegated it …
+back at parent delegations rows: 4 (header + 3)
+overflow at 390: 0
+errors: the 401 from the sign-in check before login
+```
+"Elapsed" is from hand-off to report, so it includes time queued.
+
+**Not tested:** the live site; agents of agents in the Inspector; renamed agents
+(activity groups by the name an agent had when work was handed to it).
+
+**Open questions:** the roadmap still lists workload and routing views and agent
+metrics beyond tokens for M7; what to build next there is Stephen's call.

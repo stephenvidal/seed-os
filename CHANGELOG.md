@@ -8,6 +8,10 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
   they now render (D-020). The per-step output cap is 16,384 tokens, up from 4,096.
 
 ### Added
+- Delegation in the Inspector and Command Center (M7): the Inspector lists a
+  task's hand-offs and links agent tasks to their parent and back; the overview
+  gains `agents` and the Command Center an Agent activity panel; tasks in
+  progress name their agent.
 - Lasting delegation links (M7): a finished turn lists its agents' tasks under
   "Show activity"; an agent's task page names the agent and links back to the task
   that handed it over; a task's page lists the agent tasks it handed work to.
