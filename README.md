@@ -44,8 +44,9 @@ it — with full visibility and control.
   ticked tools, in the same workspace and project. SEED's turn waits ("with an
   agent" in the chat list and on Tasks; the answer says who is working and links
   to their task) and carries on with the agent's report when that task ends,
-  however it ends. Canceling SEED's turn cancels its agents' tasks. Agents do not
-  delegate further yet, and one agent works at a time.
+  however it ends. Canceling SEED's turn cancels its agents' tasks. Several
+  agents asked for in one step work at once, up to a limit (D-026); agents do
+  not delegate further unless `SEED_DELEGATION_MAX_DEPTH` allows it.
 - **Projects (M6):** group chats under a name with instructions SEED follows in
   every one of them (D-017). A project's page edits its name and instructions and
   lists its chats and the files they saved; "New chat" starts one in the project,
@@ -220,6 +221,8 @@ docker compose exec api python -m seed_api.users list    # in the compose stack
 | `SEED_TASK_MAX_ATTEMPTS` | `3` | Attempts per task (and per retry) before it is dead-lettered as `failed/abandoned` |
 | `SEED_WORKER_LEASE_SECONDS` | `30` | Worker lease; renewed every third of it. A crashed worker's task is resumed after this |
 | `SEED_WORKER_POLL_SECONDS` | `2` | Idle worker poll interval |
+| `SEED_WORKER_CONCURRENCY` | `2` | Tasks one worker process runs at once (1-16), so a task waiting for its agents does not hold up their tasks |
+| `SEED_DELEGATION_MAX_PARALLEL` / `SEED_DELEGATION_MAX_PER_TASK` / `SEED_DELEGATION_MAX_DEPTH` | `3` / `10` / `1` | Agent tasks one task may have working at once, may hand out in one run (more are refused with the reason), and how many levels deep work may be handed on (1: agents do not delegate) (D-026) |
 | `SEED_SANDBOX_URL` | unset | Worker: sandbox address (compose sets `http://sandbox:8100`). Unset: tasks get local file tools and no commands |
 | `SEED_SANDBOX_COMMAND_TIMEOUT_SECONDS` | `60` | Longest a command may run (the model may ask for less) |
 | `SEED_SANDBOX_MEMORY_MB` / `SEED_SANDBOX_CPU_SECONDS` / `SEED_SANDBOX_MAX_PROCESSES` / `SEED_SANDBOX_MAX_FILE_MB` | `512` / `60` / `64` / `64` | Per-command limits, set on the sandbox service |

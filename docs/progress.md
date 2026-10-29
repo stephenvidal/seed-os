@@ -1862,3 +1862,76 @@ Firefox and Safari; the live site (this session cannot reach it).
 
 **Open questions:** none new. Step 3 (parallel sub-tasks, depth and concurrency
 limits) is next.
+
+## Increment 21 — Several agents at once (M7 step 3)
+
+**Iteration:** M7 step 3, parallel delegation. **Done when:** the delegate calls
+of one step start together; limits on agents working at once, per task and on
+depth hold, with refusals that say why; results arriving out of order are kept;
+a task that ends cancels its working agents and a retry hands off afresh; one
+worker process runs several tasks; the chat shows every working agent — each
+shown by a test that fails when it breaks, and in a browser.
+
+**Changed**
+- Settings `worker_concurrency`, `delegation_max_parallel`,
+  `delegation_max_per_task`, `delegation_max_depth`; migration
+  `0014_delegation_depth`.
+- `TaskStore.delegate(lease, starts=, refusals=, wait_for=)` replaces `delegate`
+  and `refuse_delegation`: one transaction starts several children and answers
+  refusals. `delegation_status` (working and answered calls). `_report_to_parent`
+  keeps a result while the parent is queued or running and requeues only for the
+  call it waits on. `_ended`: a task that ends cancels its working children.
+- Worker: `_delegate` scans the step's pending calls from the checkpoint (stops at
+  an approval and at the per-step cap); `delegate` offered by depth; `main` runs
+  `worker_concurrency` workers in a task group; pool sized to fit.
+- Web: `pendingDelegations` (a list); the live answer lists each working agent.
+- D-026, README, CHANGELOG, roadmap, requirements WS-4.
+
+**Tested**
+```
+backend: ruff check → All checks passed! · ruff format --check → 71 files already formatted
+         mypy → Success: no issues found in 47 source files
+         pytest (DB) → 176 passed, 1 skipped
+frontend: typecheck ok · lint ok · format ok · vitest → Test Files 14 passed (14), Tests 103 passed (103)
+```
+New backend tests: three hand-offs start together and report in any order; at
+most N at once, the next starting when one reports (and a result arriving while
+the parent is queued is kept); refusals past the per-task limit, each call
+answered once; depth 2 lets an agent delegate once more and no further; a task
+whose worker died cancels its working agent and its retry hands off afresh with
+the same call ids; a second delegate call waits for its own approval; calls past
+the step cap get no agent.
+
+Mutation checks (each made, tests run, reverted), backend 16/16 caught: parallel
+limit always or never reached; per-task limit off by one; depth off by one;
+approval stop removed; step cap removed; "already working" or "already answered"
+skip removed; refusals not counted; child depth fixed; children of an ended task
+not canceled; finished children counted as working; parent requeued by any
+result; results dropped unless the parent waits; parent never queued after a
+refusal; only the first event logged. The first run had 3 survivors (step cap,
+"already answered", result while queued); the tests were tightened until each
+failed. Frontend 6/6 caught: a report clearing all agents or none; only the last
+agent kept; run end and cancel not clearing; the chat showing only one agent.
+
+Browser (Chromium) on the Vite dev server with the real API, one worker process
+(`worker_concurrency` 2) and Postgres, and an Ollama-wire stub that, for "team …",
+delegates to Researcher (6 s), Coder (3 s) and Reviewer (9 s) in one step:
+```
+worker vm:21503:9cde62 started / worker vm:21503:849462 started
+while waiting: ["Researcher is working on part of this. Follow it", "Coder is …", "Reviewer is …"]
+after the first reports: ["Researcher is …", "Reviewer is …"]
+answer: SEED says: Researcher done (started 20:56:16, finished 20:56:22) / Coder done (started 20:56:18, finished 20:56:21) / Reviewer done (started 20:56:21, finished 20:56:30)
+overflow at 390: 0
+errors: the 401 from the sign-in check before login
+```
+Researcher and Coder ran at the same time in one process; Reviewer started when
+Coder's slot freed.
+
+**Not tested:** the worker process's signal handling with several workers (no
+test drives `main`; the stop path of each worker is unchanged and tested); a real
+model asking for several agents; two agents writing the same file; the live site
+(this session cannot reach it).
+
+**Open questions:** none new. Step 4 (delegation views in chat, Inspector and
+Command Center) is next; the live answer shows "Used 1 tool" until the run
+reaches the other calls, which step 4 should address.

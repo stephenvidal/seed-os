@@ -8,6 +8,13 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
   they now render (D-020). The per-step output cap is 16,384 tokens, up from 4,096.
 
 ### Added
+- Parallel delegation (M7, D-026): the delegate calls of one step start
+  together, up to `SEED_DELEGATION_MAX_PARALLEL` working at once; at most
+  `SEED_DELEGATION_MAX_PER_TASK` per run, the rest refused with the reason;
+  `SEED_DELEGATION_MAX_DEPTH` levels of hand-off. A task that ends cancels the
+  agents it still has working. A worker process runs `SEED_WORKER_CONCURRENCY`
+  tasks at once. The chat lists every agent working on a turn. Migration 0014
+  (`delegation_depth`).
 - Delegation (M7, D-025): the `delegate` tool hands a sub-task to one of the
   owner's agents as a task of its own (agent's instructions, model and tools,
   same workspace and project); the turn waits durably and resumes with the
