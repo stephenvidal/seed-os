@@ -61,7 +61,11 @@ jobs:
         working-directory: backend
         env:
           SEED_REQUIRE_ROOT_TESTS: "1"
-        run: sudo -E .venv/bin/pytest -q -p no:cacheprovider tests/test_sandbox.py
+        # Task users run the venv's Python for file operations, so they must be able
+        # to reach it; the runner's home is 0750 by default.
+        run: |
+          sudo chmod o+x "$HOME"
+          sudo -E .venv/bin/pytest -q -p no:cacheprovider tests/test_sandbox.py
 
       - uses: actions/setup-node@v4
         with:
