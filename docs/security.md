@@ -39,8 +39,9 @@
 - Sign-in limits are per username, not per client: behind the tunnel all clients
   share one address. A per-client limit needs `CF-Connecting-IP` passed through.
 - Audit log rows are kept indefinitely; no retention policy yet.
-- Tool approval policies, network egress for tools, prompt-injection handling:
-  not built yet (see requirements).
+- Tool approvals are one global list (`SEED_APPROVAL_REQUIRED_TOOLS`, default
+  `run_command`), not per user, project or argument; any admin may decide.
+  Network egress for tools and prompt-injection handling: not built yet.
 - Sandbox: tasks share one kernel and container (no gVisor); no per-task disk
   quota inside the 256 MiB workspace tmpfs.
 - Artifact previews must be served from a separate origin (M6).

@@ -2,8 +2,8 @@
 
 The registry validates model-supplied arguments against the tool's input model,
 enforces the timeout, and turns every failure into a typed outcome the model can
-read. Tools that `requires_approval` are refused until an approval path exists
-(the run records the refusal); nothing destructive executes silently.
+read. A tool that `requires_approval` runs only when the caller says a person
+approved this call (the agent loop pauses for that); otherwise it is refused.
 """
 
 import asyncio
@@ -19,7 +19,7 @@ from .messages import ToolCall, ToolSpec
 
 Permission = Literal["read", "write", "network", "exec"]
 ToolErrorKind = Literal[
-    "unknown_tool", "invalid_arguments", "timeout", "approval_required", "tool_error"
+    "unknown_tool", "invalid_arguments", "timeout", "approval_required", "denied", "tool_error"
 ]
 
 
@@ -74,7 +74,7 @@ class ToolRegistry:
     def specs(self) -> list[ToolSpec]:
         return [t.spec() for t in self._tools.values()]
 
-    async def execute(self, call: ToolCall) -> ToolOutcome:
+    async def execute(self, call: ToolCall, *, approved: bool = False) -> ToolOutcome:
         started = time.monotonic()
 
         def done(**kw: Any) -> ToolOutcome:
@@ -84,11 +84,11 @@ class ToolRegistry:
         tool = self._tools.get(call.name)
         if tool is None:
             return done(ok=False, error_kind="unknown_tool", error=f"No tool named {call.name!r}.")
-        if tool.requires_approval:
+        if tool.requires_approval and not approved:
             return done(
                 ok=False,
                 error_kind="approval_required",
-                error="This tool needs human approval, which is not available in this run.",
+                error="This tool needs a person's approval, which this call does not have.",
             )
         try:
             args = tool.input_model.model_validate(call.arguments)

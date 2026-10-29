@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { toTimeline } from "./tasks";
+import { pendingApproval, toTimeline } from "./tasks";
 import type { TaskEvent } from "./tasks";
 
 let seq = 0;
@@ -64,6 +64,53 @@ describe("toTimeline", () => {
       ["neutral", "Queued again for retry"],
       ["neutral", "Canceled before it started"],
       ["danger", "Worker stopped responding on every attempt; task failed"],
+    ]);
+  });
+});
+
+describe("approvals", () => {
+  const ask = (id: string) =>
+    ev("approval_requested", { id, name: "run_command", arguments: { command: "make" } });
+
+  it("finds the call a task waits on until it is decided or canceled", () => {
+    expect(pendingApproval([ev("task_created")])).toBeNull();
+    expect(pendingApproval([ask("c1")])).toEqual({
+      id: "c1",
+      name: "run_command",
+      arguments: { command: "make" },
+    });
+    expect(pendingApproval([ask("c1"), ev("approval_decided", { id: "c1" })])).toBeNull();
+    expect(pendingApproval([ask("c1"), ev("cancel_requested")])).toBeNull();
+    expect(pendingApproval([ask("c1"), ev("approval_decided"), ask("c2")])?.id).toBe("c2");
+  });
+
+  it("gives a step's paused call its result after the decision", () => {
+    const items = toTimeline([
+      ev("step_started", { step: 1 }),
+      ev("tool_call", { id: "c1", name: "run_command", arguments: {} }),
+      ask("c1"),
+      ev("approval_decided", { id: "c1", approved: false, by: "admin" }),
+      ev("attempt_started", { resumed_at_step: 1 }),
+      ev("tool_result", { id: "c1", ok: false, error_kind: "denied", error: "denied" }),
+      ev("tool_call", { id: "c2", name: "list_files", arguments: {} }),
+    ]);
+    const step = items.find((i) => i.kind === "step");
+    expect(step?.kind === "step" && step.tools.map((t) => [t.id, t.ok])).toEqual([
+      ["c1", false],
+      ["c2", undefined],
+    ]);
+  });
+
+  it("notes the request, the pause and the decision in the timeline", () => {
+    const notes = toTimeline([
+      ask("c1"),
+      ev("run_finished", { termination: "awaiting_approval" }),
+      ev("approval_decided", { id: "c1", approved: false, by: "admin" }),
+    ]).map((i) => (i.kind === "note" ? [i.tone, i.text] : null));
+    expect(notes).toEqual([
+      ["warning", "Waiting for your approval to run run_command"],
+      ["warning", "Paused for your approval"],
+      ["neutral", "Denied by admin"],
     ]);
   });
 });

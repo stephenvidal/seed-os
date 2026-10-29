@@ -116,7 +116,7 @@ def test_tasks_survive_an_api_restart(db_settings: Settings, db_url: str) -> Non
         assert second.get(f"/api/v1/tasks/{tid}").json()["state"] == "queued"
     with psycopg.connect(db_url) as conn:
         row = conn.execute("SELECT count(*) FROM schema_migrations").fetchone()
-        assert row == (3,)  # migrations ran once, not per start
+        assert row == (4,)  # migrations ran once, not per start
 
 
 def sse(text: str) -> list[tuple[str | None, str | None, dict]]:  # type: ignore[type-arg]
@@ -153,3 +153,53 @@ def test_stream_resumes_after_last_event_id(api: TestClient) -> None:
     with api.stream("GET", f"/api/v1/tasks/{tid}/stream?after=2") as r:
         assert [e for _, e, _ in sse(r.read().decode())] == ["end"]
     assert api.get(f"/api/v1/tasks/{uuid.uuid4()}/stream").status_code == 404
+
+
+def park(db_url: str, tid: str, call_id: str = "call_0") -> None:
+    """Stand-in for a worker pausing the task on a gated tool call."""
+    call = {"id": call_id, "name": "run_command", "arguments": {"command": "make"}}
+    with psycopg.connect(db_url) as conn:
+        conn.execute(
+            "UPDATE tasks SET state = 'waiting', awaiting_approval = %s WHERE id = %s",
+            (json.dumps(call), tid),
+        )
+
+
+def test_approve_or_deny_a_waiting_task(api: TestClient, db_url: str) -> None:
+    tid = api.post("/api/v1/tasks", json=BODY).json()["id"]
+    not_yet = api.post(f"/api/v1/tasks/{tid}/decision", json={"call_id": "call_0", "approve": True})
+    assert not_yet.status_code == 409 and not_yet.json()["error"]["code"] == "not_waiting"
+
+    park(db_url, tid)
+    shown = api.get(f"/api/v1/tasks/{tid}").json()
+    assert shown["state"] == "waiting" and shown["awaiting_approval"]["name"] == "run_command"
+    wrong = api.post(f"/api/v1/tasks/{tid}/decision", json={"call_id": "call_9", "approve": True})
+    assert wrong.status_code == 409
+    ok = api.post(f"/api/v1/tasks/{tid}/decision", json={"call_id": "call_0", "approve": False})
+    assert ok.status_code == 200
+    assert ok.json()["state"] == "queued" and ok.json()["awaiting_approval"] is None
+    again = api.post(f"/api/v1/tasks/{tid}/decision", json={"call_id": "call_0", "approve": True})
+    assert again.status_code == 409  # decided once; the decision stands
+
+    events = api.get(f"/api/v1/tasks/{tid}/events").json()["events"]
+    assert events[-1]["type"] == "approval_decided"
+    assert events[-1]["data"] == {"id": "call_0", "approved": False, "by": "admin"}
+    with psycopg.connect(db_url) as conn:
+        row = conn.execute(
+            "SELECT action, target, detail FROM audit_log WHERE action LIKE 'tool_%'"
+        ).fetchone()
+        stored = conn.execute("SELECT approvals FROM tasks WHERE id = %s", (tid,)).fetchone()
+    assert row == (
+        "tool_denied",
+        f"{tid}/call_0",
+        {"tool": "run_command", "arguments": {"command": "make"}},
+    )
+    assert stored is not None and stored[0]["call_0"]["approved"] is False
+
+
+def test_a_waiting_task_cancels_at_once(api: TestClient, db_url: str) -> None:
+    tid = api.post("/api/v1/tasks", json=BODY).json()["id"]
+    park(db_url, tid)
+    r = api.post(f"/api/v1/tasks/{tid}/cancel")
+    assert r.status_code == 200
+    assert r.json()["state"] == "canceled" and r.json()["awaiting_approval"] is None

@@ -17,6 +17,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { ApprovalPrompt } from "../components/tasks/ApprovalPrompt";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { EmptyState } from "../components/ui/EmptyState";
@@ -27,7 +28,7 @@ import { cn } from "../components/ui/cn";
 import { ApiError, api } from "../lib/api";
 import { chatApi } from "../lib/chat";
 import type { ConversationDetail } from "../lib/chat";
-import { followTask, isFinished, tasksApi, toTimeline } from "../lib/tasks";
+import { followTask, isFinished, pendingApproval, tasksApi, toTimeline } from "../lib/tasks";
 import type { Task, TaskEvent, TimelineItem, ToolActivity } from "../lib/tasks";
 
 const CONVERSATIONS = ["conversations"] as const;
@@ -111,6 +112,8 @@ function LiveReply({ task, onEnd }: { task: Task; onEnd: () => void }) {
           if (e.seq <= lastSeq.current) return;
           lastSeq.current = e.seq;
           setEvents((prev) => [...prev, e]);
+          // The conversation list marks chats that need you.
+          if (e.type === "approval_requested") onEnd();
         },
         onEnd,
       ),
@@ -122,6 +125,7 @@ function LiveReply({ task, onEnd }: { task: Task; onEnd: () => void }) {
   const text = s.at(-1)?.text ?? "";
   const tools = s.flatMap((x) => x.tools);
   const resumed = events.some((e) => e.type === "attempt_started" && e.attempt > 1);
+  const asking = pendingApproval(events);
   return (
     <div className="flex flex-col gap-2">
       {resumed && (
@@ -129,7 +133,10 @@ function LiveReply({ task, onEnd }: { task: Task; onEnd: () => void }) {
       )}
       <ToolList tools={tools} live />
       {text && <Markdown text={text} />}
-      {!text && (
+      {asking && (
+        <ApprovalPrompt key={asking.id} taskId={task.id} call={asking} onDecided={onEnd} />
+      )}
+      {!text && !asking && (
         <div className="flex items-center gap-2 text-xs text-fg-muted">
           <Spinner />
           {task.state === "queued" && !s.length ? "Waiting for a worker…" : "Working…"}
@@ -525,6 +532,7 @@ function ConversationList({ active }: { active: string | undefined }) {
               {(c.last_state === "queued" || c.last_state === "running") && (
                 <Spinner label="Answering" />
               )}
+              {c.last_state === "waiting" && <Badge tone="warning">needs you</Badge>}
             </Link>
           </li>
         ))}

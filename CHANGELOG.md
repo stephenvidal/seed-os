@@ -3,6 +3,16 @@
 All notable changes. Format: Keep a Changelog; versions follow the milestones.
 
 ## [Unreleased]
+### Added
+- Approvals: shell commands wait for a person. The task shows as "needs you"
+  with the exact command and Approve/Deny in Chat and on the task page; the run
+  resumes from its checkpoint after the decision (ADR-0012).
+- `POST /api/v1/tasks/{id}/decision`, task state `waiting`, events
+  `approval_requested`/`approval_decided`, audit actions `tool_approved`/`tool_denied`.
+- `SEED_APPROVAL_REQUIRED_TOOLS` (default `["run_command"]`).
+### Changed
+- A waiting task cancels at once; a chat turn waiting for approval blocks the
+  next message like any unfinished turn.
 ### Fixed
 - A run that spent its step limit on tool calls ended with no answer
   ("Stopped: step limit reached"). The last allowed step now gets no tools and is

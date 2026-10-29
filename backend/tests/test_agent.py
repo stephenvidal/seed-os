@@ -2,11 +2,12 @@ import asyncio
 from pathlib import Path
 
 import pytest
+from pydantic import BaseModel
 
 from seed_api.core.agent import Checkpoint, RunEvent, RunLimits, run_agent
-from seed_api.core.messages import Message
+from seed_api.core.messages import Message, ToolCall
 from seed_api.core.providers.base import ProviderError
-from seed_api.core.tools import ToolRegistry
+from seed_api.core.tools import Tool, ToolRegistry
 from seed_api.core.workspace_tools import workspace_tools
 
 from .fakes import ScriptedProvider, calls, reply
@@ -214,3 +215,109 @@ async def test_excess_tool_calls_in_one_step_are_skipped(tmp_path: Path) -> None
     oks = [e.data["ok"] for e in events if e.type == "tool_result"]
     assert oks == [True, True, False, False]
     assert result.termination == "completed"
+
+
+# --- Approvals ------------------------------------------------------------------
+
+
+class _N(BaseModel):
+    n: int
+
+
+def gated(ran: list[int]) -> ToolRegistry:
+    async def handler(inp: _N) -> _N:
+        ran.append(inp.n)
+        return _N(n=inp.n * 2)
+
+    return ToolRegistry(
+        [
+            Tool("double", "Double n", _N, _N, handler, "read"),
+            Tool("danger", "Double n, gated", _N, _N, handler, "exec", requires_approval=True),
+        ]
+    )
+
+
+async def gated_run(provider: ScriptedProvider, registry: ToolRegistry, **kw: object):  # type: ignore[no-untyped-def]
+    events: list[RunEvent] = []
+    saved: list[Checkpoint] = []
+
+    async def sink(e: RunEvent) -> None:
+        events.append(e)
+
+    async def keep(cp: Checkpoint) -> None:
+        saved.append(cp.model_copy(deep=True))
+
+    result = await run_agent(
+        provider=provider,
+        model="fake",
+        messages=[Message(role="user", content="go")],
+        tools=registry,
+        limits=RunLimits(),
+        on_event=sink,
+        on_checkpoint=keep,
+        sleep=no_sleep,
+        **kw,  # type: ignore[arg-type]
+    )
+    return result, events, saved
+
+
+async def test_a_gated_tool_pauses_the_run_before_it_runs() -> None:
+    ran: list[int] = []
+    step = calls(("double", {"n": 1}), ("danger", {"n": 2}), ("double", {"n": 3}))
+    result, events, saved = await gated_run(ScriptedProvider([step]), gated(ran))
+    assert result.termination == "awaiting_approval"
+    assert result.awaiting is not None and result.awaiting.name == "danger"
+    assert ran == [1]  # the call before ran; the gated one and the one after did not
+    cp = saved[-1]
+    assert [c.id for c in cp.pending] == ["call_1", "call_2"]
+    assert [m.role for m in cp.messages] == ["user", "assistant", "tool"]
+    asked = [e.data for e in events if e.type == "approval_requested"]
+    assert asked == [{"step": 1, "id": "call_1", "name": "danger", "arguments": {"n": 2}}]
+
+
+async def test_an_approved_call_runs_on_resume_and_the_run_carries_on() -> None:
+    ran: list[int] = []
+    step = calls(("double", {"n": 1}), ("danger", {"n": 2}), ("double", {"n": 3}))
+    _, _, saved = await gated_run(ScriptedProvider([step]), gated(ran))
+    provider = ScriptedProvider([reply("all done")])
+    result, events, _ = await gated_run(
+        provider, gated(ran), resume=saved[-1], approvals={"call_1": True}
+    )
+    assert result.termination == "completed" and result.final_text == "all done"
+    assert ran == [1, 2, 3] and result.steps == 2
+    # The paused call was announced before the pause; only the next one is new.
+    assert [e.data["id"] for e in events if e.type == "tool_call"] == ["call_2"]
+    tool_msgs = [m for m in provider.requests[0].messages if m.role == "tool"]
+    assert [m.tool_call_id for m in tool_msgs] == ["call_0", "call_1", "call_2"]
+
+
+async def test_a_denied_call_never_runs_and_the_model_is_told() -> None:
+    ran: list[int] = []
+    _, _, saved = await gated_run(ScriptedProvider([calls(("danger", {"n": 5}))]), gated(ran))
+    provider = ScriptedProvider([reply("ok, skipped")])
+    result, events, _ = await gated_run(
+        provider, gated(ran), resume=saved[-1], approvals={"call_0": False}
+    )
+    assert ran == [] and result.termination == "completed"
+    [res] = [e.data for e in events if e.type == "tool_result"]
+    assert res["ok"] is False and res["error_kind"] == "denied"
+    told = [m.content for m in provider.requests[0].messages if m.role == "tool"]
+    assert "denied" in told[0]
+
+
+async def test_a_second_gated_call_pauses_again() -> None:
+    ran: list[int] = []
+    step = calls(("danger", {"n": 1}), ("danger", {"n": 2}))
+    _, _, saved = await gated_run(ScriptedProvider([step]), gated(ran))
+    result, _, again = await gated_run(
+        ScriptedProvider([]), gated(ran), resume=saved[-1], approvals={"call_0": True}
+    )
+    assert result.termination == "awaiting_approval" and result.awaiting is not None
+    assert result.awaiting.id == "call_1" and ran == [1]
+    assert [c.id for c in again[-1].pending] == ["call_1"]
+
+
+async def test_the_registry_refuses_a_gated_tool_without_approval() -> None:
+    ran: list[int] = []
+    out = await gated(ran).execute(ToolCall(id="x", name="danger", arguments={"n": 1}))
+    assert out.error_kind == "approval_required" and ran == []

@@ -7,21 +7,32 @@ Events are emitted in order with a sequence number so they can be persisted and
 replayed. After each step whose tool results are all recorded, the loop offers a
 checkpoint; a run resumed from one continues at the next step instead of redoing
 finished work (SEED Flow).
+
+A tool that requires approval is not run until a person decides. The run pauses
+on it (termination `awaiting_approval`) after checkpointing the step's calls that
+have not run yet; resumed with that person's decisions, it runs them in order
+(a denied call's result tells the model so) and carries on.
 """
 
 import asyncio
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from .messages import ChatRequest, ChatResult, Completed, Message, TextDelta, Usage
+from .messages import ChatRequest, ChatResult, Completed, Message, TextDelta, ToolCall, Usage
 from .providers.base import Provider, ProviderError
-from .tools import ToolRegistry
+from .tools import ToolOutcome, ToolRegistry
 
 Termination = Literal[
-    "completed", "max_steps", "deadline", "token_budget", "provider_error", "cancelled"
+    "completed",
+    "max_steps",
+    "deadline",
+    "token_budget",
+    "provider_error",
+    "cancelled",
+    "awaiting_approval",
 ]
 
 
@@ -42,6 +53,7 @@ EventType = Literal[
     "tool_result",
     "step_completed",
     "provider_retry",
+    "approval_requested",
     "run_finished",
 ]
 
@@ -59,15 +71,22 @@ class RunResult(BaseModel):
     usage: Usage
     messages: list[Message]
     error: str | None = None
+    # Set when termination is awaiting_approval: the call that waits for a person.
+    awaiting: ToolCall | None = None
 
 
 class Checkpoint(BaseModel):
-    """A resume-safe point: every tool call the model asked for has a recorded result."""
+    """A resume-safe point: every tool call the model asked for has a recorded
+    result, except `pending`: the last step's calls not run yet because the first
+    of them waits for approval."""
 
     messages: list[Message]
     steps: int
     usage: Usage
+    pending: list[ToolCall] = Field(default_factory=list)
 
+
+DENIED = "The user denied this action. Do not try it again; continue without it."
 
 WRAP_UP = (
     "You have reached the step limit for this request and can no longer use tools. "
@@ -101,9 +120,11 @@ async def run_agent(
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     on_checkpoint: CheckpointSink | None = None,
     resume: Checkpoint | None = None,
+    approvals: Mapping[str, bool] | None = None,
 ) -> RunResult:
     """Run the loop. With `resume`, `messages` is ignored and the run continues from
-    the checkpoint; the step and token limits count across the whole run."""
+    the checkpoint; the step and token limits count across the whole run.
+    `approvals` maps tool call ids to a person's decision (True = approved)."""
     emit = _Emitter(on_event)
     cancel = cancel or asyncio.Event()
     history = list(resume.messages if resume else messages)
@@ -113,7 +134,9 @@ async def run_agent(
     steps = resume.steps if resume else 0
     final_text = ""
 
-    async def finish(term: Termination, error: str | None = None) -> RunResult:
+    async def finish(
+        term: Termination, error: str | None = None, awaiting: ToolCall | None = None
+    ) -> RunResult:
         await emit(
             "run_finished",
             termination=term,
@@ -128,7 +151,73 @@ async def run_agent(
             usage=usage,
             messages=history,
             error=error,
+            awaiting=awaiting,
         )
+
+    async def run_calls(calls: list[ToolCall], offset: int, announced: str | None) -> int | None:
+        """Run one step's calls in order (`offset` = index of calls[0] in the step).
+        Returns the index in `calls` of the first that waits for approval, having
+        run none from it on; None once all have results. `announced` is a call
+        whose tool_call event was already emitted before a pause."""
+        decided = approvals or {}
+        for i, call in enumerate(calls):
+            if cancel.is_set():
+                raise _Cancelled
+            if call.id != announced:
+                await emit(
+                    "tool_call", step=steps, id=call.id, name=call.name, arguments=call.arguments
+                )
+            tool = tools.get(call.name)
+            within_cap = offset + i < limits.max_tool_calls_per_step
+            needs = within_cap and tool is not None and tool.requires_approval
+            if needs and call.id not in decided:
+                await emit(
+                    "approval_requested",
+                    step=steps,
+                    id=call.id,
+                    name=call.name,
+                    arguments=call.arguments,
+                )
+                return i
+            if not within_cap:
+                outcome_content = (
+                    '{"error": "limit", "message": "Too many tool calls in one step; skipped."}'
+                )
+                await emit("tool_result", step=steps, id=call.id, ok=False, error_kind="limit")
+            else:
+                if needs and not decided[call.id]:
+                    outcome = ToolOutcome(
+                        call_id=call.id, tool=call.name, ok=False, error_kind="denied", error=DENIED
+                    )
+                else:
+                    outcome = await tools.execute(call, approved=needs)
+                outcome_content = outcome.as_model_content()
+                await emit(
+                    "tool_result", step=steps, **outcome.model_dump(exclude={"call_id"}), id=call.id
+                )
+            history.append(
+                Message(
+                    role="tool", content=outcome_content, tool_call_id=call.id, tool_name=call.name
+                )
+            )
+        return None
+
+    async def settle_step(
+        calls: list[ToolCall], offset: int, announced: str | None
+    ) -> RunResult | None:
+        """Run calls and checkpoint. Returns a result when the run must stop."""
+        try:
+            waiting = await run_calls(calls, offset, announced)
+        except _Cancelled:
+            return await finish("cancelled")
+        pending = [] if waiting is None else calls[waiting:]
+        if on_checkpoint is not None:
+            await on_checkpoint(
+                Checkpoint(messages=history, steps=steps, usage=usage, pending=pending)
+            )
+        if waiting is not None:
+            return await finish("awaiting_approval", awaiting=calls[waiting])
+        return None
 
     await emit(
         "run_started",
@@ -137,6 +226,14 @@ async def run_agent(
         limits=limits.model_dump(),
         resumed_at_step=steps if resume else None,
     )
+
+    if resume and resume.pending:
+        # Resuming after a pause for approval: finish that step's remaining calls.
+        step_calls = next(m for m in reversed(history) if m.role == "assistant").tool_calls
+        offset = [c.id for c in step_calls].index(resume.pending[0].id)
+        stopped = await settle_step(resume.pending, offset, announced=resume.pending[0].id)
+        if stopped is not None:
+            return stopped
 
     while True:
         if cancel.is_set():
@@ -198,30 +295,9 @@ async def run_agent(
         if wrap_up:  # tools were withheld; a model that still asks for them gets none
             return await finish("max_steps")
 
-        for i, call in enumerate(calls):
-            if cancel.is_set():
-                return await finish("cancelled")
-            await emit(
-                "tool_call", step=steps, id=call.id, name=call.name, arguments=call.arguments
-            )
-            if i >= limits.max_tool_calls_per_step:
-                outcome_content = (
-                    '{"error": "limit", "message": "Too many tool calls in one step; skipped."}'
-                )
-                await emit("tool_result", step=steps, id=call.id, ok=False, error_kind="limit")
-            else:
-                outcome = await tools.execute(call)
-                outcome_content = outcome.as_model_content()
-                await emit(
-                    "tool_result", step=steps, **outcome.model_dump(exclude={"call_id"}), id=call.id
-                )
-            history.append(
-                Message(
-                    role="tool", content=outcome_content, tool_call_id=call.id, tool_name=call.name
-                )
-            )
-        if on_checkpoint is not None:
-            await on_checkpoint(Checkpoint(messages=history, steps=steps, usage=usage))
+        stopped = await settle_step(calls, 0, announced=None)
+        if stopped is not None:
+            return stopped
 
 
 class _Cancelled(Exception):

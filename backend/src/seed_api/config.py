@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     task_max_attempts: int = Field(default=3, ge=1, le=10)
     worker_lease_seconds: float = Field(default=30.0, ge=3, le=600)
     worker_poll_seconds: float = Field(default=2.0, gt=0, le=60)
+    # Tools that wait for a person's approval before each call (D-009). JSON list.
+    approval_required_tools: list[str] = ["run_command"]
     # Chat: how many earlier completed turns a new message carries as context.
     chat_context_turns: int = Field(default=20, ge=1, le=200)
     # Sandbox (ADR-0010). Worker side: unset URL => tasks get file tools only, no

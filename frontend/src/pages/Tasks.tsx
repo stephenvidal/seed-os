@@ -12,6 +12,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { ApprovalPrompt } from "../components/tasks/ApprovalPrompt";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { EmptyState } from "../components/ui/EmptyState";
@@ -19,19 +20,25 @@ import { PageHeader } from "../components/ui/PageHeader";
 import { Panel } from "../components/ui/Panel";
 import { Spinner } from "../components/ui/Spinner";
 import { ApiError, api } from "../lib/api";
-import { followTask, isFinished, tasksApi, toTimeline } from "../lib/tasks";
+import { followTask, isFinished, pendingApproval, tasksApi, toTimeline } from "../lib/tasks";
 import type { Task, TaskEvent, TaskState, TimelineItem } from "../lib/tasks";
 
 const STATE_TONE: Record<TaskState, "neutral" | "accent" | "warning" | "danger"> = {
   queued: "neutral",
   running: "accent",
+  waiting: "warning",
   completed: "accent",
   failed: "danger",
   canceled: "neutral",
 };
 
 function StateBadge({ task }: { task: Task }) {
-  const label = task.state === "running" && task.cancel_requested ? "canceling" : task.state;
+  const label =
+    task.state === "running" && task.cancel_requested
+      ? "canceling"
+      : task.state === "waiting"
+        ? "needs you"
+        : task.state;
   return (
     <Badge tone={STATE_TONE[task.state]}>
       {task.state === "running" && <Spinner label="Running" />}
@@ -345,6 +352,7 @@ export function TaskDetailPage() {
 
   const t = task.data;
   const timeline = toTimeline(events);
+  const asking = pendingApproval(events);
   return (
     <>
       <Link
@@ -382,6 +390,14 @@ export function TaskDetailPage() {
       )}
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
         <div className="flex min-w-0 flex-col gap-4">
+          {asking && (
+            <ApprovalPrompt
+              key={asking.id}
+              taskId={t.id}
+              call={asking}
+              onDecided={() => void qc.invalidateQueries({ queryKey: ["task", id] })}
+            />
+          )}
           {t.state === "completed" && t.result_text && (
             <Panel title="Result">
               <p className="px-4 py-3 text-sm leading-6 whitespace-pre-wrap text-fg">

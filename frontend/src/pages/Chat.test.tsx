@@ -218,6 +218,52 @@ describe("Chat", () => {
     );
   });
 
+  it("asks before running a command and sends the decision", async () => {
+    const detail = { conversation, turns: [turn({ state: "running", result_text: null })] };
+    const spy = mockApi({
+      "GET /api/v1/auth/me": ME,
+      "GET /api/v1/models": MODELS,
+      "GET /api/v1/conversations?limit=200": { status: 200, body: [summary] },
+      "GET /api/v1/conversations/c1": () => ({ status: 200, body: detail }),
+      "POST /api/v1/tasks/t1/decision": { status: 200, body: turn({ state: "queued" }) },
+    });
+    vi.stubGlobal("EventSource", FakeEventSource);
+    const user = userEvent.setup();
+    FakeEventSource.last = undefined;
+    renderApp(<App />, "/chat/c1");
+    await waitFor(() => expect(FakeEventSource.last?.url).toBe("/api/v1/tasks/t1/stream?after=0"));
+    const es = FakeEventSource.last!;
+    act(() => {
+      es.emit(1, "step_started", { step: 1 });
+      es.emit(2, "tool_call", {
+        id: "call_0",
+        name: "run_command",
+        arguments: { command: "rm -rf build" },
+      });
+      es.emit(3, "approval_requested", {
+        id: "call_0",
+        name: "run_command",
+        arguments: { command: "rm -rf build" },
+      });
+    });
+    const prompt = screen.getByRole("region", { name: "Approval needed" });
+    expect(within(prompt).getByText("rm -rf build")).toBeInTheDocument();
+    expect(screen.queryByText("Working…")).toBeNull();
+
+    await user.click(within(prompt).getByRole("button", { name: "Approve" }));
+    await waitFor(() =>
+      expect(bodyOf(spy, "POST", "/api/v1/tasks/t1/decision")?.body).toEqual({
+        call_id: "call_0",
+        approve: true,
+      }),
+    );
+    // Decided once: neither button can send a second decision.
+    expect(within(prompt).getByRole("button", { name: "Approve" })).toBeDisabled();
+    expect(within(prompt).getByRole("button", { name: "Deny" })).toBeDisabled();
+    act(() => es.emit(4, "approval_decided", { id: "call_0", approved: true, by: "admin" }));
+    expect(screen.queryByRole("region", { name: "Approval needed" })).toBeNull();
+  });
+
   it("says when a conversation does not exist", async () => {
     mockApi({
       "GET /api/v1/auth/me": ME,

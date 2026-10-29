@@ -1,7 +1,10 @@
 /** Client for the durable Tasks API (/api/v1/tasks) and its live event stream. */
 import { request } from "./api";
 
-export type TaskState = "queued" | "running" | "completed" | "failed" | "canceled";
+export type TaskState = "queued" | "running" | "waiting" | "completed" | "failed" | "canceled";
+
+/** A tool call as the model made it. */
+export type ToolCallInfo = { id: string; name: string; arguments: Record<string, unknown> };
 
 export type Task = {
   id: string;
@@ -25,6 +28,8 @@ export type Task = {
   /** Set when the task is a chat turn. */
   conversation_id: string | null;
   turn: number | null;
+  /** Set while the task is waiting: the call that needs a person's decision. */
+  awaiting_approval: ToolCallInfo | null;
 };
 
 export type TaskEvent = {
@@ -49,6 +54,11 @@ export const tasksApi = {
     }),
   cancel: (id: string) => request<Task>(`/api/v1/tasks/${id}/cancel`, { method: "POST" }),
   retry: (id: string) => request<Task>(`/api/v1/tasks/${id}/retry`, { method: "POST" }),
+  decide: (id: string, callId: string, approve: boolean) =>
+    request<Task>(`/api/v1/tasks/${id}/decision`, {
+      method: "POST",
+      body: JSON.stringify({ call_id: callId, approve }),
+    }),
   events: (id: string) =>
     request<{ events: TaskEvent[]; last_seq: number; state: TaskState }>(
       `/api/v1/tasks/${id}/events?limit=1000`,
@@ -105,6 +115,7 @@ export type TimelineItem =
 
 const TERMINATION_TEXT: Record<string, string> = {
   completed: "Finished",
+  awaiting_approval: "Paused for your approval",
   cancelled: "Canceled",
   max_steps: "Stopped: step limit reached",
   deadline: "Stopped: time limit reached",
@@ -120,6 +131,14 @@ export function toTimeline(events: TaskEvent[]): TimelineItem[] {
   const current = () => {
     const last = items.at(-1);
     return last?.kind === "step" ? last : undefined;
+  };
+  // A step's calls can finish after a pause for approval, with notes in between.
+  const lastStep = () => {
+    for (let i = items.length - 1; i >= 0; i--) {
+      const item = items[i]!;
+      if (item.kind === "step") return item;
+    }
+    return undefined;
   };
 
   for (const e of events) {
@@ -154,10 +173,10 @@ export function toTimeline(events: TaskEvent[]): TimelineItem[] {
         break;
       }
       case "tool_call":
-        current()?.tools.push({ id: String(d.id), name: String(d.name), args: d.arguments });
+        lastStep()?.tools.push({ id: String(d.id), name: String(d.name), args: d.arguments });
         break;
       case "tool_result": {
-        const t = current()?.tools.find((x) => x.id === String(d.id) && x.ok === undefined);
+        const t = lastStep()?.tools.find((x) => x.id === String(d.id) && x.ok === undefined);
         if (t) {
           t.ok = Boolean(d.ok);
           t.error = d.ok ? undefined : String(d.error ?? d.error_kind ?? "failed");
@@ -177,12 +196,28 @@ export function toTimeline(events: TaskEvent[]): TimelineItem[] {
       case "provider_retry":
         note(e, "warning", `Model provider ${String(d.kind)}; retrying in ${String(d.delay_s)} s`);
         break;
+      case "approval_requested":
+        note(e, "warning", `Waiting for your approval to run ${String(d.name)}`);
+        break;
+      case "approval_decided":
+        note(
+          e,
+          d.approved ? "accent" : "neutral",
+          `${d.approved ? "Approved" : "Denied"} by ${String(d.by)}`,
+        );
+        break;
       case "run_finished": {
         const term = String(d.termination);
         const text = TERMINATION_TEXT[term] ?? `Stopped: ${term}`;
         note(
           e,
-          term === "completed" ? "accent" : term === "cancelled" ? "neutral" : "danger",
+          term === "completed"
+            ? "accent"
+            : term === "cancelled"
+              ? "neutral"
+              : term === "awaiting_approval"
+                ? "warning"
+                : "danger",
           d.error ? `${text} (${String(d.error)})` : text,
         );
         break;
@@ -214,4 +249,23 @@ export function toTimeline(events: TaskEvent[]): TimelineItem[] {
     }
   }
   return items;
+}
+
+/**
+ * The call a task is waiting on, read from its events: the last approval request
+ * with no decision after it, unless the task was canceled since.
+ */
+export function pendingApproval(events: TaskEvent[]): ToolCallInfo | null {
+  let pending: ToolCallInfo | null = null;
+  for (const e of events) {
+    const d = e.data;
+    if (e.type === "approval_requested")
+      pending = {
+        id: String(d.id),
+        name: String(d.name),
+        arguments: (d.arguments ?? {}) as Record<string, unknown>,
+      };
+    else if (e.type === "approval_decided" || e.type === "cancel_requested") pending = null;
+  }
+  return pending;
 }
