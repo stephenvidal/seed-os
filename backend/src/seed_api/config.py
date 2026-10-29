@@ -10,10 +10,9 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="SEED_", extra="ignore")
 
     admin_username: str = "admin"
-    # Unset => login is disabled (typed 503), never a default password.
+    # Read once, on first start, to create the first admin when no users exist.
+    # Never a default password: unset and no users => sign-in answers 503.
     admin_password: SecretStr | None = None
-    # Unset => random per-process secret; sessions do not survive restart.
-    session_secret: SecretStr | None = None
     session_ttl_seconds: int = 60 * 60 * 12
     cookie_secure: bool = False
     login_max_failures: int = 5

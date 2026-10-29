@@ -584,3 +584,89 @@ key set              → exit 0
 
 **Not tested:** the workflow itself (runs on `main` only). The VPS already has the
 key (owner-verified), so the next deploy passes the check.
+
+## M3 increment 4 — Postgres users, revocable sessions, CSRF, audit log (2026-10-28)
+
+**Iteration:** replace the M1 bootstrap auth (ADR-0004) with Postgres-backed auth
+(ADR-0009), closing open question 4. **Done when:** users with argon2 hashes in
+Postgres; sessions revocable server-side; a session-bound CSRF token is required
+on state-changing requests and sent by the web app; sign-ins and task actions
+are audited; the rate limit survives restarts; a CLI manages users; an existing
+production database upgrades and its admin can still sign in.
+
+**Changed**
+- Migration `0002_auth`: `users`, `sessions`, `audit_log`.
+- `seed_api/auth.py` rewritten: `AuthStore`, argon2id (dummy verify for unknown
+  users, rehash on sign-in), session rows keyed by SHA-256 of the cookie token,
+  `seed_csrf` cookie + `X-CSRF-Token` check (403 `csrf_failed`), per-username
+  rate limit counted from `audit_log`, bootstrap admin when `users` is empty.
+- `python -m seed_api.users`: add, set-password, disable, enable,
+  revoke-sessions, list.
+- Tasks API audits create/cancel/retry. `SEED_SESSION_SECRET` removed from
+  settings, `.env.example`, docs and the deploy check.
+- Web app: every request echoes the CSRF cookie in `X-CSRF-Token`.
+- Two bugs found by the browser check, fixed in their own commits: signing out
+  left the app on screen until a reload (`qc.clear()` detached the session
+  query's observers); a queued task's cancel note did not reach the live
+  timeline (the stream closed as soon as the task state turned final, before the
+  event arrived; it now closes when the server ends it).
+- ADR-0009, D-005, README, security, architecture, deployment, roadmap, CHANGELOG.
+
+**Tested**
+```
+backend:  ruff check → All checks passed! · ruff format --check → 32 files already formatted
+          mypy → Success: no issues found in 21 source files
+          pytest (SEED_TEST_DATABASE_URL set) → 73 passed in 8.22s
+frontend: typecheck ok · lint ok · format:check → All matched files use Prettier code style!
+          vitest → Test Files 7 passed (7) · Tests 25 passed (25) · build ✓
+```
+Mutation checks (each change made to `auth.py`, suite run, change reverted):
+```
+no csrf check                 → 3 failed, 70 passed
+revoked sessions accepted     → 2 failed, 71 passed
+disabled users' sessions live → 2 failed, 71 passed
+expiry ignored                → 1 failed, 72 passed
+rate limit off by one         → 1 failed, 72 passed
+disabled user can sign in     → 1 failed, 72 passed
+logout does not revoke        → 1 failed, 72 passed
+set-password keeps sessions   → 1 failed, 72 passed
+raw token stored as id        → 19 failed, 54 passed
+web: request() without CSRF header → 1 failed | 21 passed
+web: old sign-out code             → 2 failed | 23 passed
+web: old stream-close condition    → 1 failed | 22 passed
+```
+Browser (Playwright, Vite → API → Postgres):
+```
+cookies: seed_session httpOnly=true sameSite=Lax; seed_csrf httpOnly=false sameSite=Strict
+create without token: [ 403, 'csrf_failed' ] with token: 201
+cancel via app UI: timeline shows "Canceled before it started"
+after sign-out, /me -> 401        (and the sign-in page shows, from / and /tasks)
+```
+CLI against the same database:
+```
+Added alice (admin).                               exit 0
+error: Passwords need at least 12 characters.      exit 1
+Signed admin out of 6 session(s).
+Disabled alice.
+admin	admin	active
+alice	admin	disabled
+login as alice → {"error":{"code":"invalid_credentials",…}}
+audit_log (newest first): login_failed alice · user_disabled · sessions_revoked · user_added · logout
+```
+Production upgrade path (database with only `0001_tasks` and an existing task,
+started with a short `SEED_ADMIN_PASSWORD` as a stand-in for an unknown length):
+```
+applied migrations: 0002_auth
+WARNING SEED_ADMIN_PASSWORD is shorter than 12 characters
+created bootstrap admin admin
+login 200 {'username': 'admin', 'role': 'admin'}
+old tasks ['old']
+```
+
+**Not tested:** the Docker images with argon2-cffi (CI builds them); the CLI
+inside the read-only API container (`docker compose exec api python -m
+seed_api.users …`); the deploy itself. Existing production sessions (HMAC
+cookies) stop working after the deploy, so everyone signs in once more.
+
+**Open questions:** roles beyond `admin`; a per-client sign-in limit (needs
+`CF-Connecting-IP` passed through nginx); audit log retention (D-005).

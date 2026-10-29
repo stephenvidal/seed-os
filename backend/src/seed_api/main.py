@@ -25,7 +25,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if settings.database_url is None:
-            logging.getLogger("seed").warning("SEED_DATABASE_URL unset: tasks are disabled")
+            logging.getLogger("seed").warning(
+                "SEED_DATABASE_URL unset: sign-in and tasks are disabled"
+            )
             yield
             return
         pool = make_pool(settings.database_url.get_secret_value())
@@ -33,6 +35,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             await migrate(pool)
             app.state.task_store = TaskStore(pool)
+            app.state.auth_store = auth.AuthStore(pool)
+            await auth.bootstrap_admin(app.state.auth_store, settings)
             yield
         finally:
             await pool.close()
@@ -50,7 +54,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             allow_origins=settings.cors_origins,
             allow_credentials=True,
             allow_methods=["GET", "POST"],
-            allow_headers=["Content-Type"],
+            allow_headers=["Content-Type", auth.CSRF_HEADER],
         )
     install_error_handlers(app)
     app.include_router(auth.router)
@@ -62,8 +66,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def healthz() -> dict[str, str]:
         return {"status": "ok", "version": __version__}
 
-    if settings.admin_password is None:
-        logging.getLogger("seed").warning("SEED_ADMIN_PASSWORD unset: sign-in disabled")
     return app
 
 

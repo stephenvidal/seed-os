@@ -10,8 +10,6 @@ from seed_api.core.providers.base import ProviderError
 
 from .fakes import ScriptedProvider, calls, reply
 
-LOGIN = {"username": "admin", "password": "correct-horse"}
-
 
 def parse_sse(text: str) -> list[tuple[str, dict]]:  # type: ignore[type-arg]
     out = []
@@ -19,12 +17,6 @@ def parse_sse(text: str) -> list[tuple[str, dict]]:  # type: ignore[type-arg]
         fields = dict(line.split(": ", 1) for line in block.splitlines() if ": " in line)
         out.append((fields["event"], json.loads(fields["data"])))
     return out
-
-
-@pytest.fixture
-def authed(client: TestClient) -> TestClient:
-    client.post("/api/v1/auth/login", json=LOGIN)
-    return client
 
 
 def use_provider(monkeypatch: pytest.MonkeyPatch, provider: ScriptedProvider) -> None:

@@ -103,4 +103,20 @@ describe("workspace shell", () => {
     renderApp(<App />, "/nope");
     expect(await screen.findByText("This page does not exist")).toBeInTheDocument();
   });
+
+  it.each([
+    ["signs out", 204],
+    ["treats an already-expired session as signed out", 401],
+  ])("%s from the account menu", async (_, status) => {
+    mockApi({
+      "GET /api/v1/auth/me": ME,
+      "GET /api/v1/system": SYSTEM,
+      "POST /api/v1/auth/logout": { status },
+    });
+    const user = userEvent.setup();
+    renderApp(<App />);
+    await user.click(await screen.findByRole("button", { name: "Account menu" }));
+    await user.click(await screen.findByRole("menuitem", { name: /Sign out/ }));
+    expect(await screen.findByLabelText("Password")).toBeInTheDocument();
+  });
 });

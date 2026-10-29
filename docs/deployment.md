@@ -2,7 +2,7 @@
 
 ## Docker Compose (self-hosted)
 ```bash
-cp .env.example .env     # set SEED_ADMIN_PASSWORD, SEED_SESSION_SECRET, SEED_POSTGRES_PASSWORD
+cp .env.example .env     # set SEED_ADMIN_PASSWORD, SEED_POSTGRES_PASSWORD
 docker compose up -d --build
 open http://localhost:8080
 ```
@@ -42,8 +42,9 @@ flip in item 5 remains.
 2. **VPS folder** — done. `/opt/seed` exists, owned by `deploy`, with `.env`
    (mode 600, owner `deploy`) holding `SEED_ADMIN_USERNAME`, `SEED_ADMIN_PASSWORD`,
    `SEED_SESSION_SECRET`, `SEED_COOKIE_SECURE=true`, `SEED_HOST_PORT=8091`. The
-   deploy job refuses to start without the password and session secret; it only
-   ever rewrites `SEED_TAG`.
+   deploy job refuses to start without the admin password; it only ever rewrites
+   `SEED_TAG`. (`SEED_SESSION_SECRET` is no longer used since ADR-0009 and can be
+   deleted from the file.)
 3. **Tunnel** — done. DNS `seed.nsystems.live` is a proxied CNAME to tunnel
    `d0a6e41c-…` (the `*.nsystems.live` wildcard points at a different tunnel that
    would answer 404), and `/etc/cloudflared/srv1388017-files.yml` carries
@@ -81,10 +82,15 @@ Backups are manual until M9:
 `gunzip -c FILE | docker compose exec -T db psql -U seed seed`.
 
 ### Secrets handling
-`SEED_ADMIN_PASSWORD`, `SEED_SESSION_SECRET` and `SEED_POSTGRES_PASSWORD` live in the encrypted vault
+`SEED_ADMIN_PASSWORD` and `SEED_POSTGRES_PASSWORD` live in the encrypted vault
 (`vault.py get SEED_ADMIN_PASSWORD` on golden-eye) and in `/opt/seed/.env` on the
-VPS. They never appear in the repository, in workflow logs, or in chat. Rotating
-them means updating both places and restarting the stack.
+VPS. They never appear in the repository, in workflow logs, or in chat.
+
+Since ADR-0009 the admin password in `.env` is only read while the database has
+no users. To change a password, run on the VPS (in `/opt/seed`)
+`docker compose exec api python -m seed_api.users set-password admin` (it prompts;
+the user is signed out everywhere), then update the vault. Rotating the Postgres
+password means `ALTER USER` inside Postgres, then both places, then a restart.
 
 Rollback: set `SEED_TAG` in `/opt/seed/.env` to an earlier `sha-…` and run
 `docker compose up -d` there.

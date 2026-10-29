@@ -10,6 +10,7 @@ import httpx
 import pytest
 from pydantic import SecretStr
 
+from seed_api.auth import AuthStore, bootstrap_admin
 from seed_api.config import Settings, get_settings
 from seed_api.core.providers.base import ProviderError
 from seed_api.flow import api as tasks_api
@@ -32,7 +33,7 @@ def anyio_backend() -> str:
 async def pool(db_url: str) -> AsyncIterator[Pool]:
     pool = make_pool(db_url, max_size=4)
     await pool.open(wait=True)
-    assert await migrate(pool) == ["0001_tasks"]
+    assert await migrate(pool) == ["0001_tasks", "0002_auth"]
     yield pool
     await pool.close()
 
@@ -282,17 +283,18 @@ async def test_stream_delivers_events_written_after_it_opened(
     store: TaskStore, wsettings: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(tasks_api, "STREAM_POLL_S", 0.02)
-    settings = wsettings.model_copy(
-        update={"admin_password": SecretStr("pw"), "session_secret": SecretStr("s" * 32)}
-    )
+    settings = wsettings.model_copy(update={"admin_password": SecretStr("a-long-password")})
     app = create_app(settings)
     app.dependency_overrides[get_settings] = lambda: settings
     app.state.task_store = store
+    app.state.auth_store = AuthStore(store.pool)
+    await bootstrap_admin(app.state.auth_store, settings)
     task = await new_task(store)
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://t"
     ) as client:
-        await client.post("/api/v1/auth/login", json={"username": "admin", "password": "pw"})
+        login = {"username": "admin", "password": "a-long-password"}
+        assert (await client.post("/api/v1/auth/login", json=login)).status_code == 200
         stream = asyncio.create_task(client.get(f"/api/v1/tasks/{task.id}/stream"))
         await asyncio.sleep(0.1)  # the stream is open and idle before any work happens
         assert not stream.done()

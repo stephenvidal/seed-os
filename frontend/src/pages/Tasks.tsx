@@ -286,9 +286,12 @@ export function TaskDetailPage() {
   const task = useQuery({ queryKey: ["task", id], queryFn: () => tasksApi.get(id), retry: false });
   const [events, setEvents] = useState<TaskEvent[]>([]);
   const lastSeq = useRef(0);
+  // Set once the server ends the stream: every event of the finished task has arrived.
+  // A cancel can finish a queued task before its event does, so the task's state
+  // alone cannot close the stream.
+  const [ended, setEnded] = useState(false);
   const state = task.data?.state;
-  // Follow while the task can still change; for a finished one, load its history once.
-  const following = state !== undefined && (!isFinished(state) || events.length === 0);
+  const following = state !== undefined && !ended;
   const live = state !== undefined && !isFinished(state);
 
   useEffect(() => {
@@ -303,6 +306,7 @@ export function TaskDetailPage() {
         if (e.type !== "text_delta") void qc.invalidateQueries({ queryKey: ["task", id] });
       },
       () => {
+        setEnded(true);
         void qc.invalidateQueries({ queryKey: ["task", id] });
         void qc.invalidateQueries({ queryKey: ["tasks"] });
       },
@@ -315,6 +319,7 @@ export function TaskDetailPage() {
       action === "cancel" ? tasksApi.cancel(id) : tasksApi.retry(id),
     onSuccess: (t) => {
       qc.setQueryData(["task", id], t);
+      if (!isFinished(t.state)) setEnded(false); // a retried task is followed again
       void qc.invalidateQueries({ queryKey: ["tasks"] });
     },
   });
