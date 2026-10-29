@@ -59,10 +59,19 @@ export const tasksApi = {
       method: "POST",
       body: JSON.stringify({ call_id: callId, approve }),
     }),
-  events: (id: string) =>
+  events: (id: string, after = 0) =>
     request<{ events: TaskEvent[]; last_seq: number; state: TaskState }>(
-      `/api/v1/tasks/${id}/events?limit=1000`,
+      `/api/v1/tasks/${id}/events?after=${after}&limit=1000`,
     ),
+  /** Every event so far, page by page (a long answer has many text deltas). */
+  allEvents: async (id: string) => {
+    const all: TaskEvent[] = [];
+    for (;;) {
+      const page = await tasksApi.events(id, all.at(-1)?.seq ?? 0);
+      all.push(...page.events);
+      if (page.events.length === 0 || (all.at(-1)?.seq ?? 0) >= page.last_seq) return all;
+    }
+  },
 };
 
 /**

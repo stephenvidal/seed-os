@@ -5,15 +5,9 @@ import { AppShell } from "./components/shell/AppShell";
 import { BrandMark } from "./components/shell/BrandMark";
 import { Button } from "./components/ui/Button";
 import { useSession } from "./lib/auth";
-import {
-  AgentsPage,
-  InspectorPage,
-  ModelsPage,
-  ProjectsPage,
-  StudioPage,
-  ToolsPage,
-} from "./pages/areas";
+import { AgentsPage, ModelsPage, ProjectsPage, StudioPage, ToolsPage } from "./pages/areas";
 import { CommandCenterPage } from "./pages/CommandCenter";
+import { InspectorPage, InspectorTaskPage } from "./pages/Inspector";
 import { LoginPage } from "./pages/Login";
 import { NotFoundPage } from "./pages/NotFound";
 import { SettingsPage } from "./pages/Settings";
@@ -65,6 +59,7 @@ export function App() {
         <Route path="projects" element={<ProjectsPage />} />
         <Route path="studio" element={<StudioPage />} />
         <Route path="inspector" element={<InspectorPage />} />
+        <Route path="inspector/:id" element={<InspectorTaskPage />} />
         <Route path="models" element={<ModelsPage />} />
         <Route path="tools" element={<ToolsPage />} />
         <Route path="settings" element={<SettingsPage />} />

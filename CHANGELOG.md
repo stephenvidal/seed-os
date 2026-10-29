@@ -4,6 +4,11 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
 
 ## [Unreleased]
 ### Added
+- Execution Inspector (M5 step 2): `/inspector` lists tasks; `/inspector/{id}`
+  shows attempts, model steps, tool calls, checkpoints, totals and the event log
+  for one task, from its stored events (D-013).
+- Event `checkpoint_saved` (`{steps, pending}`), logged each time a run saves
+  where a retry would resume.
 - Command Center shows live work (M5 step 1): `GET /api/v1/overview` with task
   counts, what needs attention, what is running and recently completed, and
   tokens by model; the page refreshes every 10 s (D-012).

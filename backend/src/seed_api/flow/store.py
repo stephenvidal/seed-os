@@ -415,19 +415,28 @@ class TaskStore:
         return int(row["last_seq"])
 
     async def save_checkpoint(self, lease: Lease, checkpoint: Checkpoint) -> None:
-        async with self.pool.connection() as conn:
+        async with self.pool.connection() as conn, conn.transaction():
             cur = await conn.execute(
-                "UPDATE tasks SET checkpoint = %(cp)s, usage = %(usage)s, updated_at = now() "
+                "UPDATE tasks SET checkpoint = %(cp)s, usage = %(usage)s, updated_at = now(), "
+                "last_seq = last_seq + 1 "
                 "WHERE id = %(id)s AND lease_owner = %(worker)s AND attempt = %(attempt)s "
-                "AND state = 'running' RETURNING id",
+                "AND state = 'running' RETURNING *",
                 {
                     **_fence(lease),
                     "cp": Jsonb(checkpoint.model_dump(mode="json")),
                     "usage": Jsonb(checkpoint.usage.model_dump()),
                 },
             )
-            if await cur.fetchone() is None:
+            row = await cur.fetchone()
+            if row is None:
                 raise LeaseLost(str(lease.task_id))
+            # Recorded so the inspector can show where a retry would resume.
+            await _log(
+                conn,
+                row,
+                "checkpoint_saved",
+                {"steps": checkpoint.steps, "pending": len(checkpoint.pending)},
+            )
 
     async def finish(
         self,
