@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -8,9 +8,12 @@ import {
   Cpu,
   ListChecks,
   MessageSquare,
+  Pencil,
   Plus,
   RotateCcw,
+  Search,
   Square,
+  Trash2,
   Wrench,
   XCircle,
 } from "lucide-react";
@@ -27,7 +30,7 @@ import { Spinner } from "../components/ui/Spinner";
 import { cn } from "../components/ui/cn";
 import { ApiError, api } from "../lib/api";
 import { chatApi } from "../lib/chat";
-import type { ConversationDetail } from "../lib/chat";
+import type { Conversation, ConversationDetail } from "../lib/chat";
 import { followTask, isFinished, pendingApproval, tasksApi, toTimeline } from "../lib/tasks";
 import type { Task, TaskEvent, TimelineItem, ToolActivity } from "../lib/tasks";
 
@@ -378,6 +381,139 @@ function NewConversation() {
   );
 }
 
+function ConversationHeader({
+  conversation,
+  turns,
+  answering,
+}: {
+  conversation: Conversation;
+  turns: number;
+  answering: boolean;
+}) {
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const [mode, setMode] = useState<"view" | "rename" | "delete">("view");
+  const [title, setTitle] = useState(conversation.title);
+  const rename = useMutation({
+    mutationFn: (t: string) => chatApi.rename(conversation.id, t),
+    onSuccess: (conv) => {
+      qc.setQueryData<ConversationDetail>(conversationKey(conv.id), (d) =>
+        d ? { ...d, conversation: conv } : d,
+      );
+      void qc.invalidateQueries({ queryKey: conversationKey(conv.id) });
+      void qc.invalidateQueries({ queryKey: CONVERSATIONS });
+      setMode("view");
+    },
+  });
+  const remove = useMutation({
+    mutationFn: () => chatApi.remove(conversation.id),
+    onSuccess: () => {
+      qc.removeQueries({ queryKey: conversationKey(conversation.id) });
+      void qc.invalidateQueries({ queryKey: CONVERSATIONS });
+      navigate("/chat");
+    },
+  });
+  const failure = rename.error ?? remove.error;
+
+  function save(e: FormEvent) {
+    e.preventDefault();
+    const next = title.split(/\s+/).filter(Boolean).join(" ");
+    if (!next) return;
+    if (next === conversation.title) setMode("view");
+    else rename.mutate(next);
+  }
+
+  return (
+    <div className="pb-3">
+      {mode === "rename" ? (
+        <form onSubmit={save} className="flex items-center gap-2">
+          <input
+            aria-label="Conversation title"
+            value={title}
+            maxLength={80}
+            autoFocus
+            onChange={(e) => setTitle(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setMode("view");
+            }}
+            className="h-8 min-w-0 flex-1 rounded-control border border-border bg-surface-1 px-2.5 text-sm text-fg outline-none focus:border-accent"
+          />
+          <Button
+            type="submit"
+            variant="primary"
+            size="sm"
+            disabled={rename.isPending || !title.trim()}
+          >
+            Save
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setMode("view")}>
+            Cancel
+          </Button>
+        </form>
+      ) : (
+        <div className="flex items-center gap-1">
+          <h2 className="min-w-0 flex-1 truncate text-sm font-medium text-fg">
+            {conversation.title}
+          </h2>
+          <Button
+            size="icon"
+            variant="ghost"
+            aria-label="Rename conversation"
+            onClick={() => {
+              setTitle(conversation.title);
+              rename.reset();
+              setMode("rename");
+            }}
+          >
+            <Pencil size={14} aria-hidden />
+          </Button>
+          <Button
+            size="icon"
+            variant="ghost"
+            aria-label="Delete conversation"
+            title={answering ? "Stop the answer before deleting" : undefined}
+            disabled={answering}
+            onClick={() => {
+              remove.reset();
+              setMode("delete");
+            }}
+          >
+            <Trash2 size={14} aria-hidden />
+          </Button>
+        </div>
+      )}
+      {mode === "delete" && (
+        <div
+          role="alertdialog"
+          aria-label="Delete conversation"
+          className="mt-2 flex flex-wrap items-center gap-2 rounded-control border border-danger bg-danger-soft px-3 py-2 text-xs text-fg"
+        >
+          <p className="min-w-0 flex-1">
+            Delete this conversation and its {turns === 1 ? "1 message" : `${turns} messages`}?
+            Their timelines go too. This cannot be undone.
+          </p>
+          <Button
+            size="sm"
+            className="border-danger text-danger"
+            disabled={remove.isPending || answering}
+            onClick={() => remove.mutate()}
+          >
+            Delete
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setMode("view")}>
+            Keep
+          </Button>
+        </div>
+      )}
+      {failure && (
+        <p role="alert" className="mt-2 text-xs text-danger">
+          {errorText(failure)}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function ConversationView({ id }: { id: string }) {
   const qc = useQueryClient();
   const { ids } = useModels();
@@ -446,6 +582,11 @@ function ConversationView({ id }: { id: string }) {
   const failure = send.error ?? act.error;
   return (
     <>
+      <ConversationHeader
+        conversation={detail.data.conversation}
+        turns={turns.length}
+        answering={answering}
+      />
       <div className="min-h-0 flex-1 overflow-y-auto rounded-panel border border-border bg-surface-1">
         <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-5 sm:px-6">
           {turns.map((t, i) => (
@@ -504,7 +645,19 @@ function Unavailable({ error }: { error: Error }) {
 }
 
 function ConversationList({ active }: { active: string | undefined }) {
-  const list = useQuery({ queryKey: CONVERSATIONS, queryFn: chatApi.list, retry: false });
+  const [search, setSearch] = useState("");
+  const [query, setQuery] = useState("");
+  // Search after a pause in typing, not on every key.
+  useEffect(() => {
+    const t = setTimeout(() => setQuery(search.trim()), 250);
+    return () => clearTimeout(t);
+  }, [search]);
+  const list = useQuery({
+    queryKey: [...CONVERSATIONS, query],
+    queryFn: () => chatApi.list(query),
+    retry: false,
+    placeholderData: keepPreviousData,
+  });
   return (
     <nav aria-label="Conversations" className="flex min-h-0 w-full flex-col gap-2">
       <Link
@@ -513,9 +666,27 @@ function ConversationList({ active }: { active: string | undefined }) {
       >
         <Plus size={14} aria-hidden /> New chat
       </Link>
+      <label className="relative block">
+        <span className="sr-only">Search conversations</span>
+        <Search
+          size={13}
+          aria-hidden
+          className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-fg-subtle"
+        />
+        <input
+          type="search"
+          value={search}
+          maxLength={200}
+          placeholder="Search"
+          onChange={(e) => setSearch(e.target.value)}
+          className="h-8 w-full rounded-control border border-border bg-surface-1 pr-2.5 pl-7 text-xs text-fg outline-none placeholder:text-fg-subtle focus:border-accent"
+        />
+      </label>
       {list.isError && <p className="px-1 text-xs text-danger">{list.error.message}</p>}
       {list.data?.length === 0 && (
-        <p className="px-1 text-xs text-fg-subtle">Saved conversations appear here.</p>
+        <p className="px-1 text-xs text-fg-subtle">
+          {query ? `No conversations match “${query}”.` : "Saved conversations appear here."}
+        </p>
       )}
       <ul className="min-h-0 flex-1 overflow-y-auto">
         {list.data?.map((c) => (

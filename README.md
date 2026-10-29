@@ -25,7 +25,9 @@ it — with full visibility and control.
   Markdown (no raw HTML). All turns of a conversation share one workspace, so a
   later message can use files an earlier one made. One message at a time: Stop
   cancels the answer in progress, and a failed or stopped last answer can be
-  tried again. The model can be changed between messages.
+  tried again. The model can be changed between messages. Conversations can be
+  renamed, deleted (after a confirm, and not while a message is being answered)
+  and searched by title, message or answer.
 - **Approvals (M4):** before the agent runs a shell command, the task stops as
   "needs you" and Chat and the task page show the exact command with Approve and
   Deny. The run carries on from where it stopped; a denied command is reported
@@ -52,8 +54,10 @@ it — with full visibility and control.
 | GET | `/api/v1/system` | session | host/process telemetry |
 | GET | `/api/v1/models` | admin | `{provider, default_model, models[]}` from the provider; 503 `provider_not_configured`, 502 `provider_<kind>` |
 | POST | `/api/v1/conversations` | admin | `{model, prompt}`, optional `Idempotency-Key` → 201 `{conversation, turns[]}` with the first message queued as a task; 200 with the original on a repeated key; 409 `idempotency_conflict`; 503 `provider_not_configured` |
-| GET | `/api/v1/conversations` | admin | The caller's conversations, most recently active first: `{id, title, model, turns, last_state, …}`; `?limit=1..200` |
+| GET | `/api/v1/conversations` | admin | The caller's conversations, most recently active first: `{id, title, model, turns, last_state, …}`; `?limit=1..200`; `?q=` (1–200 chars) keeps those whose title, messages or answers contain it, ignoring case |
 | GET | `/api/v1/conversations/{id}` | admin | `{conversation, turns[]}`, each turn a task (prompt, state, `result_text`, usage, `turn`); 404 `not_found` (also for another user's conversation) |
+| PATCH | `/api/v1/conversations/{id}` | admin | `{title}` (whitespace collapsed, 1–80 chars) → the conversation; its turns take the new title; 404 `not_found`; 422 |
+| DELETE | `/api/v1/conversations/{id}` | admin | 204; removes the conversation, its turns and their events; 409 `turn_in_progress` while a turn is queued, running or waiting; 404 `not_found` |
 | POST | `/api/v1/conversations/{id}/turns` | admin | `{prompt, model?}`, optional `Idempotency-Key` → 201 task carrying the earlier completed turns as context; `model` switches the conversation's model; 409 `turn_in_progress` while a turn is unfinished; 404 `not_found` |
 | POST | `/api/v1/tasks` | admin | `{model, prompt, title?}`, optional `Idempotency-Key` header → 201 task (`queued`); 200 with the existing task on a repeated key; 409 `idempotency_conflict`; 503 `provider_not_configured` |
 | GET | `/api/v1/tasks` | admin | Newest first; `?state=queued\|running\|waiting\|completed\|failed\|canceled`, `?limit=1..100` |
@@ -66,8 +70,9 @@ it — with full visibility and control.
 
 Every authenticated request other than GET/HEAD/OPTIONS must send the `seed_csrf`
 cookie's value in `X-CSRF-Token`, or it gets 403 `csrf_failed` (ADR-0009). Sign-ins,
-sign-outs, user changes, new conversations and task create/cancel/retry (chat turns
-included) and approval decisions are recorded in `audit_log`.
+sign-outs, user changes, new, renamed and deleted conversations, task
+create/cancel/retry (chat turns included) and approval decisions are recorded in
+`audit_log`.
 
 Without `SEED_DATABASE_URL` there is no sign-in (503 `auth_not_configured`), so
 every protected route answers that.
