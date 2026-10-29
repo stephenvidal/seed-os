@@ -607,3 +607,32 @@ resumed from a checkpoint already holds its summary in its messages, so no new
 summary is made; if a turn pauses for an approval after summarizing, the
 summary's tokens are not added to its usage (the checkpoint keeps the run's own).
 The owner cannot edit a summary yet.
+
+## D-023 — A task started outside a chat can run in a project
+
+**Date:** 2026-10-29
+
+**Context:** WS-5 lists a project's tasks. Chats could be in a project (D-017),
+but tasks started from the Tasks page could not, so they never got a project's
+instructions, memory or knowledge. The owner chose on 2026-10-29 to finish M6
+with this before M7.
+
+**Options:** (1) a project on lone tasks, copied like a chat turn's; (2) moving
+tasks into and out of projects after they are created; (3) leave lone tasks out of
+projects.
+
+**Choice:** Option 1. `POST /api/v1/tasks` takes `project_id`; the task copies the
+project's instructions and approved memory when it is created, exactly as a chat
+turn does, and its run gets the `remember` and `search_knowledge` tools. A task
+cannot change project afterwards. `GET /api/v1/tasks?project_id=` lists the
+project's tasks started outside a chat (its chats' turns are listed with the
+chats); projects count them as `tasks`. Deleting a project keeps its tasks and
+takes them out of it, as with chats.
+
+**Reason:** It reuses the turn's copy-on-send rule, so a task behaves like a
+one-message chat in the project and nothing new has to be explained. Moving a
+finished task (2) would change nothing about how it ran, so it is not built.
+
+**Consequences:** A task sees the project's instructions and memory as they were
+when it was created. A queued task in a project that is then deleted runs without
+the memory and knowledge tools.

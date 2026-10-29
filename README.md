@@ -39,7 +39,10 @@ it — with full visibility and control.
   lists its chats and the files they saved; "New chat" starts one in the project,
   and a chat's header moves it in or out. Each message copies the instructions
   when it is sent, so a change applies from the next message. Deleting a project
-  keeps its chats.
+  keeps its chats. Tasks can run in a project too (D-023): the project page's
+  "New task" opens Tasks with the project picked, the task gets the project's
+  instructions, memory and knowledge like a chat message, and the project page
+  lists its tasks.
 - **Project memory (M6):** short notes SEED is given in every chat of a project
   (D-018). In a project's chats the agent has a `remember` tool that only proposes
   a note; it waits on the project page ("Waiting for you") until you approve, edit
@@ -115,11 +118,11 @@ it — with full visibility and control.
 | POST | `/api/v1/conversations/{id}/turns/{turn_id}/versions` | admin | `{prompt?, model?}`, optional `Idempotency-Key` → 201 task: a new version of that message (edited with `prompt`, asked again without), carrying the turns above it; it ends the shown path and older versions are kept; 200 on a repeated key; 409 `turn_in_progress` while any turn is unfinished; 404 `not_found` |
 | PUT | `/api/v1/conversations/{id}/shown` | admin | `{turn_id}` → `{conversation, turns[]}` showing that version and its newest replies; 409 `turn_in_progress` while a turn is unfinished; 404 `not_found` |
 | PUT | `/api/v1/conversations/{id}/project` | admin | `{project_id}` (or `null` to take it out) → the conversation; messages sent from now on get that project's instructions; 404 `not_found`, `project_not_found` |
-| GET | `/api/v1/projects` | admin | The caller's projects, most recently changed first: `{id, name, instructions, conversations, proposed_memories, documents, …}` |
+| GET | `/api/v1/projects` | admin | The caller's projects, most recently changed first: `{id, name, instructions, conversations, proposed_memories, documents, tasks, …}` (`tasks`: tasks started in the project outside a chat) |
 | POST | `/api/v1/projects` | admin | `{name, instructions?}` (name: whitespace collapsed, 1–80 chars; instructions up to 20,000) → 201 project; 422 |
 | GET | `/api/v1/projects/{id}` | admin | The project; 404 `not_found` (also for another user's) |
 | PATCH | `/api/v1/projects/{id}` | admin | `{name?, instructions?}` → the project; 404 `not_found`; 422 |
-| DELETE | `/api/v1/projects/{id}` | admin | 204; its conversations are kept and leave the project; 404 `not_found` |
+| DELETE | `/api/v1/projects/{id}` | admin | 204; its conversations and tasks are kept and leave the project; 404 `not_found` |
 | GET | `/api/v1/projects/{id}/memories` | admin | The project's notes, proposals first, then approved, newest first: `{id, content, status, created_by, source_task_id, source_conversation_id, approved_by, approved_at, …}`; `?status=proposed\|approved`; 404 `not_found` |
 | POST | `/api/v1/projects/{id}/memories` | admin | `{content}` (whitespace collapsed, 1–500 chars) → 201 note, approved as written; 404; 422 |
 | PATCH | `/api/v1/projects/{id}/memories/{memory_id}` | admin | `{content?, approve?}` → the note; `approve: true` makes a proposal reach the model; 404 `not_found` |
@@ -129,14 +132,14 @@ it — with full visibility and control.
 | DELETE | `/api/v1/projects/{id}/memories/{memory_id}` | admin | 204; deletes a note or rejects a proposal; 404 `not_found` |
 | DELETE | `/api/v1/conversations/{id}` | admin | 204; removes the conversation, its turns and their events; 409 `turn_in_progress` while a turn is queued, running or waiting; 404 `not_found` |
 | POST | `/api/v1/conversations/{id}/turns` | admin | `{prompt, model?}`, optional `Idempotency-Key` → 201 task continuing the shown path, carrying its completed turns as context; `model` switches the conversation's model; 409 `turn_in_progress` while a turn is unfinished; 404 `not_found` |
-| POST | `/api/v1/tasks` | admin | `{model, prompt, title?}`, optional `Idempotency-Key` header → 201 task (`queued`); 200 with the existing task on a repeated key; 409 `idempotency_conflict`; 503 `provider_not_configured` |
+| POST | `/api/v1/tasks` | admin | `{model, prompt, title?, project_id?}`, optional `Idempotency-Key` header → 201 task (`queued`); with `project_id` the task copies the project's instructions and approved memory and gets its `remember` and `search_knowledge` tools (404 `project_not_found`); 200 with the existing task on a repeated key; 409 `idempotency_conflict`; 503 `provider_not_configured` |
 | GET | `/api/v1/overview` | admin | `?hours=1..720` (default 24) → `{window_hours, generated_at, counts, attention[], active[], recent[], usage[]}`: queued/running/waiting now; completed/failed/canceled, recent work and per-model tokens for tasks finished in the window; `attention` is every waiting task then failures in the window (10 max), `active` running then queued (10 max), `recent` 5 max; all users' tasks |
 | GET | `/api/v1/artifacts` | admin | Saved files, most recently changed first: `{id, path, media_type, conversation_id, source_title, task_id, versions, latest{version, task_id, size, deleted, created_at}, …}`; `?conversation_id=`, `?project_id=`, `?limit=1..500` |
 | GET | `/api/v1/artifacts/{id}` | admin | `{artifact, versions[]}` (newest first); 404 `not_found` |
 | GET | `/api/v1/artifacts/{id}/versions/{n}/content` | admin | The version's bytes, sandboxed by CSP (never runs); `?download=true` as an attachment; 410 `deleted`; 503 `artifacts_not_configured` without `SEED_ARTIFACT_ROOT` |
 | POST | `/api/v1/artifacts/{id}/preview` | admin | 201 `{url, expires_in}`: a link, valid 1 h, that serves the latest saved files of the file's workspace; 410 `deleted` |
 | GET | `/api/v1/previews/{token}/{path}` | link | A previewed file, sandboxed (scripts run; no same-origin access, no network); 404 for an unknown path or an expired link |
-| GET | `/api/v1/tasks` | admin | Newest first; `?state=queued\|running\|waiting\|completed\|failed\|canceled`, `?limit=1..100` |
+| GET | `/api/v1/tasks` | admin | Newest first; `?state=queued\|running\|waiting\|completed\|failed\|canceled`, `?project_id=` (the project's tasks started outside a chat), `?limit=1..100` |
 | GET | `/api/v1/tasks/{id}` | admin | Task: state, attempt, termination, error, result, usage, `last_seq`, `resumable_from_step`, `awaiting_approval` (`{id, name, arguments}` while `waiting`), and for a chat turn `conversation_id`, `turn`, `summary_of` (the newest earlier turn its model saw only in summary) and `summary` (the summary of the chat through this turn, once made); 404 `not_found` |
 | GET | `/api/v1/tasks/{id}/events` | admin | `{events[], last_seq, state}`; `?after=<seq>&limit=` for incremental reads. Events: `task_created`, `attempt_started`, run events, `checkpoint_saved` (`{steps, pending}`), `artifacts_saved` (`{saved[{path, version, deleted}], skipped[{path, reason}], truncated}`), `workspace_restored` (`{files}`), `artifacts_failed` (`{stage, error}`), `context_summarized` (`{through, turns, usage}`), `summary_failed` (`{error}`), `cancel_requested`, `task_requeued`, `task_released`, `lease_expired` |
 | GET | `/api/v1/tasks/{id}/stream` | admin | `text/event-stream`: each stored event as `id: <seq>` + JSON data, then `event: end` once the task is finished. Resumes after `Last-Event-ID` (or `?after=`); 404 `not_found` |
