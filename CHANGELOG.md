@@ -4,6 +4,12 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
 
 ## [Unreleased]
 ### Added
+- Projects (M6, D-017): `/projects` and `/projects/{id}` (name, instructions, the
+  project's chats and files); new chats start in a project from its page; a chat's
+  header moves it in or out. API `/api/v1/projects`, `PUT
+  /api/v1/conversations/{id}/project`, `project_id` on starting a conversation and
+  as a filter on conversations and artifacts; migration 0008. The worker adds the
+  instructions a turn was sent with to the system prompt.
 - Studio (M6, ADR-0015): `/studio` lists saved files by chat or task;
   `/studio/{id}` shows versions, text or images, downloads, and runs HTML as a
   sandboxed preview of the latest files. API `GET /api/v1/artifacts`,
