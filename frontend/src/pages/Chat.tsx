@@ -665,6 +665,15 @@ function ConversationHeader({
               Open project
             </Link>
           )}
+          {(projects.data.find((p) => p.id === conversation.project_id)?.proposed_memories ?? 0) >
+            0 && (
+            <Link
+              to={`/projects/${conversation.project_id}`}
+              className="text-accent hover:underline"
+            >
+              Memory to review
+            </Link>
+          )}
         </div>
       )}
       {mode === "delete" && (
@@ -718,6 +727,7 @@ function ConversationView({ id }: { id: string }) {
   const refresh = useCallback(() => {
     void qc.invalidateQueries({ queryKey: conversationKey(id) });
     void qc.invalidateQueries({ queryKey: CONVERSATIONS });
+    void qc.invalidateQueries({ queryKey: PROJECTS }); // the answer may have proposed memory
   }, [qc, id]);
   const send = useMutation({
     mutationFn: (prompt: string) =>

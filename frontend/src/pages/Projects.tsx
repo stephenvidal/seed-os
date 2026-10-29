@@ -12,8 +12,15 @@ import { Spinner } from "../components/ui/Spinner";
 import { ApiError } from "../lib/api";
 import { chatApi } from "../lib/chat";
 import { formatBytes } from "../lib/format";
-import { PROJECTS, projectKey, projectsApi } from "../lib/projects";
-import type { Project } from "../lib/projects";
+import {
+  MAX_NOTE_CHARS,
+  PROJECTS,
+  memoryApi,
+  memoryKey,
+  projectKey,
+  projectsApi,
+} from "../lib/projects";
+import type { Memory, Project } from "../lib/projects";
 import { studioApi } from "../lib/studio";
 
 const MAX_INSTRUCTIONS = 20_000;
@@ -103,6 +110,9 @@ export function ProjectsPage() {
                   className="flex items-center gap-3 px-4 py-2.5 hover:bg-surface-2"
                 >
                   <span className="min-w-0 flex-1 truncate text-sm text-fg">{p.name}</span>
+                  {p.proposed_memories > 0 && (
+                    <Badge tone="accent">{p.proposed_memories} to review</Badge>
+                  )}
                   {p.instructions && <Badge>instructions</Badge>}
                   <span className="shrink-0 text-xs text-fg-muted tabular-nums">
                     {p.conversations === 1 ? "1 chat" : `${p.conversations} chats`}
@@ -290,6 +300,201 @@ function Instructions({ project }: { project: Project }) {
   );
 }
 
+function Note({ project, note }: { project: Project; note: Memory }) {
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(note.content);
+  const done = () => {
+    void qc.invalidateQueries({ queryKey: memoryKey(project.id) });
+    void qc.invalidateQueries({ queryKey: projectKey(project.id) });
+    void qc.invalidateQueries({ queryKey: PROJECTS });
+  };
+  const update = useMutation({
+    mutationFn: (body: { content?: string; approve?: boolean }) =>
+      memoryApi.update(project.id, note.id, body),
+    onSuccess: () => {
+      setEditing(false);
+      done();
+    },
+  });
+  const remove = useMutation({
+    mutationFn: () => memoryApi.remove(project.id, note.id),
+    onSuccess: done,
+  });
+  const proposed = note.status === "proposed";
+  const busy = update.isPending || remove.isPending;
+  const failure = update.error ?? remove.error;
+
+  return (
+    <li className="flex flex-col gap-2 px-4 py-3">
+      {editing ? (
+        <form
+          className="flex flex-col gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (tidy(text)) update.mutate({ content: tidy(text), approve: proposed });
+          }}
+        >
+          <textarea
+            aria-label="Note"
+            value={text}
+            maxLength={MAX_NOTE_CHARS}
+            rows={2}
+            autoFocus
+            onChange={(e) => setText(e.target.value)}
+            className={`resize-y py-1.5 ${field}`}
+          />
+          <div className="flex flex-wrap gap-2">
+            <Button type="submit" variant="primary" size="sm" disabled={busy || !tidy(text)}>
+              {proposed ? "Save and approve" : "Save"}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
+              Cancel
+            </Button>
+          </div>
+        </form>
+      ) : (
+        <p className="text-sm break-words text-fg">{note.content}</p>
+      )}
+      <div className="flex flex-wrap items-center gap-2 text-xs text-fg-muted">
+        <span className="min-w-0 flex-1">
+          {note.created_by === "agent" ? "Proposed by SEED" : `Added by ${note.created_by}`}
+          {note.source_conversation_id && (
+            <>
+              {" in "}
+              <Link
+                to={`/chat/${note.source_conversation_id}`}
+                className="text-accent hover:underline"
+              >
+                its chat
+              </Link>
+            </>
+          )}
+        </span>
+        {!editing && (
+          <>
+            {proposed && (
+              <Button
+                size="sm"
+                variant="primary"
+                disabled={busy}
+                onClick={() => update.mutate({ approve: true })}
+              >
+                Approve
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={busy}
+              onClick={() => {
+                setText(note.content);
+                update.reset();
+                setEditing(true);
+              }}
+            >
+              Edit
+            </Button>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => remove.mutate()}>
+              {proposed ? "Reject" : "Delete"}
+            </Button>
+          </>
+        )}
+      </div>
+      {failure && (
+        <p role="alert" className="text-xs text-danger">
+          {failure instanceof ApiError ? failure.message : "Unexpected error."}
+        </p>
+      )}
+    </li>
+  );
+}
+
+function MemoryPanel({ project }: { project: Project }) {
+  const qc = useQueryClient();
+  const memory = useQuery({
+    queryKey: memoryKey(project.id),
+    queryFn: () => memoryApi.list(project.id),
+    retry: false,
+  });
+  const [text, setText] = useState("");
+  const add = useMutation({
+    mutationFn: () => memoryApi.add(project.id, tidy(text)),
+    onSuccess: () => {
+      setText("");
+      void qc.invalidateQueries({ queryKey: memoryKey(project.id) });
+    },
+  });
+  const proposed = memory.data?.filter((m) => m.status === "proposed") ?? [];
+  const approved = memory.data?.filter((m) => m.status === "approved") ?? [];
+  return (
+    <Panel title="Memory">
+      <p className="px-4 pt-3 text-xs text-fg-muted">
+        Notes SEED is given in every chat of this project. SEED can propose notes; they are used
+        only after you approve them.
+      </p>
+      {memory.isPending ? (
+        <Loading />
+      ) : memory.isError ? (
+        <Failure error={memory.error} />
+      ) : (
+        <>
+          {proposed.length > 0 && (
+            <section aria-label="Waiting for you" className="mt-3">
+              <h3 className="border-y border-border bg-accent-soft px-4 py-1.5 text-xs font-semibold text-accent-soft-fg">
+                Waiting for you ({proposed.length})
+              </h3>
+              <ul className="divide-y divide-border">
+                {proposed.map((m) => (
+                  <Note key={m.id} project={project} note={m} />
+                ))}
+              </ul>
+            </section>
+          )}
+          {approved.length > 0 ? (
+            <ul
+              aria-label="Remembered"
+              className="mt-3 divide-y divide-border border-t border-border"
+            >
+              {approved.map((m) => (
+                <Note key={m.id} project={project} note={m} />
+              ))}
+            </ul>
+          ) : (
+            proposed.length === 0 && (
+              <p className="px-4 pt-3 text-sm text-fg-muted">Nothing remembered yet.</p>
+            )
+          )}
+        </>
+      )}
+      <form
+        className="flex flex-wrap items-center gap-2 border-t border-border px-4 py-3 mt-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (tidy(text)) add.mutate();
+        }}
+      >
+        <input
+          aria-label="New note"
+          placeholder="Add a note, for example: the site targets mobile first"
+          value={text}
+          maxLength={MAX_NOTE_CHARS}
+          onChange={(e) => setText(e.target.value)}
+          className={`h-8 min-w-0 flex-1 ${field}`}
+        />
+        <Button type="submit" size="sm" disabled={add.isPending || !tidy(text)}>
+          <Plus size={14} aria-hidden /> Add
+        </Button>
+        {add.isError && (
+          <p role="alert" className="w-full text-xs text-danger">
+            {add.error instanceof ApiError ? add.error.message : "Unexpected error."}
+          </p>
+        )}
+      </form>
+    </Panel>
+  );
+}
+
 function Chats({ project }: { project: Project }) {
   const chats = useQuery({
     queryKey: ["conversations", "project", project.id],
@@ -410,6 +615,7 @@ export function ProjectPage() {
       <Header key={project.data.name} project={project.data} />
       <div className="flex flex-col gap-4">
         <Instructions project={project.data} />
+        <MemoryPanel project={project.data} />
         <div className="grid gap-4 lg:grid-cols-2">
           <Chats project={project.data} />
           <Files project={project.data} />

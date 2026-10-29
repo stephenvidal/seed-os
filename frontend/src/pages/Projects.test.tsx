@@ -23,6 +23,7 @@ const project = (over: Record<string, unknown> = {}) => ({
   created_at: "2026-10-29T10:00:00Z",
   updated_at: "2026-10-29T10:00:00Z",
   conversations: 1,
+  proposed_memories: 0,
   ...over,
 });
 
@@ -85,7 +86,23 @@ const PROJECT_ROUTES = {
     body: [{ ...conversation, turns: 3, last_state: "completed" }],
   },
   "GET /api/v1/artifacts?limit=500&project_id=p1": { status: 200, body: [file] },
+  "GET /api/v1/projects/p1/memories": { status: 200, body: [] },
 };
+
+const note = (over: Record<string, unknown> = {}) => ({
+  id: "m1",
+  project_id: "p1",
+  content: "The site uses plain CSS.",
+  status: "approved",
+  created_by: "admin",
+  source_task_id: null,
+  source_conversation_id: null,
+  approved_by: "admin",
+  approved_at: "2026-10-29T10:00:00Z",
+  created_at: "2026-10-29T10:00:00Z",
+  updated_at: "2026-10-29T10:00:00Z",
+  ...over,
+});
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -103,6 +120,7 @@ describe("Projects", () => {
       },
       "GET /api/v1/projects/p2": () => ({ status: 200, body: list[0] }),
       "GET /api/v1/conversations?limit=200&project_id=p2": { status: 200, body: [] },
+      "GET /api/v1/projects/p2/memories": { status: 200, body: [] },
       "GET /api/v1/artifacts?limit=500&project_id=p2": { status: 200, body: [] },
     });
     const user = userEvent.setup();
@@ -111,6 +129,7 @@ describe("Projects", () => {
     expect(row).toHaveAttribute("href", "/projects/p1");
     expect(row).toHaveTextContent("instructions");
     expect(row).toHaveTextContent("1 chat");
+    expect(row).not.toHaveTextContent("to review");
     expect(await axe(container)).toHaveNoViolations();
 
     const create = screen.getByRole("button", { name: "Create" });
@@ -197,6 +216,141 @@ describe("Projects", () => {
     renderApp(<App />, "/projects/nope");
     expect(await screen.findByRole("alert")).toHaveTextContent("No such project.");
   });
+
+  it("shows how many memory proposals wait", async () => {
+    mockApi({
+      "GET /api/v1/auth/me": ME,
+      "GET /api/v1/projects": { status: 200, body: [project({ proposed_memories: 2 })] },
+    });
+    renderApp(<App />, "/projects");
+    expect(await screen.findByRole("link", { name: /Launch site/ })).toHaveTextContent(
+      "2 to review",
+    );
+  });
+
+  it("approves, edits and rejects proposals, and adds and deletes notes", async () => {
+    let notes = [
+      note({
+        id: "m2",
+        content: "Deploys go out on Fridays.",
+        status: "proposed",
+        created_by: "agent",
+        source_conversation_id: "c1",
+        approved_by: null,
+        approved_at: null,
+      }),
+      note({
+        id: "m3",
+        content: "Use metric units.",
+        status: "proposed",
+        created_by: "agent",
+        approved_by: null,
+        approved_at: null,
+      }),
+      note(),
+    ];
+    const set = (id: string, over: Record<string, unknown>) => {
+      notes = notes.map((n) => (n.id === id ? { ...n, ...over } : n));
+      return { status: 200, body: notes.find((n) => n.id === id) };
+    };
+    const spy = mockApi({
+      ...PROJECT_ROUTES,
+      "GET /api/v1/projects/p1": { status: 200, body: project({ proposed_memories: 2 }) },
+      "GET /api/v1/projects": { status: 200, body: [project()] },
+      "GET /api/v1/projects/p1/memories": () => ({ status: 200, body: notes }),
+      "PATCH /api/v1/projects/p1/memories/m2": () => set("m2", { status: "approved" }),
+      "PATCH /api/v1/projects/p1/memories/m3": () =>
+        set("m3", { status: "approved", content: "Use metric units only." }),
+      "DELETE /api/v1/projects/p1/memories/m1": () => {
+        notes = notes.filter((n) => n.id !== "m1");
+        return { status: 204 };
+      },
+      "POST /api/v1/projects/p1/memories": () => {
+        notes = [...notes, note({ id: "m4", content: "Stephen likes short answers." })];
+        return { status: 201, body: notes.at(-1) };
+      },
+    });
+    const user = userEvent.setup();
+    const { container } = renderApp(<App />, "/projects/p1");
+    const waiting = await screen.findByRole("region", { name: "Waiting for you" });
+    expect(within(waiting).getAllByRole("listitem")).toHaveLength(2);
+    const first = within(waiting).getAllByRole("listitem")[0]!;
+    expect(first).toHaveTextContent("Deploys go out on Fridays.");
+    expect(first).toHaveTextContent("Proposed by SEED in its chat");
+    expect(within(first).getByRole("link", { name: "its chat" })).toHaveAttribute(
+      "href",
+      "/chat/c1",
+    );
+    const remembered = screen.getByRole("list", { name: "Remembered" });
+    expect(remembered).toHaveTextContent("The site uses plain CSS.");
+    expect(remembered).toHaveTextContent("Added by admin");
+    expect(within(remembered).queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
+    expect(await axe(container)).toHaveNoViolations();
+
+    await user.click(within(first).getByRole("button", { name: "Approve" }));
+    await waitFor(() =>
+      expect(screen.getByRole("list", { name: "Remembered" })).toHaveTextContent(
+        "Deploys go out on Fridays.",
+      ),
+    );
+    expect(sent(spy, "PATCH", "/api/v1/projects/p1/memories/m2")).toEqual({ approve: true });
+
+    const second = within(screen.getByRole("region", { name: "Waiting for you" })).getByRole(
+      "listitem",
+    );
+    await user.click(within(second).getByRole("button", { name: "Edit" }));
+    const box = within(second).getByLabelText("Note");
+    await user.clear(box);
+    await user.type(box, "Use metric  units only.");
+    await user.click(within(second).getByRole("button", { name: "Save and approve" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("region", { name: "Waiting for you" })).not.toBeInTheDocument(),
+    );
+    expect(sent(spy, "PATCH", "/api/v1/projects/p1/memories/m3")).toEqual({
+      content: "Use metric units only.",
+      approve: true,
+    });
+
+    const css = within(screen.getByRole("list", { name: "Remembered" }))
+      .getAllByRole("listitem")
+      .find((li) => li.textContent?.includes("plain CSS"))!;
+    await user.click(within(css).getByRole("button", { name: "Delete" }));
+    await waitFor(() =>
+      expect(screen.getByRole("list", { name: "Remembered" })).not.toHaveTextContent("plain CSS"),
+    );
+
+    expect(screen.getByRole("button", { name: "Add" })).toBeDisabled();
+    await user.type(screen.getByLabelText("New note"), " Stephen  likes short answers. {Enter}");
+    expect(sent(spy, "POST", "/api/v1/projects/p1/memories")).toEqual({
+      content: "Stephen likes short answers.",
+    });
+    expect(
+      await within(screen.getByRole("list", { name: "Remembered" })).findByText(
+        "Stephen likes short answers.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("New note")).toHaveValue("");
+  });
+
+  it("rejects a proposal", async () => {
+    let notes = [note({ id: "m2", status: "proposed", created_by: "agent", content: "A guess." })];
+    const spy = mockApi({
+      ...PROJECT_ROUTES,
+      "GET /api/v1/projects/p1": { status: 200, body: project({ proposed_memories: 1 }) },
+      "GET /api/v1/projects": { status: 200, body: [project()] },
+      "GET /api/v1/projects/p1/memories": () => ({ status: 200, body: notes }),
+      "DELETE /api/v1/projects/p1/memories/m2": () => {
+        notes = [];
+        return { status: 204 };
+      },
+    });
+    const user = userEvent.setup();
+    renderApp(<App />, "/projects/p1");
+    const waiting = await screen.findByRole("region", { name: "Waiting for you" });
+    await user.click(within(waiting).getByRole("button", { name: "Reject" }));
+    expect(await screen.findByText("Nothing remembered yet.")).toBeInTheDocument();
+    expect(spy.mock.calls.some((c) => c[1]?.method === "PATCH")).toBe(false);
+  });
 });
 
 describe("Chat in a project", () => {
@@ -271,5 +425,20 @@ describe("Chat in a project", () => {
       JSON.stringify({ project_id: "p1" }),
       JSON.stringify({ project_id: null }),
     ]);
+  });
+
+  it("points to memory waiting for review", async () => {
+    mockApi({
+      "GET /api/v1/auth/me": ME,
+      "GET /api/v1/models": MODELS,
+      "GET /api/v1/conversations?limit=200": { status: 200, body: [] },
+      "GET /api/v1/projects": { status: 200, body: [project({ proposed_memories: 1 })] },
+      "GET /api/v1/conversations/c1": { status: 200, body: { conversation, turns: [turn] } },
+    });
+    renderApp(<App />, "/chat/c1");
+    expect(await screen.findByRole("link", { name: "Memory to review" })).toHaveAttribute(
+      "href",
+      "/projects/p1",
+    );
   });
 });

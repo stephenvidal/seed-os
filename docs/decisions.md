@@ -430,7 +430,35 @@ versions work (ADR-0014) without a stated need.
 Lone tasks are not in projects yet. Memory (owner's choice on 2026-10-29: the agent
 proposes, the owner approves) builds on this.
 
-## D-018 — Model output is shown rendered first
+## D-018 — Project memory: the agent proposes, the owner approves
+
+**Date:** 2026-10-29
+
+**Context:** The requirements ask for project memory with provenance, update,
+delete, scope and context budgeting, and "no silent promotion of untrusted
+content". The owner chose on 2026-10-29 that the agent proposes and the owner
+approves, and that the owner can also add, edit and delete notes.
+
+**Options:** the agent saves freely; only the owner writes; the agent proposes and
+the owner approves (chosen).
+
+**Choice:** A `remember` tool, offered only in a project's turns, stores a
+proposal with its source chat and task. It does not pause the run (unlike command
+approvals, ADR-0012): the proposal waits on the project page, and only approved
+notes reach the model. Rejecting deletes the proposal. Each turn copies the
+approved notes when it is sent (newest first, whole notes, at most 4,000
+characters) like its instructions (D-017), and the worker adds them to the system
+prompt as owner-approved notes. A task may propose at most 5 notes; the same note
+is proposed once, so a retried run adds nothing.
+
+**Reason:** Nothing the agent read becomes standing context without a person
+seeing it, and waiting for review does not hold up the answer.
+
+**Consequences:** A proposal takes effect from the first message after it is
+approved. Older notes beyond the budget are not sent; relevance filtering and
+searchable knowledge are not built.
+
+## D-019 — Model output is shown rendered first
 
 **Date:** 2026-10-29
 

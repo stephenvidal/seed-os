@@ -44,6 +44,7 @@ async def pool(db_url: str) -> AsyncIterator[Pool]:
         "0006_artifacts",
         "0007_previews",
         "0008_projects",
+        "0009_memory",
     ]
     yield pool
     await pool.close()

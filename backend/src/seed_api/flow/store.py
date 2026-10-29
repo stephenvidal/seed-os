@@ -67,8 +67,10 @@ class Task(BaseModel):
     turn: int | None
     parent_id: uuid.UUID | None
     context: list[ContextMessage]
-    # The project's instructions when the turn was sent (D-017).
+    # Copied from the project when the turn was sent (D-017, D-018).
+    project_id: uuid.UUID | None
     instructions: str | None
+    memory: str | None
     workspace_id: uuid.UUID | None
     awaiting_approval: ToolCall | None
     approvals: dict[str, Decision]
@@ -127,7 +129,9 @@ async def insert_task(
     turn: int | None = None,
     parent_id: uuid.UUID | None = None,
     context: list[ContextMessage] | None = None,
+    project_id: uuid.UUID | None = None,
     instructions: str | None = None,
+    memory: str | None = None,
 ) -> DictRow | None:
     """Insert a queued task and its first event. Returns None, inserting nothing,
     when this creator already used the idempotency key. Call inside a transaction."""
@@ -135,8 +139,8 @@ async def insert_task(
         """
         INSERT INTO tasks (id, created_by, title, model, prompt, state, idempotency_key,
                            max_attempts, last_seq, conversation_id, turn, parent_id, context,
-                           workspace_id, instructions)
-        VALUES (%s, %s, %s, %s, %s, 'queued', %s, %s, 1, %s, %s, %s, %s, %s, %s)
+                           workspace_id, project_id, instructions, memory)
+        VALUES (%s, %s, %s, %s, %s, 'queued', %s, %s, 1, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (created_by, idempotency_key) DO NOTHING
         RETURNING *
         """,
@@ -153,7 +157,9 @@ async def insert_task(
             parent_id,
             Jsonb([m.model_dump() for m in context or []]),
             conversation_id,
+            project_id,
             instructions,
+            memory,
         ),
     )
     row = await cur.fetchone()
