@@ -355,20 +355,24 @@ export function pendingApproval(events: TaskEvent[]): ToolCallInfo | null {
 }
 
 /**
- * The agent task a task is waiting for, read from its events: the last
- * delegation that has not reported back, unless the task was canceled since.
+ * The agent tasks a task has working for it, read from its events: each delegation
+ * that has not reported back, until the task is canceled or its run ends other than
+ * by waiting for them. One step can hand work to several agents at once (D-026).
  */
-export function pendingDelegation(events: TaskEvent[]): { agent: string; taskId: string } | null {
-  let open: { agent: string; taskId: string } | null = null;
+export function pendingDelegations(
+  events: TaskEvent[],
+): { id: string; agent: string; taskId: string }[] {
+  let open: { id: string; agent: string; taskId: string }[] = [];
   for (const e of events) {
+    const d = e.data;
     if (e.type === "delegated")
-      open = { agent: String(e.data.agent), taskId: String(e.data.task_id) };
+      open.push({ id: String(d.id), agent: String(d.agent), taskId: String(d.task_id) });
+    else if (e.type === "delegation_finished") open = open.filter((o) => o.id !== String(d.id));
     else if (
-      e.type === "delegation_finished" ||
       e.type === "cancel_requested" ||
-      (e.type === "run_finished" && e.data.termination !== "awaiting_delegation")
+      (e.type === "run_finished" && d.termination !== "awaiting_delegation")
     )
-      open = null;
+      open = [];
   }
   return open;
 }

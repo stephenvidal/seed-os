@@ -272,12 +272,19 @@ describe("Chat", () => {
       es.emit(1, "step_started", { step: 1 });
       es.emit(2, "delegation_requested", { id: "c", name: "delegate", arguments: {} });
       es.emit(3, "delegated", { id: "c", agent: "Researcher", task_id: "t9" });
+      es.emit(4, "delegated", { id: "d", agent: "Coder", task_id: "t8" });
     });
     expect(await screen.findByText(/Researcher is working on part of this/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Follow it" })).toHaveAttribute("href", "/tasks/t9");
+    expect(screen.getByText(/Coder is working on part of this/)).toBeInTheDocument();
+    expect(
+      screen.getAllByRole("link", { name: "Follow it" }).map((a) => a.getAttribute("href")),
+    ).toEqual(["/tasks/t9", "/tasks/t8"]);
     act(() =>
-      es.emit(4, "delegation_finished", { id: "c", agent: "Researcher", state: "completed" }),
+      es.emit(5, "delegation_finished", { id: "c", agent: "Researcher", state: "completed" }),
     );
+    await waitFor(() => expect(screen.queryByText(/Researcher is working/)).toBeNull());
+    expect(screen.getByText(/Coder is working on part of this/)).toBeInTheDocument();
+    act(() => es.emit(6, "delegation_finished", { id: "d", agent: "Coder", state: "failed" }));
     await waitFor(() => expect(screen.queryByText(/is working on part of this/)).toBeNull());
   });
 
