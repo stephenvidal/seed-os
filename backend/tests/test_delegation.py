@@ -44,9 +44,13 @@ async def pool(db_url: str) -> AsyncIterator[Pool]:
 class Runner:
     """Runs queued tasks one at a time, each with its own scripted provider."""
 
-    def __init__(self, pool: Pool, tmp_path: Path) -> None:
+    def __init__(self, pool: Pool, tmp_path: Path, **settings: object) -> None:
         self.tasks = TaskStore(pool)
-        self.settings = Settings(workspace_root=str(tmp_path), worker_lease_seconds=3)
+        self.settings = Settings(
+            workspace_root=str(tmp_path),
+            worker_lease_seconds=3,
+            **settings,  # type: ignore[arg-type]
+        )
         self.providers: list[ScriptedProvider] = []
 
     async def next(self, *script: Step) -> ScriptedProvider:
@@ -270,3 +274,173 @@ async def test_no_agents_no_delegate_tool(pool: Pool, tmp_path: Path) -> None:
     await start_turn(pool)
     provider = await run.next(reply("ok"))
     assert "delegate" not in [t.name for t in provider.requests[0].tools]
+
+
+def ask(agent: str, n: int) -> tuple[str, dict[str, object]]:
+    return ("delegate", {"agent": agent, "task": f"Job {n}.", "deliverable": "A line."})
+
+
+def tool_results(provider: ScriptedProvider, request: int = 0) -> dict[str, dict[str, object]]:
+    return {
+        str(m.tool_call_id): json.loads(m.content)
+        for m in provider.requests[request].messages
+        if m.role == "tool"
+    }
+
+
+@pytest.mark.anyio
+async def test_one_steps_hand_offs_start_together_and_report_in_any_order(
+    pool: Pool, tmp_path: Path
+) -> None:
+    await AgentStore(pool).all("admin")
+    run = Runner(pool, tmp_path)
+    turn = await start_turn(pool)
+    await run.next(calls(ask("Researcher", 0), ask("Coder", 1), ask("Reviewer", 2)))
+    kids = await children(pool, turn.id)
+    assert [(c.delegated_call, c.state, c.delegation_depth) for c in kids] == [
+        ("call_0", "queued", 1),
+        ("call_1", "queued", 1),
+        ("call_2", "queued", 1),
+    ]
+    parent = await run.task(turn.id)
+    assert parent.state == "waiting" and parent.awaiting_delegation is not None
+    assert parent.awaiting_delegation.id == "call_0"
+    delegated = [d for t, d in await run.events(turn.id) if t == "delegated"]
+    assert [d["agent"] for d in delegated] == ["Researcher", "Coder", "Reviewer"]
+
+    # The second agent ends first: kept for later, the task still waits for the first.
+    await run.tasks.request_cancel(kids[1].id)
+    parent = await run.task(turn.id)
+    assert parent.state == "waiting" and set(parent.delegations) == {"call_1"}
+    await run.next(reply("first"))
+    assert (await run.task(turn.id)).state == "queued"
+
+    # Resumed, it waits again for the third, which is already working: none start.
+    await run.next()
+    parent = await run.task(turn.id)
+    assert parent.state == "waiting" and parent.awaiting_delegation is not None
+    assert parent.awaiting_delegation.id == "call_2"
+    assert len(await children(pool, turn.id)) == 3
+    await run.next(reply("third"))
+    provider = await run.next(reply("All three reported."))
+    results = tool_results(provider)
+    assert [results[c].get("result") for c in ("call_0", "call_2")] == ["first", "third"]
+    assert results["call_1"]["state"] == "canceled"
+    assert (await run.task(turn.id)).state == "completed"
+
+
+@pytest.mark.anyio
+async def test_at_most_so_many_agents_work_at_once(pool: Pool, tmp_path: Path) -> None:
+    await AgentStore(pool).all("admin")
+    run = Runner(pool, tmp_path, delegation_max_parallel=2)
+    turn = await start_turn(pool)
+    await run.next(calls(ask("Researcher", 0), ask("Coder", 1), ask("Reviewer", 2)))
+    assert [c.delegated_call for c in await children(pool, turn.id)] == ["call_0", "call_1"]
+    await run.next(reply("first"))
+    await run.next()  # resumes, waits for call_1, and starts call_2 as call_0 is done
+    kids = await children(pool, turn.id)
+    assert [(c.delegated_call, c.state) for c in kids] == [
+        ("call_0", "completed"),
+        ("call_1", "queued"),
+        ("call_2", "queued"),
+    ]
+    await run.next(reply("second"))
+    assert (await run.task(turn.id)).state == "queued"
+    await run.tasks.request_cancel(kids[2].id)  # ends while the parent is queued: kept
+    provider = await run.next(reply("done"))
+    results = tool_results(provider)
+    assert [results[c].get("result") for c in ("call_0", "call_1")] == ["first", "second"]
+    assert results["call_2"]["state"] == "canceled"
+
+
+@pytest.mark.anyio
+async def test_hand_offs_past_the_per_task_limit_are_refused(pool: Pool, tmp_path: Path) -> None:
+    await AgentStore(pool).all("admin")
+    run = Runner(pool, tmp_path, delegation_max_per_task=2)
+    turn = await start_turn(pool)
+    await run.next(calls(ask("Nobody", 0), ask("Coder", 1), ask("Reviewer", 2)))
+    kids = await children(pool, turn.id)
+    assert [c.delegated_call for c in kids] == ["call_1"]  # the refusal counts too
+    refused = {
+        d["id"]: d["reason"] for t, d in await run.events(turn.id) if t == "delegation_refused"
+    }
+    assert refused["call_0"].startswith("No agent named 'Nobody'")
+    assert refused["call_2"] == "This task already handed out 2 jobs, the most allowed."
+    parent = await run.task(turn.id)
+    assert parent.awaiting_delegation is None and parent.state == "queued"  # call_0 answered
+    await run.next()  # resumes, answers call_0, waits for call_1
+    assert (await run.task(turn.id)).state == "waiting"
+    await run.next(reply("done"))
+    provider = await run.next(reply("ok"))
+    results = tool_results(provider)
+    assert results["call_2"] == {"error": "This task already handed out 2 jobs, the most allowed."}
+    assert results["call_1"]["result"] == "done"
+    types = [t for t, _ in await run.events(turn.id)]
+    assert types.count("delegation_refused") == 2  # each call is answered once
+
+
+@pytest.mark.anyio
+async def test_agents_hand_on_only_as_deep_as_allowed(pool: Pool, tmp_path: Path) -> None:
+    await AgentStore(pool).all("admin")
+    run = Runner(pool, tmp_path, delegation_max_depth=2)
+    turn = await start_turn(pool)
+    await run.next(calls(ask("Researcher", 0)))
+    [child] = await children(pool, turn.id)
+    second = await run.next(calls(ask("Coder", 1)))  # the agent may delegate once more
+    assert "delegate" in [t.name for t in second.requests[0].tools]
+    [grandchild] = await children(pool, child.id)
+    assert grandchild.delegation_depth == 2
+    third = await run.next(reply("deepest"))
+    assert "delegate" not in [t.name for t in third.requests[0].tools]
+    assert (await run.task(child.id)).state == "queued"
+
+
+@pytest.mark.anyio
+async def test_a_task_that_ends_cancels_its_working_agents(
+    pool: Pool, tmp_path: Path, db_url: str
+) -> None:
+    await AgentStore(pool).all("admin")
+    run = Runner(pool, tmp_path)
+    turn = await start_turn(pool)
+    await run.next(calls(ask("Researcher", 0), ask("Coder", 1)))
+    first, second = await children(pool, turn.id)
+    await run.next(reply("first"))
+    with psycopg.connect(db_url) as conn:  # resumed, its last worker vanished
+        conn.execute(
+            "UPDATE tasks SET state = 'running', attempt = max_attempts, lease_owner = 'gone', "
+            "lease_expires_at = now() - interval '1 minute' WHERE id = %s",
+            (turn.id,),
+        )
+    assert await run.tasks.sweep() == 1
+    assert (await run.task(turn.id)).state == "failed"
+    assert (await run.task(second.id)).state == "canceled"
+
+    # Retried, the same call ids hand off afresh: the old agent tasks are spent.
+    assert await run.tasks.retry(turn.id, extra_attempts=1) is not None
+    await run.next(calls(ask("Researcher", 0)))
+    kids = await children(pool, turn.id)
+    assert len(kids) == 3 and kids[2].state == "queued"
+    parent = await run.task(turn.id)
+    assert parent.state == "waiting" and parent.awaiting_delegation is not None
+
+
+@pytest.mark.anyio
+async def test_hand_offs_wait_their_turn_behind_an_approval(pool: Pool, tmp_path: Path) -> None:
+    await AgentStore(pool).all("admin")
+    run = Runner(pool, tmp_path, approval_required_tools=["delegate"])
+    turn = await start_turn(pool)
+    await run.next(calls(ask("Researcher", 0), ask("Coder", 1)))
+    assert (await run.task(turn.id)).awaiting_approval is not None
+    await run.tasks.decide(turn.id, call_id="call_0", approved=True, by="admin")
+    await run.next()  # the second call needs its own approval first
+    assert [c.delegated_call for c in await children(pool, turn.id)] == ["call_0"]
+
+
+@pytest.mark.anyio
+async def test_calls_past_the_steps_cap_are_not_handed_off(pool: Pool, tmp_path: Path) -> None:
+    await AgentStore(pool).all("admin")
+    run = Runner(pool, tmp_path, delegation_max_parallel=8)
+    turn = await start_turn(pool)
+    # The loop runs 8 calls a step; the ninth gets a "limit" error, not an agent.
+    await run.next(calls(ask("Nobody", 0), *(ask("Coder", n) for n in range(1, 9))))
+    assert len(await children(pool, turn.id)) == 7

@@ -707,3 +707,46 @@ limits and usage, and needs no new service.
 are M7 step 3); agents share the parent's workspace. The agent's tokens are its
 own task's usage, not added to the parent's. The first listing of agents, from
 the Agents page or from a run, gives an owner the starters (D-024).
+
+## D-026 — Parallel delegation, with limits, and several tasks per worker
+
+**Date:** 2026-10-29
+
+**Context:** The requirements list "parallel subtasks" as a delegation mode and
+"delegation depth, concurrent workers" as configurable limits. Under D-025 a
+step that asked for three agents started one, waited, then started the next,
+and an agent could not delegate at all. A worker process ran one task at a
+time, so a single-worker install made agents queue behind each other.
+
+**Options:** (1) start every delegate call of a step at once; (2) start them in
+order up to a limit on agents working at once, and start the rest as earlier
+ones report back; (3) a scheduler service that assigns agent tasks to workers.
+
+**Choice:** Option 2. When the run pauses on a delegate call, the worker reads
+the step's remaining calls from the checkpoint and, in one transaction, starts
+an agent task for each valid delegate call not already working or answered,
+while fewer than `SEED_DELEGATION_MAX_PARALLEL` (default 3) of this task's
+agents are working; the call the run waits on always starts. Calls naming no
+agent, and calls past `SEED_DELEGATION_MAX_PER_TASK` (default 10, refusals
+included) in one run, are answered at once with the reason. The scan stops at a
+call that needs approval, since a person decides before anything after it
+happens, and at the loop's per-step call cap. A result that arrives while the
+parent is queued or running is kept; the parent is queued only when it is the
+call it waits for. Each task records `delegation_depth` (0 when a person
+started it); `delegate` is offered while it is below `SEED_DELEGATION_MAX_DEPTH`
+(default 1, so agents still do not delegate unless the owner raises it). A task
+that ends cancels the agent tasks it still has working, so a retried task never
+mistakes an old agent task for one of its own. One worker process runs
+`SEED_WORKER_CONCURRENCY` (default 2) workers, each its own claim loop and lease.
+
+**Reason:** It reuses the D-025 pause and report-back unchanged for each call,
+needs no new service, and bounds the cost of one request in agents, model calls
+and worker slots.
+
+**Consequences:** The run still waits for its calls in order: a step's results
+reach the model together once all are in, never one by one. Calls after the
+one the run waits for show in the live answer as agents working, but their
+tool call events appear when the run reaches them. Agents share the parent's
+workspace, so two agents writing the same file race; the owner chooses which
+agents get `write_file`. The database pool grows with the concurrency (2 + 2
+per worker).

@@ -40,7 +40,7 @@ import {
   followTask,
   isFinished,
   pendingApproval,
-  pendingDelegation,
+  pendingDelegations,
   tasksApi,
   toTimeline,
 } from "../lib/tasks";
@@ -141,7 +141,7 @@ function LiveReply({ task, onEnd }: { task: Task; onEnd: () => void }) {
   const tools = s.flatMap((x) => x.tools);
   const resumed = events.some((e) => e.type === "attempt_started" && e.attempt > 1);
   const asking = pendingApproval(events);
-  const handed = pendingDelegation(events);
+  const handed = pendingDelegations(events);
   return (
     <div className="flex flex-col gap-2">
       {resumed && (
@@ -152,16 +152,20 @@ function LiveReply({ task, onEnd }: { task: Task; onEnd: () => void }) {
       {asking && (
         <ApprovalPrompt key={asking.id} taskId={task.id} call={asking} onDecided={onEnd} />
       )}
-      {handed ? (
-        <div className="flex items-center gap-2 text-xs text-fg-muted">
-          <Spinner />
-          <span>
-            {handed.agent} is working on part of this.{" "}
-            <Link to={`/tasks/${handed.taskId}`} className="text-accent hover:underline">
-              Follow it
-            </Link>
-          </span>
-        </div>
+      {handed.length ? (
+        <ul className="flex flex-col gap-1">
+          {handed.map((h) => (
+            <li key={h.id} className="flex items-center gap-2 text-xs text-fg-muted">
+              <Spinner />
+              <span>
+                {h.agent} is working on part of this.{" "}
+                <Link to={`/tasks/${h.taskId}`} className="text-accent hover:underline">
+                  Follow it
+                </Link>
+              </span>
+            </li>
+          ))}
+        </ul>
       ) : (
         !text &&
         !asking && (

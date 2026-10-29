@@ -1,10 +1,11 @@
 """The SEED Flow worker: claims tasks, runs the agent loop, keeps the lease alive.
 
-Run with `python -m seed_api.flow.worker`. Scale by running more processes; each
-executes one task at a time. A worker that dies mid-task simply stops renewing
-its lease; once the lease expires another worker resumes the task from its last
-checkpoint. SIGTERM/SIGINT stop the worker gracefully: the current run is
-interrupted and the task is handed back, keeping its checkpoint.
+Run with `python -m seed_api.flow.worker`. A process runs `worker_concurrency`
+workers, each executing one task at a time; scale by running more processes. A
+worker that dies mid-task simply stops renewing its lease; once the lease expires
+another worker resumes the task from its last checkpoint. SIGTERM/SIGINT stop the
+workers gracefully: current runs are interrupted and their tasks handed back,
+keeping their checkpoints.
 """
 
 import asyncio
@@ -17,6 +18,8 @@ from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 from typing import Literal
+
+from pydantic import ValidationError
 
 from ..agents.delegation import (
     DelegateInput,
@@ -41,7 +44,7 @@ from ..studio.capture import restore, save_changes
 from ..studio.store import ArtifactStore
 from ..studio.workspace import LocalFiles, SandboxFiles, WorkspaceFiles
 from .db import make_pool, migrate
-from .store import Lease, LeaseLost, Task, TaskStore
+from .store import Delegation, Lease, LeaseLost, Task, TaskStore
 
 log = logging.getLogger("seed.worker")
 
@@ -123,8 +126,11 @@ class Worker:
         async def on_event(event: RunEvent) -> None:
             await self.store.append_event(lease, event.type, event.data)
 
+        checkpoints: list[Checkpoint] = []
+
         async def on_checkpoint(cp: Checkpoint) -> None:
             await self.store.save_checkpoint(lease, cp)
+            checkpoints[:] = [cp]
 
         # A chat turn works in its conversation's workspace, so files persist across turns.
         files: WorkspaceFiles
@@ -155,7 +161,7 @@ class Worker:
             tools.append(
                 knowledge_tool(KnowledgeStore(self.store.pool), project_id=task.project_id)
             )
-        if task.agent is None:  # agents do not delegate further
+        if task.delegation_depth < self.settings.delegation_max_depth:
             agents = await AgentStore(self.store.pool).all(task.created_by)
             if agents:
                 tools.append(delegate_tool(agents))
@@ -163,6 +169,12 @@ class Worker:
         tools = [
             replace(t, requires_approval=t.requires_approval or t.name in gated) for t in tools
         ]
+        registry = ToolRegistry(tools)
+        limits = RunLimits(
+            max_steps=self.settings.run_max_steps,
+            max_runtime_s=self.settings.run_max_runtime_seconds,
+            max_total_tokens=self.settings.run_max_total_tokens,
+        )
         provider = self.provider_factory()
         beat = asyncio.create_task(heartbeat())
         try:
@@ -181,12 +193,8 @@ class Worker:
                     *(Message(role=m.role, content=m.content) for m in task.context),
                     Message(role="user", content=task.prompt),
                 ],
-                tools=ToolRegistry(tools),
-                limits=RunLimits(
-                    max_steps=self.settings.run_max_steps,
-                    max_runtime_s=self.settings.run_max_runtime_seconds,
-                    max_total_tokens=self.settings.run_max_total_tokens,
-                ),
+                tools=registry,
+                limits=limits,
                 on_event=on_event,
                 on_checkpoint=on_checkpoint,
                 resume=task.checkpoint,
@@ -196,6 +204,10 @@ class Worker:
             )
             if not why["lost"]:
                 await self._save(task, lease, files)
+            if result.termination == "awaiting_delegation" and not why["lost"]:
+                step = checkpoints[0] if checkpoints else None
+                await self._delegate(task, lease, step, registry, limits)
+                return
             await self._settle(
                 task, lease, result.model_copy(update={"usage": result.usage + extra}), why
             )
@@ -233,23 +245,66 @@ class Worker:
         )
         return made.text, made.usage
 
-    async def _delegate(self, task: Task, lease: Lease, call: ToolCall) -> None:
-        """Start the agent task a delegate call asks for, or answer the call at
-        once when there is no such agent (D-025). The loop already checked the
-        call's arguments."""
-        inp = DelegateInput.model_validate(call.arguments)
+    async def _delegate(
+        self,
+        task: Task,
+        lease: Lease,
+        step: Checkpoint | None,
+        tools: ToolRegistry,
+        limits: RunLimits,
+    ) -> None:
+        """Start agent tasks for the step's delegate calls, from the one the run
+        waits on, then park the task until that one has a result (D-025, D-026).
+        The calls start together, up to the limit on agents working at once; a
+        call stops the scan when it waits for approval, as the person decides
+        before anything after it happens. Calls past the per-task limit, or naming
+        no agent, are answered at once with the reason."""
+        if step is None or not step.pending:  # the loop checkpoints before pausing
+            raise RuntimeError(f"task {task.id}: paused for delegation without a checkpoint")
+        sent = step.messages[-1].tool_calls if step.messages else []
+        offset = len(sent) - len(step.pending)
+        wait_for = step.pending[0]
+        active, answered = await self.store.delegation_status(task.id)
         agents = AgentStore(self.store.pool)
-        agent = await agents.named(task.created_by, inp.agent)
-        if agent is None:
-            names = ", ".join(a.name for a in await agents.all(task.created_by)) or "none"
-            reason = f"No agent named {inp.agent!r}. Agents: {names}."
-            await self.store.refuse_delegation(lease, call, reason)
-            log.info("task %s: %s", task.id, reason)
-            return
-        child = await self.store.delegate(
-            lease, call, agent=AgentCopy.of(agent), prompt=delegated_prompt(inp), about=inp.task
+        roster = {a.name.lower(): a for a in await agents.all(task.created_by)}
+        handed = len(active) + len(answered)
+        starts: list[Delegation] = []
+        refusals: list[tuple[ToolCall, str]] = []
+        for i, call in enumerate(step.pending):
+            tool = tools.get(call.name)
+            if offset + i >= limits.max_tool_calls_per_step or tool is None:
+                break
+            if i > 0 and tool.requires_approval:
+                break
+            if not tool.deferred or call.id in active or call.id in answered:
+                continue
+            try:
+                inp = DelegateInput.model_validate(call.arguments)
+            except ValidationError:
+                continue  # the loop answers it as an ordinary tool error
+            agent = roster.get(" ".join(inp.agent.split()).lower())
+            busy = len(active) + len(starts) >= self.settings.delegation_max_parallel
+            if agent is None:
+                names = ", ".join(sorted(a.name for a in roster.values())) or "none"
+                refusals.append((call, f"No agent named {inp.agent!r}. Agents: {names}."))
+            elif handed >= self.settings.delegation_max_per_task:
+                n = self.settings.delegation_max_per_task
+                refusals.append((call, f"This task already handed out {n} jobs, the most allowed."))
+            elif busy and call.id != wait_for.id:
+                continue  # starts once one of the agents working now reports back
+            else:
+                prompt = delegated_prompt(inp)
+                starts.append(
+                    Delegation(call=call, agent=AgentCopy.of(agent), prompt=prompt, about=inp.task)
+                )
+            handed += 1
+        children = await self.store.delegate(
+            lease, starts=starts, refusals=refusals, wait_for=wait_for
         )
-        log.info("task %s delegated to %s as task %s", task.id, agent.name, child)
+        for d, child in zip(starts, children, strict=True):
+            log.info("task %s delegated to %s as task %s", task.id, d.agent.name, child)
+        for call, reason in refusals:
+            log.info("task %s: %s: %s", task.id, call.id, reason)
 
     async def _restore(self, task: Task, lease: Lease, files: WorkspaceFiles) -> None:
         """Refill a workspace the sandbox lost (it restarted) from saved artifacts."""
@@ -301,9 +356,6 @@ class Worker:
             await self.store.pause(lease, result.awaiting)
             log.info("task %s waiting for approval of %s", lease.task_id, result.awaiting.name)
             return
-        if result.termination == "awaiting_delegation" and result.awaiting is not None:
-            await self._delegate(task, lease, result.awaiting)
-            return
         if result.termination == "cancelled" and why["shutdown"] and not why["user"]:
             await self.store.release(lease)
             log.info("task %s released on shutdown", lease.task_id)
@@ -335,7 +387,9 @@ async def main(settings: Settings | None = None) -> None:
         sandbox = SandboxClient.connect(settings.sandbox_url, timeout)
     else:
         log.warning("SEED_SANDBOX_URL unset: tasks get file tools only, no commands")
-    pool = make_pool(settings.database_url.get_secret_value(), max_size=4)
+    # A running task holds up to two connections at once (its run and its heartbeat).
+    n = settings.worker_concurrency
+    pool = make_pool(settings.database_url.get_secret_value(), max_size=2 + 2 * n)
     await pool.open(wait=True)
     artifacts = None
     if settings.artifact_root:
@@ -344,17 +398,29 @@ async def main(settings: Settings | None = None) -> None:
         log.warning("SEED_ARTIFACT_ROOT unset: task files are not saved as artifacts")
     try:
         await migrate(pool)
-        worker = Worker(
-            TaskStore(pool),
-            settings,
-            lambda: make_provider(settings),
-            sandbox=sandbox,
-            artifacts=artifacts,
-        )
+        # Several workers per process (D-026), so a task waiting for its agents
+        # does not stop the agents' own tasks from running.
+        workers = [
+            Worker(
+                TaskStore(pool),
+                settings,
+                lambda: make_provider(settings),
+                sandbox=sandbox,
+                artifacts=artifacts,
+            )
+            for _ in range(n)
+        ]
+
+        def stop() -> None:
+            for w in workers:
+                w.stop.set()
+
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
-            loop.add_signal_handler(sig, worker.stop.set)
-        await worker.run_forever()
+            loop.add_signal_handler(sig, stop)
+        async with asyncio.TaskGroup() as group:  # one failing stops the others
+            for w in workers:
+                group.create_task(w.run_forever())
     finally:
         await pool.close()
         if sandbox is not None:
