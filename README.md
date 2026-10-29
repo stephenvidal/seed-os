@@ -34,6 +34,12 @@ it — with full visibility and control.
   and searched by title, message or answer. Any message can be edited, and any
   answer regenerated; each becomes a new version, the old ones are kept, and the
   arrows under a message switch between its versions (ADR-0013).
+- **Projects (M6):** group chats under a name with instructions SEED follows in
+  every one of them (D-017). A project's page edits its name and instructions and
+  lists its chats and the files they saved; "New chat" starts one in the project,
+  and a chat's header moves it in or out. Each message copies the instructions
+  when it is sent, so a change applies from the next message. Deleting a project
+  keeps its chats.
 - **Approvals (M4):** before the agent runs a shell command, the task stops as
   "needs you" and Chat and the task page show the exact command with Approve and
   Deny. The run carries on from where it stopped; a denied command is reported
@@ -75,17 +81,23 @@ it — with full visibility and control.
 | GET | `/api/v1/auth/me` | session | `{username, role}`; 401 `unauthenticated` |
 | GET | `/api/v1/system` | session | host/process telemetry |
 | GET | `/api/v1/models` | admin | `{provider, default_model, models[]}` from the provider; 503 `provider_not_configured`, 502 `provider_<kind>` |
-| POST | `/api/v1/conversations` | admin | `{model, prompt}`, optional `Idempotency-Key` → 201 `{conversation, turns[]}` with the first message queued as a task; 200 with the original on a repeated key; 409 `idempotency_conflict`; 503 `provider_not_configured` |
-| GET | `/api/v1/conversations` | admin | The caller's conversations, most recently active first: `{id, title, model, turns, last_state, …}`; `?limit=1..200`; `?q=` (1–200 chars) keeps those whose title, messages or answers contain it, ignoring case |
+| POST | `/api/v1/conversations` | admin | `{model, prompt, project_id?}`, optional `Idempotency-Key` → 201 `{conversation, turns[]}` with the first message queued as a task; 200 with the original on a repeated key; 409 `idempotency_conflict`; 503 `provider_not_configured`; 404 `project_not_found` |
+| GET | `/api/v1/conversations` | admin | The caller's conversations, most recently active first: `{id, title, model, turns, last_state, …}`; `?limit=1..200`; `?q=` (1–200 chars) keeps those whose title, messages or answers contain it, ignoring case; `?project_id=` keeps one project's |
 | GET | `/api/v1/conversations/{id}` | admin | `{conversation, turns[]}`: the shown path, each turn a task (prompt, state, `result_text`, usage, `turn`) with `versions` (ids of that message's versions, oldest first); 404 `not_found` (also for another user's conversation) |
 | PATCH | `/api/v1/conversations/{id}` | admin | `{title}` (whitespace collapsed, 1–80 chars) → the conversation; its turns take the new title; 404 `not_found`; 422 |
 | POST | `/api/v1/conversations/{id}/turns/{turn_id}/versions` | admin | `{prompt?, model?}`, optional `Idempotency-Key` → 201 task: a new version of that message (edited with `prompt`, asked again without), carrying the turns above it; it ends the shown path and older versions are kept; 200 on a repeated key; 409 `turn_in_progress` while any turn is unfinished; 404 `not_found` |
 | PUT | `/api/v1/conversations/{id}/shown` | admin | `{turn_id}` → `{conversation, turns[]}` showing that version and its newest replies; 409 `turn_in_progress` while a turn is unfinished; 404 `not_found` |
+| PUT | `/api/v1/conversations/{id}/project` | admin | `{project_id}` (or `null` to take it out) → the conversation; messages sent from now on get that project's instructions; 404 `not_found`, `project_not_found` |
+| GET | `/api/v1/projects` | admin | The caller's projects, most recently changed first: `{id, name, instructions, conversations, …}` |
+| POST | `/api/v1/projects` | admin | `{name, instructions?}` (name: whitespace collapsed, 1–80 chars; instructions up to 20,000) → 201 project; 422 |
+| GET | `/api/v1/projects/{id}` | admin | The project; 404 `not_found` (also for another user's) |
+| PATCH | `/api/v1/projects/{id}` | admin | `{name?, instructions?}` → the project; 404 `not_found`; 422 |
+| DELETE | `/api/v1/projects/{id}` | admin | 204; its conversations are kept and leave the project; 404 `not_found` |
 | DELETE | `/api/v1/conversations/{id}` | admin | 204; removes the conversation, its turns and their events; 409 `turn_in_progress` while a turn is queued, running or waiting; 404 `not_found` |
 | POST | `/api/v1/conversations/{id}/turns` | admin | `{prompt, model?}`, optional `Idempotency-Key` → 201 task continuing the shown path, carrying its completed turns as context; `model` switches the conversation's model; 409 `turn_in_progress` while a turn is unfinished; 404 `not_found` |
 | POST | `/api/v1/tasks` | admin | `{model, prompt, title?}`, optional `Idempotency-Key` header → 201 task (`queued`); 200 with the existing task on a repeated key; 409 `idempotency_conflict`; 503 `provider_not_configured` |
 | GET | `/api/v1/overview` | admin | `?hours=1..720` (default 24) → `{window_hours, generated_at, counts, attention[], active[], recent[], usage[]}`: queued/running/waiting now; completed/failed/canceled, recent work and per-model tokens for tasks finished in the window; `attention` is every waiting task then failures in the window (10 max), `active` running then queued (10 max), `recent` 5 max; all users' tasks |
-| GET | `/api/v1/artifacts` | admin | Saved files, most recently changed first: `{id, path, media_type, conversation_id, source_title, task_id, versions, latest{version, task_id, size, deleted, created_at}, …}`; `?conversation_id=`, `?limit=1..500` |
+| GET | `/api/v1/artifacts` | admin | Saved files, most recently changed first: `{id, path, media_type, conversation_id, source_title, task_id, versions, latest{version, task_id, size, deleted, created_at}, …}`; `?conversation_id=`, `?project_id=`, `?limit=1..500` |
 | GET | `/api/v1/artifacts/{id}` | admin | `{artifact, versions[]}` (newest first); 404 `not_found` |
 | GET | `/api/v1/artifacts/{id}/versions/{n}/content` | admin | The version's bytes, sandboxed by CSP (never runs); `?download=true` as an attachment; 410 `deleted`; 503 `artifacts_not_configured` without `SEED_ARTIFACT_ROOT` |
 | POST | `/api/v1/artifacts/{id}/preview` | admin | 201 `{url, expires_in}`: a link, valid 1 h, that serves the latest saved files of the file's workspace; 410 `deleted` |
@@ -100,7 +112,8 @@ it — with full visibility and control.
 
 Every authenticated request other than GET/HEAD/OPTIONS must send the `seed_csrf`
 cookie's value in `X-CSRF-Token`, or it gets 403 `csrf_failed` (ADR-0009). Sign-ins,
-sign-outs, user changes, new, renamed and deleted conversations, task
+sign-outs, user changes, new, renamed, moved and deleted conversations, new,
+changed and deleted projects, task
 create/cancel/retry (chat turns included) and approval decisions are recorded in
 `audit_log`.
 

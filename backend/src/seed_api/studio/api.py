@@ -136,12 +136,13 @@ async def list_artifacts(
     _: AdminOnly,
     store: StoreDep,
     conversation_id: uuid.UUID | None = None,
+    project_id: uuid.UUID | None = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 200,
 ) -> list[ArtifactView]:
-    """Saved files, most recently changed first; all users' (like the task list)."""
-    return [
-        ArtifactView.of(a) for a in await store.find(conversation_id=conversation_id, limit=limit)
-    ]
+    """Saved files, most recently changed first; all users' (like the task list).
+    `conversation_id` or `project_id` narrows them to one chat or one project's chats."""
+    found = await store.find(conversation_id=conversation_id, project_id=project_id, limit=limit)
+    return [ArtifactView.of(a) for a in found]
 
 
 @router.get("/{artifact_id}", response_model=ArtifactDetail)

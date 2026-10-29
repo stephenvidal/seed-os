@@ -1369,3 +1369,64 @@ frontend: typecheck ok · lint ok · format ok · vitest passes (see run in PR)
 **Not tested:** other widths (320, tablets); real data on the live site; Safari/Firefox. No automated regression test: jsdom has no layout, so it cannot fail on this bug. `/tasks` and `/chat` have no `<main>` measured in the script's mock (empty/loading state); the page-level scrollWidth was 390.
 
 **Open questions:** none.
+
+## 2026-10-29 — Increment 14: M6 step 2 (part 1), projects
+
+**Iteration:** M6 step 2, part 1. Definition of done: projects can be created,
+renamed and deleted (their chats kept); a project has instructions that reach the
+model on every message sent in it, fixed per message so retries see the same; a
+chat can start in a project or be moved in and out; a project's page lists its
+chats and their saved files.
+
+**Changed**
+- Migration `0008_projects` (projects, `conversations.project_id`,
+  `tasks.instructions`); `projects/` (store, API); chat start/move/list take a
+  project; Studio's listing filters by project; the worker's system prompt adds
+  the turn's instructions (`models.system_prompt`).
+- Web: `lib/projects.ts`, `pages/Projects.tsx` (list and project pages; the
+  Projects placeholder is gone), Chat starts in `?project=` and its header moves a
+  chat.
+- D-017, README, CHANGELOG, roadmap, requirements WS-5.
+
+**Tested**
+```
+backend: ruff check → All checks passed! · ruff format --check → 58 files already formatted
+         mypy → Success: no issues found in 40 source files
+         pytest (DB) → 139 passed, 1 skipped (test_sandbox.py:208: checks the non-root refusal)
+frontend: typecheck ok · lint ok · format ok · vitest → Test Files 11 passed (11), Tests 63 passed (63)
+```
+Mutation checks (each made, tests run, reverted), backend 14/14 caught:
+```
+worker ignores the turn's instructions     → CAUGHT   new turns skip the instructions       → CAUGHT
+another owner's project instructions used  → CAUGHT   move skips the project check          → CAUGHT
+conversation list ignores the project      → CAUGHT   Studio ignores the project filter     → CAUGHT
+rename wipes the instructions              → CAUGHT   delete reaches another owner's        → CAUGHT
+get reaches another owner's                → CAUGHT   deleting a project deletes its chats  → CAUGHT
+system prompt leaves instructions out      → CAUGHT   instructions not trimmed              → CAUGHT
+name over 80 characters accepted           → CAUGHT   start ignores project_id              → CAUGHT
+```
+Frontend 12/12 caught: new chat drops the project; move always sends null;
+instructions saved as the name; box not refreshed after save; Save always enabled;
+files list shows every file; delete without a confirm; chat links lose their id;
+"New chat" loses the project; name sent untidied; chats list ignores the project;
+delete confirm says chats are deleted.
+
+Browser (Chromium) on the Vite dev server with the real API, worker, Postgres and
+artifact store, and an Ollama-wire stub that writes `note.txt` and then answers
+with the project instructions it received:
+```
+turn 1 answer: Instructions seen: Answer in French.
+project select: Launch site
+turn 2 answer (moved out): Instructions seen: none
+chats: Chats | New chat | Write a note | 2 messages
+files: Files | note.txt | Write a note | 2 B
+overflow at 390px on /projects/<id>: 0
+overflow at 390px on /projects: 0
+chat header overflow at 390: 0
+errors: the 401 from the sign-in check before login
+```
+
+**Not tested:** the nginx build and compose stack (no nginx or compose change in
+this increment); Firefox and Safari.
+
+**Open questions:** none new. Memory follows (agent proposes, owner approves).

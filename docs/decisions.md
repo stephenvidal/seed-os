@@ -402,3 +402,30 @@ browser enforces the boundary rather than a sanitiser.
 
 **Consequences:** A preview can draw anything, including look-alike forms, but
 cannot submit them or reach SEED. Older versions show as source only.
+
+## D-017 — What a project is, first
+
+**Date:** 2026-10-29
+
+**Context:** WS-5 lists many things a project holds (conversations, tasks, files,
+artifacts, repos, instructions, knowledge, milestones, activity, permissions). M6
+needs projects before project memory can exist.
+
+**Options:** build the full list at once; or start with a project as a name and
+instructions over a group of the owner's conversations, with their saved files,
+and add the rest as each is needed.
+
+**Choice:** The second. A conversation belongs to at most one project and can be
+moved in or out. Each turn copies the project's instructions when it is sent (as
+it copies the conversation context), and the worker appends them to the system
+prompt as the owner's instructions. Each chat keeps its own workspace. Deleting a
+project keeps its chats.
+
+**Reason:** Instructions are the part of a project that changes what SEED does;
+copying them per turn keeps retries and resumed runs identical to the first
+attempt. Shared workspaces across a project's chats would change how files and
+versions work (ADR-0014) without a stated need.
+
+**Consequences:** Editing instructions does not change answers already sent.
+Lone tasks are not in projects yet. Memory (owner's choice on 2026-10-29: the agent
+proposes, the owner approves) builds on this.

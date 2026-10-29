@@ -159,14 +159,20 @@ class ArtifactStore:
         return saved
 
     async def find(
-        self, *, conversation_id: uuid.UUID | None = None, limit: int = 200
+        self,
+        *,
+        conversation_id: uuid.UUID | None = None,
+        project_id: uuid.UUID | None = None,
+        limit: int = 200,
     ) -> list[Artifact]:
-        """Artifacts, most recently changed first."""
+        """Artifacts, most recently changed first; of one conversation, or of the
+        conversations in one project, when given."""
         async with self.pool.connection() as conn:
             cur = await conn.execute(
-                _ARTIFACTS + "WHERE %(c)s::uuid IS NULL OR a.conversation_id = %(c)s "
+                _ARTIFACTS + "WHERE (%(c)s::uuid IS NULL OR a.conversation_id = %(c)s) "
+                "AND (%(p)s::uuid IS NULL OR c.project_id = %(p)s) "
                 "ORDER BY a.updated_at DESC, a.path LIMIT %(limit)s",
-                {"c": conversation_id, "limit": limit},
+                {"c": conversation_id, "p": project_id, "limit": limit},
             )
             return [_artifact(r) for r in await cur.fetchall()]
 
