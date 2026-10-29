@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
   BarChart3,
+  Bot,
   CheckCircle2,
   CircleDashed,
   Database,
@@ -73,6 +74,45 @@ function Stats({ data }: { data: Overview }) {
         </div>
       ))}
     </dl>
+  );
+}
+
+function AgentTable({ data }: { data: Overview }) {
+  if (data.agents.length === 0)
+    return (
+      <EmptyState icon={Bot} title="No agent work yet">
+        When SEED hands part of a job to an agent, what each one is doing appears here.
+      </EmptyState>
+    );
+  return (
+    <div className="overflow-x-auto px-4 py-3">
+      <table className="w-full text-xs">
+        <thead className="text-left text-fg-muted">
+          <tr>
+            <th className="pb-2 font-medium">Agent</th>
+            <th className="pb-2 text-right font-medium">Working</th>
+            <th className="pb-2 text-right font-medium">Completed</th>
+            <th className="pb-2 text-right font-medium">Failed</th>
+            <th className="pb-2 text-right font-medium">Canceled</th>
+            <th className="pb-2 text-right font-medium">Tokens</th>
+          </tr>
+        </thead>
+        <tbody className="font-mono tabular-nums text-fg">
+          {data.agents.map((a) => (
+            <tr key={a.name} className="border-t border-border">
+              <td className="py-1.5 pr-3 break-all">{a.name}</td>
+              <td className="py-1.5 text-right">{n.format(a.working)}</td>
+              <td className="py-1.5 text-right">{n.format(a.completed)}</td>
+              <td className={`py-1.5 text-right ${a.failed ? "text-danger" : ""}`}>
+                {n.format(a.failed)}
+              </td>
+              <td className="py-1.5 text-right">{n.format(a.canceled)}</td>
+              <td className="py-1.5 text-right">{n.format(a.input_tokens + a.output_tokens)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -176,6 +216,7 @@ function WorkPanels() {
             <ul className="divide-y divide-border">
               {data.active.map((t) => (
                 <TaskRow key={t.id} task={t}>
+                  {t.agent ? `${t.agent.name} · ` : ""}
                   {t.model} · started {ago(t.started_at ?? t.created_at, data.generated_at)}
                 </TaskRow>
               ))}
@@ -202,6 +243,9 @@ function WorkPanels() {
           )}
         </Panel>
       </div>
+      <Panel title={`Agent activity (${data.window_hours}h)`}>
+        <AgentTable data={data} />
+      </Panel>
       <Panel title={`Model usage (${data.window_hours}h)`}>
         <UsageTable data={data} />
       </Panel>

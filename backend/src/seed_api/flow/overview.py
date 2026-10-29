@@ -35,6 +35,20 @@ class ModelUsage(BaseModel):
     output_tokens: int
 
 
+class AgentActivity(BaseModel):
+    """One agent's tasks (D-025), by the name it had when work was handed to it."""
+
+    name: str
+    # Queued, running, or waiting (for approval or for an agent of its own) now.
+    working: int
+    # Tasks that finished within the window, by final state, and their tokens.
+    completed: int
+    failed: int
+    canceled: int
+    input_tokens: int
+    output_tokens: int
+
+
 class Overview(BaseModel):
     window_hours: int
     generated_at: datetime
@@ -47,6 +61,8 @@ class Overview(BaseModel):
     recent: list[TaskView]
     # Tokens of tasks that finished within the window, by model, most used first.
     usage: list[ModelUsage]
+    # Agents that are working or finished tasks within the window; busiest first.
+    agents: list[AgentActivity]
 
 
 async def _tasks(
@@ -126,6 +142,28 @@ async def overview(
             p,
         )
         usage = [ModelUsage.model_validate(r) for r in await cur.fetchall()]
+        cur = await conn.execute(
+            """
+            SELECT agent->>'name' AS name,
+                   count(*) FILTER (WHERE state IN ('queued', 'running', 'waiting'))::int
+                       AS working,
+                   count(*) FILTER (WHERE state = 'completed')::int AS completed,
+                   count(*) FILTER (WHERE state = 'failed')::int AS failed,
+                   count(*) FILTER (WHERE state = 'canceled')::int AS canceled,
+                   coalesce(sum((usage->>'input_tokens')::bigint)
+                       FILTER (WHERE finished_at >= %(since)s), 0)::bigint AS input_tokens,
+                   coalesce(sum((usage->>'output_tokens')::bigint)
+                       FILTER (WHERE finished_at >= %(since)s), 0)::bigint AS output_tokens
+            FROM tasks
+            WHERE agent IS NOT NULL
+              AND (state IN ('queued', 'running', 'waiting') OR finished_at >= %(since)s)
+            GROUP BY agent->>'name'
+            ORDER BY working DESC, count(*) - count(*) FILTER (WHERE state IN
+                ('queued', 'running', 'waiting')) DESC, name
+            """,
+            p,
+        )
+        agents = [AgentActivity.model_validate(r) for r in await cur.fetchall()]
     return Overview(
         window_hours=hours,
         generated_at=clock["at"],
@@ -134,4 +172,5 @@ async def overview(
         active=active,
         recent=recent,
         usage=usage,
+        agents=agents,
     )

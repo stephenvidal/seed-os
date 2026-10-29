@@ -9,6 +9,17 @@ export type ModelUsage = {
   output_tokens: number;
 };
 
+/** One agent's tasks: working now, and finished within the window (D-025). */
+export type AgentActivity = {
+  name: string;
+  working: number;
+  completed: number;
+  failed: number;
+  canceled: number;
+  input_tokens: number;
+  output_tokens: number;
+};
+
 export type Overview = {
   window_hours: number;
   generated_at: string;
@@ -32,6 +43,8 @@ export type Overview = {
   recent: Task[];
   /** Tokens of tasks finished within the window, by model. */
   usage: ModelUsage[];
+  /** Agents working or finished tasks within the window, busiest first. */
+  agents: AgentActivity[];
 };
 
 export const overviewApi = {
