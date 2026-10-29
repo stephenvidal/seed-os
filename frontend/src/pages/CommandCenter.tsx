@@ -166,7 +166,7 @@ function WorkPanels() {
           </ul>
         )}
       </Panel>
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Panel title="In progress">
           {data.active.length === 0 ? (
             <EmptyState icon={CircleDashed} title="No active work">
@@ -308,12 +308,12 @@ export function CommandCenterPage() {
         description="What is happening, what needs your attention, and what has been accomplished."
       />
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="flex min-w-0 flex-col gap-4">
           <WorkPanels />
         </div>
 
-        <div className="flex flex-col gap-4">
+        <div className="flex min-w-0 flex-col gap-4">
           <Panel title="System health" action={<Badge tone="accent">Live</Badge>}>
             <SystemHealth />
           </Panel>
