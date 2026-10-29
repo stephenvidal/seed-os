@@ -49,8 +49,12 @@ class Settings(BaseSettings):
     sandbox_cpu_seconds: int = Field(default=60, ge=1)
     sandbox_max_processes: int = Field(default=64, ge=1)
     sandbox_max_file_mb: int = Field(default=64, ge=1)
-    # Without a sandbox: per-workspace dirs on the container tmpfs until artifact storage (M6).
+    # Without a sandbox: per-workspace dirs on the container tmpfs. Files outlive
+    # them as artifacts when artifact_root is set.
     workspace_root: str = "/tmp/seed-workspaces"  # noqa: S108
+    # Artifacts (ADR-0014): where saved file content lives, on a persistent volume.
+    # Unset => task files are not saved.
+    artifact_root: str | None = None
 
 
 @lru_cache

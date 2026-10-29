@@ -58,6 +58,7 @@ services:
     environment:
       <<: *seed-env
       SEED_SANDBOX_URL: http://sandbox:8100
+      SEED_ARTIFACT_ROOT: /var/lib/seed/artifacts
     depends_on:
       db:
         condition: service_healthy
@@ -65,6 +66,9 @@ services:
         condition: service_healthy
     # Commands and task files go through the sandbox, never the worker's own disk.
     networks: [default, sandbox]
+    # Saved task files (ADR-0014); only the worker writes them.
+    volumes:
+      - artifacts:/var/lib/seed/artifacts
     # The worker hands its task back on SIGTERM; give it time to do so.
     stop_grace_period: 30s
     healthcheck:
@@ -88,7 +92,8 @@ services:
     read_only: true
     tmpfs:
       - /tmp
-      # Workspaces are ephemeral until artifact storage (M6), and bounded in size.
+      # Workspaces are scratch space, bounded in size; their files are saved as
+      # artifacts after each run and put back after a restart (ADR-0014).
       - /workspaces:size=256m,mode=0711
     # Only on the internal network: reachable by the worker, no route out.
     networks: [sandbox]
@@ -117,3 +122,4 @@ networks:
     internal: true
 volumes:
   pgdata:
+  artifacts:

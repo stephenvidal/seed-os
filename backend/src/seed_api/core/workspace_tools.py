@@ -16,7 +16,7 @@ MAX_FILE_BYTES = 256 * 1024
 MAX_LIST_ENTRIES = 500
 
 
-def _resolve(root: Path, rel: str) -> Path:
+def resolve(root: Path, rel: str) -> Path:
     if rel.startswith(("/", "\\")) or "\x00" in rel:
         raise ToolFailure("Paths must be relative to the workspace.")
     path = (root / rel).resolve()
@@ -60,7 +60,7 @@ class WriteOutput(BaseModel):
 
 
 def list_entries(root: Path, rel: str) -> ListOutput:
-    base = _resolve(root, rel)
+    base = resolve(root, rel)
     if not base.is_dir():
         raise ToolFailure(f"Not a directory: {rel}")
     entries: list[Entry] = []
@@ -78,7 +78,7 @@ def list_entries(root: Path, rel: str) -> ListOutput:
 
 
 def read_text(root: Path, rel: str) -> ReadOutput:
-    path = _resolve(root, rel)
+    path = resolve(root, rel)
     if not path.is_file():
         raise ToolFailure(f"No such file: {rel}")
     if path.stat().st_size > MAX_FILE_BYTES:
@@ -90,7 +90,7 @@ def read_text(root: Path, rel: str) -> ReadOutput:
 
 
 def write_text(root: Path, rel: str, content: str) -> WriteOutput:
-    path = _resolve(root, rel)
+    path = resolve(root, rel)
     if path == root or path.is_dir():
         raise ToolFailure("Path is a directory.")
     path.parent.mkdir(parents=True, exist_ok=True)
