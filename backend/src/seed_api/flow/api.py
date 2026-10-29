@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from ..agents.store import AgentCopy
 from ..auth import AuthStoreDep, Principal, client_ip, require_role
 from ..chat.store import ChatError, project_context
 from ..config import Settings, get_settings
@@ -71,6 +72,11 @@ class TaskView(BaseModel):
     summary: str | None
     # Set while state is waiting: the tool call that needs a person's decision.
     awaiting_approval: ToolCall | None
+    # Delegation (D-025): set while waiting for a delegated task, the call it
+    # answers; on a delegated task, its parent and the agent it runs as.
+    awaiting_delegation: ToolCall | None
+    parent_task_id: uuid.UUID | None
+    agent: AgentCopy | None
 
     @classmethod
     def of(cls, task: Task) -> "TaskView":

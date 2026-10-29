@@ -38,7 +38,8 @@ class Conversation(BaseModel):
 
 
 class ConversationSummary(Conversation):
-    # Of the shown path: its length and its last turn's state.
+    # Of the shown path: its length and its last turn's state, or 'delegating'
+    # while it waits for a task it delegated (D-025).
     turns: int
     last_state: str | None
 
@@ -476,7 +477,9 @@ class ChatStore:
         async with self.pool.connection() as conn:
             cur = await conn.execute(
                 """
-                SELECT c.*, coalesce(h.turn, 0) AS turns, h.state AS last_state
+                SELECT c.*, coalesce(h.turn, 0) AS turns,
+                       CASE WHEN h.awaiting_delegation IS NOT NULL THEN 'delegating'
+                            ELSE h.state END AS last_state
                 FROM conversations c LEFT JOIN tasks h ON h.id = c.head_id
                 WHERE c.owner = %(owner)s
                   AND (%(project)s::uuid IS NULL OR c.project_id = %(project)s)

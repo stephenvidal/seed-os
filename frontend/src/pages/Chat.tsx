@@ -36,7 +36,14 @@ import { ApiError, api } from "../lib/api";
 import { chatApi } from "../lib/chat";
 import type { Conversation, ConversationDetail, Turn } from "../lib/chat";
 import { PROJECTS, projectKey, projectsApi } from "../lib/projects";
-import { followTask, isFinished, pendingApproval, tasksApi, toTimeline } from "../lib/tasks";
+import {
+  followTask,
+  isFinished,
+  pendingApproval,
+  pendingDelegation,
+  tasksApi,
+  toTimeline,
+} from "../lib/tasks";
 import type { Task, TaskEvent, TimelineItem, ToolActivity } from "../lib/tasks";
 
 const CONVERSATIONS = ["conversations"] as const;
@@ -120,8 +127,8 @@ function LiveReply({ task, onEnd }: { task: Task; onEnd: () => void }) {
           if (e.seq <= lastSeq.current) return;
           lastSeq.current = e.seq;
           setEvents((prev) => [...prev, e]);
-          // The conversation list marks chats that need you.
-          if (e.type === "approval_requested") onEnd();
+          // The conversation list marks chats that need you or wait for an agent.
+          if (["approval_requested", "delegated", "delegation_finished"].includes(e.type)) onEnd();
         },
         onEnd,
       ),
@@ -134,6 +141,7 @@ function LiveReply({ task, onEnd }: { task: Task; onEnd: () => void }) {
   const tools = s.flatMap((x) => x.tools);
   const resumed = events.some((e) => e.type === "attempt_started" && e.attempt > 1);
   const asking = pendingApproval(events);
+  const handed = pendingDelegation(events);
   return (
     <div className="flex flex-col gap-2">
       {resumed && (
@@ -144,11 +152,24 @@ function LiveReply({ task, onEnd }: { task: Task; onEnd: () => void }) {
       {asking && (
         <ApprovalPrompt key={asking.id} taskId={task.id} call={asking} onDecided={onEnd} />
       )}
-      {!text && !asking && (
+      {handed ? (
         <div className="flex items-center gap-2 text-xs text-fg-muted">
           <Spinner />
-          {task.state === "queued" && !s.length ? "Waiting for a worker…" : "Working…"}
+          <span>
+            {handed.agent} is working on part of this.{" "}
+            <Link to={`/tasks/${handed.taskId}`} className="text-accent hover:underline">
+              Follow it
+            </Link>
+          </span>
         </div>
+      ) : (
+        !text &&
+        !asking && (
+          <div className="flex items-center gap-2 text-xs text-fg-muted">
+            <Spinner />
+            {task.state === "queued" && !s.length ? "Waiting for a worker…" : "Working…"}
+          </div>
+        )
       )}
     </div>
   );
@@ -954,6 +975,7 @@ function ConversationList({ active }: { active: string | undefined }) {
                 <Spinner label="Answering" />
               )}
               {c.last_state === "waiting" && <Badge tone="warning">needs you</Badge>}
+              {c.last_state === "delegating" && <Badge>with an agent</Badge>}
             </Link>
           </li>
         ))}

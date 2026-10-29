@@ -16,7 +16,10 @@ export type Overview = {
   counts: {
     queued: number;
     running: number;
+    /** Waiting for a person's approval. */
     waiting: number;
+    /** Waiting for a task they delegated to an agent. */
+    delegating: number;
     completed: number;
     failed: number;
     canceled: number;

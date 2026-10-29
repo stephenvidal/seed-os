@@ -246,6 +246,41 @@ describe("Chat", () => {
     );
   });
 
+  it("shows which agent is working on a turn, with a link to its task", async () => {
+    const detail = {
+      conversation,
+      turns: [turn({ state: "waiting", result_text: null, awaiting_delegation: { id: "c" } })],
+    };
+    mockApi({
+      "GET /api/v1/auth/me": ME,
+      "GET /api/v1/models": MODELS,
+      "GET /api/v1/conversations?limit=200": {
+        status: 200,
+        body: [{ ...summary, last_state: "delegating" }],
+      },
+      "GET /api/v1/conversations/c1": () => ({ status: 200, body: detail }),
+    });
+    vi.stubGlobal("EventSource", FakeEventSource);
+    FakeEventSource.last = undefined;
+    renderApp(<App />, "/chat/c1");
+    const nav = await screen.findByRole("navigation", { name: "Conversations" });
+    expect(await within(nav).findByText("with an agent")).toBeInTheDocument();
+    expect(within(nav).queryByText("needs you")).toBeNull();
+    await waitFor(() => expect(FakeEventSource.last?.url).toBe("/api/v1/tasks/t1/stream?after=0"));
+    const es = FakeEventSource.last!;
+    act(() => {
+      es.emit(1, "step_started", { step: 1 });
+      es.emit(2, "delegation_requested", { id: "c", name: "delegate", arguments: {} });
+      es.emit(3, "delegated", { id: "c", agent: "Researcher", task_id: "t9" });
+    });
+    expect(await screen.findByText(/Researcher is working on part of this/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Follow it" })).toHaveAttribute("href", "/tasks/t9");
+    act(() =>
+      es.emit(4, "delegation_finished", { id: "c", agent: "Researcher", state: "completed" }),
+    );
+    await waitFor(() => expect(screen.queryByText(/is working on part of this/)).toBeNull());
+  });
+
   it("asks before running a command and sends the decision", async () => {
     const detail = { conversation, turns: [turn({ state: "running", result_text: null })] };
     const spy = mockApi({

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pendingApproval, toTimeline } from "./tasks";
+import { pendingApproval, pendingDelegation, toTimeline } from "./tasks";
 import type { TaskEvent } from "./tasks";
 
 let seq = 0;
@@ -158,5 +158,40 @@ describe("approvals", () => {
       ["warning", "Paused for your approval"],
       ["neutral", "Denied by admin"],
     ]);
+  });
+});
+
+describe("delegation", () => {
+  const handed = ev("delegated", { id: "c1", agent: "Researcher", task_id: "t9" });
+
+  it("says when work went to an agent and how it came back", () => {
+    seq = 0;
+    const notes = toTimeline([
+      handed,
+      ev("delegation_finished", {
+        id: "c1",
+        agent: "Researcher",
+        task_id: "t9",
+        state: "completed",
+      }),
+      ev("delegation_finished", { id: "c2", agent: "Coder", task_id: "t8", state: "failed" }),
+      ev("delegation_refused", { id: "c3", reason: "No agent named 'X'." }),
+    ]).map((i) => i.kind === "note" && [i.tone, i.text]);
+    expect(notes).toEqual([
+      ["neutral", "Handed to Researcher as a task of its own"],
+      ["accent", "Researcher reported back"],
+      ["warning", "Coder stopped: failed"],
+      ["warning", "Not delegated: No agent named 'X'."],
+    ]);
+  });
+
+  it("finds the agent task a task waits for until it reports back or is canceled", () => {
+    expect(pendingDelegation([ev("task_created")])).toBeNull();
+    expect(pendingDelegation([handed])).toEqual({ agent: "Researcher", taskId: "t9" });
+    expect(
+      pendingDelegation([handed, ev("run_finished", { termination: "awaiting_delegation" })]),
+    ).toEqual({ agent: "Researcher", taskId: "t9" });
+    expect(pendingDelegation([handed, ev("delegation_finished", { id: "c1" })])).toBeNull();
+    expect(pendingDelegation([handed, ev("cancel_requested", {})])).toBeNull();
   });
 });

@@ -18,7 +18,10 @@ router = APIRouter(prefix="/api/v1/overview", tags=["overview"])
 class Counts(BaseModel):
     queued: int
     running: int
+    # Waiting for a person's approval.
     waiting: int
+    # Waiting for a task they delegated to an agent (D-025).
+    delegating: int
     # Tasks that finished within the window, by final state.
     completed: int
     failed: int
@@ -73,7 +76,8 @@ async def overview(
             """
             SELECT count(*) FILTER (WHERE state = 'queued')::int AS queued,
                    count(*) FILTER (WHERE state = 'running')::int AS running,
-                   count(*) FILTER (WHERE state = 'waiting')::int AS waiting,
+                   count(*) FILTER (WHERE awaiting_approval IS NOT NULL)::int AS waiting,
+                   count(*) FILTER (WHERE awaiting_delegation IS NOT NULL)::int AS delegating,
                    count(*) FILTER (WHERE state = 'completed' AND finished_at >= %(since)s)::int
                        AS completed,
                    count(*) FILTER (WHERE state = 'failed' AND finished_at >= %(since)s)::int
@@ -90,7 +94,8 @@ async def overview(
             conn,
             """
             SELECT * FROM tasks
-            WHERE state = 'waiting' OR (state = 'failed' AND finished_at >= %(since)s)
+            WHERE awaiting_approval IS NOT NULL
+               OR (state = 'failed' AND finished_at >= %(since)s)
             ORDER BY state = 'waiting' DESC, updated_at DESC, id LIMIT %(limit)s
             """,
             p,
@@ -98,6 +103,7 @@ async def overview(
         active = await _tasks(
             conn,
             "SELECT * FROM tasks WHERE state IN ('running', 'queued') "
+            "OR awaiting_delegation IS NOT NULL "
             "ORDER BY state = 'running' DESC, created_at, id LIMIT %(limit)s",
             p,
         )

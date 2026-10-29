@@ -129,6 +129,29 @@ describe("Tasks", () => {
     );
   });
 
+  it("tells a task waiting for an agent from one waiting for you", async () => {
+    mockApi({
+      "GET /api/v1/auth/me": ME,
+      "GET /api/v1/models": MODELS,
+      "GET /api/v1/tasks?limit=100": {
+        status: 200,
+        body: [
+          task({
+            id: "t1",
+            title: "Delegating",
+            state: "waiting",
+            awaiting_delegation: { id: "c" },
+          }),
+          task({ id: "t2", title: "Asking", state: "waiting", awaiting_approval: { id: "d" } }),
+        ],
+      },
+    });
+    renderApp(<App />, "/tasks");
+    const delegating = (await screen.findByText("Delegating")).closest("a")!;
+    expect(delegating).toHaveTextContent("with an agent");
+    expect(screen.getByText("Asking").closest("a")).toHaveTextContent("needs you");
+  });
+
   it("follows a running task live and cancels it", async () => {
     let current = task();
     mockApi({

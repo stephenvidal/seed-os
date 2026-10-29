@@ -12,7 +12,11 @@ export type Conversation = {
   updated_at: string;
 };
 
-export type ConversationSummary = Conversation & { turns: number; last_state: TaskState | null };
+/** `last_state` is "delegating" while the last turn waits for a task it delegated. */
+export type ConversationSummary = Conversation & {
+  turns: number;
+  last_state: TaskState | "delegating" | null;
+};
 /** A turn on the shown path, with the ids of that message's versions, oldest first. */
 export type Turn = Task & { versions: string[] };
 export type ConversationDetail = { conversation: Conversation; turns: Turn[] };
