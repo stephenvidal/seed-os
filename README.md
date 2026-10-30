@@ -136,9 +136,15 @@ it — with full visibility and control.
   definitions: what it does, its permission (reads, writes, runs code), whether
   a person approves each call (from `SEED_APPROVAL_REQUIRED_TOOLS`), its limits
   and arguments, and where it is offered; below, how often each was used and how
-  calls failed over the last 24 hours, from recorded tool results. Skills (D-033)
-  can be written and imported through the API; tasks do not use them yet, and
-  the page does not show them yet.
+  calls failed over the last 24 hours, from recorded tool results. The page does
+  not show skills yet.
+- **Skills (M8, D-033):** procedures you save, in the shape of a Hermes Agent
+  SKILL.md, written or imported through the API. Each task's prompt lists the
+  skills it may see by name and description only; the agent reads one in full
+  with `skill_view` (or lists them with `skill_list`) when a request matches.
+  SEED sees your shared skills; an agent sees the shared skills you allow it and
+  its private ones. A message that starts with `/name`, in Chat or Telegram,
+  follows that skill; a name you have no skill for is answered by saying so.
 - Models: page structure with an empty state naming the milestone that delivers it.
 
 ## API (as built)
@@ -163,7 +169,7 @@ it — with full visibility and control.
 | PATCH | `/api/v1/projects/{id}` | admin | `{name?, instructions?}` → the project; 404 `not_found`; 422 |
 | DELETE | `/api/v1/projects/{id}` | admin | 204; its conversations and tasks are kept and leave the project; 404 `not_found` |
 | GET | `/api/v1/agents` | admin | The caller's agents by name: `{id, name, description, instructions, model, tools[], …}`; the first call adds the starter agents (Researcher, Coder, Reviewer) once |
-| POST | `/api/v1/agents` | admin | `{name, description, instructions?, model?, tools[]}` → 201; name 1-40 letters, digits, spaces, `-` or `_`, unique per owner ignoring case (409 `name_taken`); tools from `list_files`, `read_file`, `write_file`, `run_command`, `search_knowledge`; blank model means the delegating task's |
+| POST | `/api/v1/agents` | admin | `{name, description, instructions?, model?, tools[], skills[]?}` → 201; `skills` are ids of your shared skills it may use (422 `no_such_skill` otherwise; a skill that is deleted or made private leaves the list; left out of a PUT, the list is kept); name 1-40 letters, digits, spaces, `-` or `_`, unique per owner ignoring case (409 `name_taken`); tools from `list_files`, `read_file`, `write_file`, `run_command`, `search_knowledge`; blank model means the delegating task's |
 | GET / PUT / DELETE | `/api/v1/agents/{id}` | admin | Read, replace (same body as POST) or delete (204) an agent; 404 `not_found`; audited as `agent_created`/`agent_updated`/`agent_deleted` |
 | GET | `/api/v1/skills` | admin | The caller's skills by name, shared and private: `{id, agent_id, name, description, tags[], body, …}`; `agent_id` set means private to that agent |
 | POST | `/api/v1/skills` | admin | `{name, description, tags[], body, agent_id?}` → 201; name 1-64 lower-case letters, digits or `-` (lower-cased), unique per owner across shared and private (409 `name_taken`); description up to 1,024; up to 20 tags of 40; body up to 20,000; an `agent_id` that is not the caller's agent is 422 `no_such_agent` |

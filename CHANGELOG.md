@@ -19,7 +19,10 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
 ### Added
 - Skills (M8, D-033): `/api/v1/skills` to write, import (Hermes Agent SKILL.md),
   list, change and delete skills, shared or private to one agent. Migration 0020.
-  Tasks do not use them yet.
+- Skills in tasks (M8, D-033): each prompt lists the skills the task may see,
+  `skill_list` and `skill_view` read them, agents get `skills` (the shared skills
+  they may use), and a message starting with `/name` follows that skill.
+  Migration 0021.
 - Chat with SEED from Telegram (M8, D-032): a message from the linked chat is a Chat
   turn and its answer is sent back; `/new`, `/help`; migration 0019.
 - Telegram gateway (M8, D-031): a `gateway` service sends each notification to one

@@ -4,7 +4,7 @@ owner regardless of case, since the assistant names the agent it delegates to.""
 
 import uuid
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from psycopg.errors import UniqueViolation
 from pydantic import BaseModel
@@ -41,6 +41,8 @@ class Agent(BaseModel):
     instructions: str
     model: str | None
     tools: list[ToolName]
+    # The shared skills it may use (D-033); its private skills are always its own.
+    skills: list[uuid.UUID]
     created_at: datetime
     updated_at: datetime
 
@@ -85,6 +87,7 @@ class AgentCopy(BaseModel):
     instructions: str
     model: str | None
     tools: list[ToolName]
+    skills: list[uuid.UUID] = []  # tasks handed over before skills had none
 
     @classmethod
     def of(cls, agent: Agent) -> "AgentCopy":
@@ -95,9 +98,31 @@ class NameTaken(Exception):
     """The owner already has an agent with this name."""
 
 
+class NoSuchSkill(Exception):
+    """A skill the agent is allowed is not one of the owner's shared skills."""
+
+
 def _ordered(tools: list[ToolName]) -> list[str]:
     """Each allowed tool once, in catalog order."""
     return [t for t in TOOL_NAMES if t in tools]
+
+
+async def _check_skills(
+    conn: Any, owner: str, skills: list[uuid.UUID] | None
+) -> list[uuid.UUID] | None:
+    """Each skill once; raises NoSuchSkill unless all are the owner's shared skills.
+    None stays None."""
+    if skills is None:
+        return None
+    unique = list(dict.fromkeys(skills))
+    cur = await conn.execute(
+        "SELECT count(*) AS n FROM skills WHERE owner = %s AND agent_id IS NULL AND id = ANY(%s)",
+        (owner, unique),
+    )
+    row = await cur.fetchone()
+    if row is None or row["n"] != len(unique):
+        raise NoSuchSkill
+    return unique
 
 
 class AgentStore:
@@ -153,14 +178,26 @@ class AgentStore:
         instructions: str,
         model: str | None,
         tools: list[ToolName],
+        skills: list[uuid.UUID] | None = None,
     ) -> Agent:
-        """Raises NameTaken."""
+        """Raises NameTaken or NoSuchSkill."""
         try:
             async with self.pool.connection() as conn:
+                allowed = await _check_skills(conn, owner, skills)
                 cur = await conn.execute(
-                    "INSERT INTO agents (id, owner, name, description, instructions, model, tools) "
-                    "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING *",
-                    (uuid.uuid4(), owner, name, description, instructions, model, _ordered(tools)),
+                    "INSERT INTO agents "
+                    "(id, owner, name, description, instructions, model, tools, skills) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
+                    (
+                        uuid.uuid4(),
+                        owner,
+                        name,
+                        description,
+                        instructions,
+                        model,
+                        _ordered(tools),
+                        allowed or [],
+                    ),
                 )
                 row = await cur.fetchone()
         except UniqueViolation:
@@ -178,16 +215,27 @@ class AgentStore:
         instructions: str,
         model: str | None,
         tools: list[ToolName],
+        skills: list[uuid.UUID] | None = None,
     ) -> Agent | None:
-        """Replace the definition. None when there is no such agent; raises
-        NameTaken."""
+        """Replace the definition (`skills` None keeps the list). None when there
+        is no such agent; raises NameTaken or NoSuchSkill."""
         try:
             async with self.pool.connection() as conn:
+                allowed = await _check_skills(conn, owner, skills)
                 cur = await conn.execute(
                     "UPDATE agents SET name = %s, description = %s, instructions = %s, "
-                    "model = %s, tools = %s, updated_at = now() "
+                    "model = %s, tools = %s, skills = coalesce(%s, skills), updated_at = now() "
                     "WHERE id = %s AND owner = %s RETURNING *",
-                    (name, description, instructions, model, _ordered(tools), agent_id, owner),
+                    (
+                        name,
+                        description,
+                        instructions,
+                        model,
+                        _ordered(tools),
+                        allowed,
+                        agent_id,
+                        owner,
+                    ),
                 )
                 row = await cur.fetchone()
         except UniqueViolation:

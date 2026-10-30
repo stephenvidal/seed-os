@@ -2318,3 +2318,34 @@ number off by one (1 failed).
 in its documented shape); the page (not built yet).
 
 **Open questions:** none new.
+
+## Increment 35 — Skills in tasks (M8, D-033 step 2)
+
+**Changed:** each task's system prompt lists the skills it may see (name and
+description, up to 100 lines); `skill_list` and `skill_view` read them from the
+task's copy; agents get `skills`, the shared skills they may use (migration 0021);
+a message from the owner that starts with `/name` adds that skill to the prompt
+(event `skill_forced`), or a note that there is no such skill. The Telegram help
+mentions `/name`; the Tools catalog lists the two new tools.
+
+**Tested**
+```
+backend: ruff, format, mypy clean ("Success: no issues found in 62 source files")
+pytest (DB) → 252 passed, 1 skipped (8 new in tests/test_skill_runtime.py)
+```
+An agent changed without `skills` (as the current Agents page sends it) keeps its
+list.
+
+Breakage checks 11/11 caught (after one survivor led to a stronger test): an agent
+seeing every shared skill (1 failed), SEED seeing private skills (2 failed),
+forcing in an agent's task (survived, then 1 failed once the test delegated a
+task starting with a slash), the prefix matching `/etc/hosts` (1 failed), no
+index limit (1 failed), bodies in the index (3 failed), a skill made private
+staying on an agent's list (1 failed), an agent allowed a private skill (1 failed),
+no `skill_forced` event (1 failed), a PUT without `skills` clearing the list
+(1 failed).
+
+**Not tested:** a real model choosing to call `skill_view` (the provider is
+scripted); `/name` through the real Telegram API.
+
+**Open questions:** none new.

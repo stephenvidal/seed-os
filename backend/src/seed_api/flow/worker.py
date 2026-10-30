@@ -41,6 +41,8 @@ from ..projects.knowledge import KnowledgeStore, knowledge_tool
 from ..projects.memory import MemoryStore, remember_tool
 from ..sandbox.client import SandboxClient, sandbox_tools
 from ..schedules.store import ScheduleStore
+from ..skills.runtime import forced_prompt, forced_skill, skill_tools, skills_index
+from ..skills.store import SkillStore
 from ..studio.capture import restore, save_changes
 from ..studio.store import ArtifactStore
 from ..studio.workspace import LocalFiles, SandboxFiles, WorkspaceFiles
@@ -168,6 +170,11 @@ class Worker:
             agents = await AgentStore(self.store.pool).all(task.created_by)
             if agents:
                 tools.append(delegate_tool(agents))
+        # The skills it may see (D-033); a `/name` message from the owner follows one.
+        skills = await SkillStore(self.store.pool).visible(task.created_by, task.agent)
+        if skills:
+            tools.extend(skill_tools(skills))
+        forced = forced_skill(task.prompt, skills) if task.agent is None else None
         gated = set(self.settings.approval_required_tools)
         tools = [
             replace(t, requires_approval=t.requires_approval or t.name in gated) for t in tools
@@ -183,16 +190,24 @@ class Worker:
         try:
             await self._restore(task, lease, files)
             summary, extra = await self._summary(task, lease, provider)
+            system = [
+                agent_system_prompt(task.agent)
+                if task.agent is not None
+                else system_prompt(task.instructions, task.memory, summary)
+            ]
+            if skills:
+                system.append(skills_index(skills))
+            if forced is not None:
+                system.append(forced_prompt(forced))
+                if task.checkpoint is None:
+                    await self.store.append_event(
+                        lease, "skill_forced", {"name": forced.name, "found": bool(forced.skill)}
+                    )
             result = await run_agent(
                 provider=provider,
                 model=task.model,
                 messages=[
-                    Message(
-                        role="system",
-                        content=agent_system_prompt(task.agent)
-                        if task.agent is not None
-                        else system_prompt(task.instructions, task.memory, summary),
-                    ),
+                    Message(role="system", content="\n\n".join(system)),
                     *(Message(role=m.role, content=m.content) for m in task.context),
                     Message(role="user", content=task.prompt),
                 ],
