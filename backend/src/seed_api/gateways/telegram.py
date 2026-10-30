@@ -1,4 +1,5 @@
-"""Telegram gateway (D-031): sends a person's notifications to one Telegram chat.
+"""Telegram gateway (D-031, D-032): sends a person's notifications to one Telegram
+chat, and lets them chat with SEED from it.
 
 It runs as its own process (`python -m seed_api.gateways.telegram`), as Telegram
 lets one client at a time read a bot's updates. It long-polls for messages, so it
@@ -7,6 +8,11 @@ any other chat is told its id, which the owner sets as SEED_TELEGRAM_CHAT_ID to 
 it. Notifications are sent once each: a row is marked sent only after Telegram took
 it, and only those from the last hour are sent, so a gateway that was off does not
 send a backlog when it starts.
+
+A text message from the linked chat is a chat turn, as if typed in the app: it
+continues the chat's conversation (or starts one), and the answer is sent back when
+the turn ends. The turn carries the key `telegram:<update id>`, so a message read
+twice is answered once. /new starts a new conversation.
 """
 
 import asyncio
@@ -17,8 +23,10 @@ from typing import Any
 
 import httpx
 
+from ..chat.store import ChatError, ChatStore
 from ..config import Settings, get_settings
 from ..flow.db import Pool, make_pool, migrate
+from ..flow.store import TERMINAL
 from ..notifications.store import Notification
 
 log = logging.getLogger("seed.telegram")
@@ -28,6 +36,13 @@ BATCH = 20
 POLL_SECONDS = 25
 SEND_EVERY_SECONDS = 3.0
 BACKOFF_SECONDS = 10.0
+# Telegram takes up to 4096 characters a message; longer answers go in parts.
+PART_CHARS = 4000
+
+HELP = (
+    "Send a message and SEED answers it, as in Chat. Messages continue one "
+    "conversation; /new starts another. Notifications arrive here too."
+)
 
 HEADING: dict[str, str] = {
     "task_completed": "✅ Finished",
@@ -87,6 +102,17 @@ class TelegramApi:
         await self._http.aclose()
 
 
+def parts(text: str) -> list[str]:
+    """`text` in pieces Telegram accepts, split at line breaks where possible."""
+    out: list[str] = []
+    while len(text) > PART_CHARS:
+        cut = text.rfind("\n", 0, PART_CHARS)
+        cut = cut if cut > PART_CHARS // 2 else PART_CHARS
+        out.append(text[:cut].rstrip("\n"))
+        text = text[cut:].lstrip("\n")
+    return [*out, text] if text else out
+
+
 def message_for(n: Notification, public_url: str | None) -> str:
     """Plain text, so nothing in a title or body needs escaping."""
     lines = [f"{HEADING[n.kind]}: {n.title}"]
@@ -111,7 +137,12 @@ class TelegramGateway:
         self.owner = settings.telegram_user or settings.admin_username
         self.chat_id = settings.telegram_chat_id
         self.offset: int | None = None
+        self.chats = ChatStore(pool)
         self.stop = asyncio.Event()
+
+    def link(self, path: str) -> str:
+        url = self.settings.public_url
+        return f"\n{url.rstrip('/')}{path}" if url else ""
 
     async def send_pending(self) -> int:
         """Send the owner's recent unsent notifications, oldest first; returns how many
@@ -156,18 +187,156 @@ class TelegramGateway:
                 f"SEED_TELEGRAM_CHAT_ID={chat} on the server to link it.",
             )
             return
-        await self.api.send_message(
-            chat, f"This chat is linked to SEED. Notifications for {self.owner} arrive here."
-        )
+        text = message.get("text")
+        if not isinstance(text, str) or not text.strip():
+            await self.api.send_message(chat, "SEED reads text messages only.")
+            return
+        command = text.strip().split()[0].split("@")[0].lower()
+        if command in ("/start", "/help"):
+            await self.api.send_message(chat, HELP)
+        elif command == "/new":
+            async with self.pool.connection() as conn:  # an answer still owed is kept
+                await conn.execute(
+                    "UPDATE telegram_chats SET conversation_id = NULL, updated_at = now() "
+                    "WHERE chat_id = %s",
+                    (chat,),
+                )
+            await self.api.send_message(chat, "Your next message starts a new conversation.")
+        else:
+            await self.api.send_message(chat, await self._turn(chat, text.strip(), update))
+
+    async def _turn(self, chat: int, prompt: str, update: dict[str, Any]) -> str:
+        """Queue the message as a chat turn; returns what to tell the chat now."""
+        if self.settings.ollama_api_key is None:
+            return "SEED has no model provider configured, so it cannot answer."
+        if len(prompt) > 20_000:
+            return "That message is too long: send at most 20,000 characters."
+        key = f"telegram:{update['update_id']}"
+        conversation = await self._conversation(chat)
+        try:
+            if conversation is None:
+                raise ChatError("not_found", "no conversation yet")
+            task, _ = await self.chats.send(
+                conversation,
+                owner=self.owner,
+                prompt=prompt,
+                model=None,
+                max_attempts=self.settings.task_max_attempts,
+                idempotency_key=key,
+                context_turns=self.settings.chat_context_turns,
+            )
+        except ChatError as e:
+            if e.code == "turn_in_progress":
+                return "SEED is still answering your last message. Send this again after."
+            if e.code != "not_found":
+                return e.message
+            if self.settings.default_model is None:
+                return "No model is chosen: set SEED_DEFAULT_MODEL on the server."
+            conv, task, _ = await self.chats.start(
+                owner=self.owner,
+                model=self.settings.default_model,
+                prompt=prompt,
+                max_attempts=self.settings.task_max_attempts,
+                idempotency_key=key,
+            )
+            conversation = conv.id
+        await self._remember(chat, conversation=conversation, awaiting=task.id)
+        return "Working on it…"
+
+    async def _conversation(self, chat: int) -> Any:
+        async with self.pool.connection() as conn:
+            cur = await conn.execute(
+                "SELECT conversation_id FROM telegram_chats WHERE chat_id = %s", (chat,)
+            )
+            row = await cur.fetchone()
+        return row["conversation_id"] if row else None
+
+    async def _remember(self, chat: int, *, conversation: Any, awaiting: Any = None) -> None:
+        async with self.pool.connection() as conn:
+            await conn.execute(
+                """
+                INSERT INTO telegram_chats (chat_id, conversation_id, awaiting_task)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (chat_id) DO UPDATE SET conversation_id = excluded.conversation_id,
+                    awaiting_task = excluded.awaiting_task, told_call = NULL, updated_at = now()
+                """,
+                (chat, conversation, awaiting),
+            )
+
+    async def deliver_answers(self) -> int:
+        """Send the answer of each chat's turn once it has ended, and tell the chat
+        once per call when the turn waits for an approval; returns answers sent."""
+        if self.chat_id is None:
+            return 0
+        async with self.pool.connection() as conn:
+            cur = await conn.execute(
+                """
+                SELECT c.chat_id, c.told_call, t.id, t.state, t.result_text, t.error,
+                       t.conversation_id, t.awaiting_approval
+                FROM telegram_chats c JOIN tasks t ON t.id = c.awaiting_task
+                WHERE c.chat_id = %s
+                """,
+                (self.chat_id,),
+            )
+            row = await cur.fetchone()
+        if row is None:
+            return 0
+        here = self.link(f"/chat/{row['conversation_id']}")
+        call = row["awaiting_approval"]
+        if row["state"] == "waiting" and call and call.get("id") != row["told_call"]:
+            await self.api.send_message(
+                row["chat_id"],
+                f"✋ Waiting for your approval to call {call.get('name')}. "
+                f"Approve or deny it in SEED.{here}",
+            )
+            async with self.pool.connection() as conn:
+                await conn.execute(
+                    "UPDATE telegram_chats SET told_call = %s WHERE chat_id = %s",
+                    (call.get("id"), row["chat_id"]),
+                )
+            return 0
+        if row["state"] not in TERMINAL:
+            return 0
+        if row["state"] == "completed":
+            answer = (row["result_text"] or "").strip()
+            pieces = parts(answer) or [f"Done. The answer has no text to show here.{here}"]
+        elif row["state"] == "failed":
+            pieces = [f"❌ That failed: {row['error'] or 'no reason given'}{here}"]
+        else:
+            pieces = ["That message was canceled."]
+        for piece in pieces:
+            await self.api.send_message(row["chat_id"], piece)
+        async with self.pool.connection() as conn:
+            await conn.execute(
+                "UPDATE telegram_chats SET awaiting_task = NULL, told_call = NULL, "
+                "updated_at = now() WHERE chat_id = %s AND awaiting_task = %s",
+                (row["chat_id"], row["id"]),
+            )
+        return 1
+
+    async def send_all(self) -> None:
+        await self.deliver_answers()
+        await self.send_pending()
 
     async def receive_once(self) -> int:
+        if self.offset is None:
+            async with self.pool.connection() as conn:
+                cur = await conn.execute("SELECT next_update FROM telegram_offset WHERE id = 1")
+                row = await cur.fetchone()
+            self.offset = int(row["next_update"]) if row else None
         updates = await self.api.get_updates(self.offset)
         for u in updates:
-            self.offset = int(u["update_id"]) + 1
             try:
                 await self.handle(u)
             except TelegramError as e:
                 log.warning("telegram reply failed: %s", e)
+            self.offset = int(u["update_id"]) + 1
+            async with self.pool.connection() as conn:
+                await conn.execute(
+                    "INSERT INTO telegram_offset (id, next_update) VALUES (1, %s) "
+                    "ON CONFLICT (id) DO UPDATE SET next_update = excluded.next_update",
+                    (self.offset,),
+                )
         return len(updates)
 
     async def _loop(self, step: Any, pause: float) -> None:
@@ -189,7 +358,7 @@ class TelegramGateway:
     async def run_forever(self) -> None:
         loops = [
             asyncio.create_task(self._loop(self.receive_once, 0)),
-            asyncio.create_task(self._loop(self.send_pending, SEND_EVERY_SECONDS)),
+            asyncio.create_task(self._loop(self.send_all, SEND_EVERY_SECONDS)),
         ]
         # Stop at once on a signal, not after the current long poll: nothing is lost,
         # as a notification is marked sent only after Telegram took it.

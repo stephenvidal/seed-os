@@ -17,6 +17,8 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
   error messages, so a failure rate can be read.
 
 ### Added
+- Chat with SEED from Telegram (M8, D-032): a message from the linked chat is a Chat
+  turn and its answer is sent back; `/new`, `/help`; migration 0019.
 - Telegram gateway (M8, D-031): a `gateway` service sends each notification to one
   Telegram chat; other chats are told their id. Migration 0018. New settings
   `SEED_TELEGRAM_BOT_TOKEN`, `SEED_TELEGRAM_CHAT_ID`, `SEED_TELEGRAM_USER`,
