@@ -900,3 +900,34 @@ was off sends no backlog. One chat and one user per deployment. Chatting with SE
 from Telegram comes next; until then, the linked chat's messages get an
 acknowledgement only. The update offset lives in memory, so after a restart a
 message may be answered twice.
+
+## D-032 — Chatting with SEED from Telegram: a message is a chat turn
+
+**Date:** 2026-10-30
+
+**Context:** The Telegram gateway sends notifications (D-031). Stephen chose Telegram
+so he can talk to SEED outside the app.
+
+**Options:** (1) a message starts a standalone task; (2) a message is a turn in a
+conversation, the same as one typed in Chat; (3) a Telegram-only history.
+
+**Choice:** Option 2. The linked chat's text continues its conversation through
+`ChatStore` (the same context, summaries and project rules as Chat) or starts one
+with `SEED_DEFAULT_MODEL`. It shows in the app's Chat like any other. `/new` starts
+another conversation, and `/start` and `/help` explain. The turn's key is
+`telegram:<update id>`, and the next update to read is kept in the database
+(`telegram_offset`, migration 0019), so a message read twice is answered once,
+across restarts too. Per chat, `telegram_chats` keeps the conversation, the turn
+whose answer is owed, and the approval call the chat was last told about. When the
+turn ends, the answer is sent (in parts of up to 4,000 characters). A failure is
+sent with its reason, an empty answer with a link to the conversation. While the
+turn waits for an approval, the chat is told once per call, with a link, and you
+decide in the app. A message sent while the last is still being answered is refused
+with a note, as in Chat.
+
+**Reason:** One conversation model, not two. Everything said in Telegram can be read,
+continued, branched or moved to a project in the app.
+
+**Consequences:** Approving from Telegram (inline buttons) is not built. Only text is
+read: photos, files and voice get a short refusal. Answers are plain text, so
+Markdown shows as typed.

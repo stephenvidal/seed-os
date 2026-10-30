@@ -12,8 +12,17 @@ import httpx
 import pytest
 
 from seed_api.config import Settings
+from seed_api.core.messages import ToolCall, Usage
 from seed_api.flow.db import Pool, make_pool, migrate
-from seed_api.gateways.telegram import TelegramApi, TelegramError, TelegramGateway, message_for
+from seed_api.flow.store import TaskStore
+from seed_api.gateways.telegram import (
+    PART_CHARS,
+    TelegramApi,
+    TelegramError,
+    TelegramGateway,
+    message_for,
+    parts,
+)
 from seed_api.notifications.store import Notification
 
 pytestmark = pytest.mark.anyio
@@ -103,27 +112,6 @@ async def test_the_bot_api_is_called_with_the_token_and_its_errors_are_typed() -
     await offline.aclose()
 
 
-async def test_other_chats_learn_their_id_and_the_linked_chat_is_acknowledged() -> None:
-    bot = FakeBot()
-    gw = TelegramGateway(None, api(bot), Settings(telegram_chat_id=CHAT))  # type: ignore[arg-type]
-    bot.updates = [
-        {"update_id": 10, "message": {"chat": {"id": 99}, "text": "/start"}},
-        {"update_id": 11, "message": {"chat": {"id": CHAT}, "text": "hello"}},
-        {"update_id": 12, "edited_message": {"chat": {"id": CHAT}}},  # ignored
-    ]
-    assert await gw.receive_once() == 3
-    assert bot.sent == [
-        (
-            99,
-            "This chat is not linked to SEED. Its id is 99: set SEED_TELEGRAM_CHAT_ID=99 "
-            "on the server to link it.",
-        ),
-        (CHAT, "This chat is linked to SEED. Notifications for admin arrive here."),
-    ]
-    await gw.receive_once()
-    assert bot.offsets == [None, 13]  # confirmed: the same updates do not come again
-
-
 # --- Sending notifications (database) ---------------------------------------------
 
 
@@ -198,3 +186,205 @@ async def test_the_gateway_stops_at_once_on_a_signal(pool: Pool) -> None:
     gw.stop.set()
     await asyncio.wait_for(run, timeout=2)
     await client.aclose()
+
+
+# --- Chatting from Telegram (D-032) ------------------------------------------------
+
+CHATTING = {
+    "telegram_chat_id": CHAT,
+    "ollama_api_key": "k",
+    "default_model": "m-default",
+    "public_url": "https://seed.example",
+}
+
+
+def text(update_id: int, body: str, chat: int = CHAT) -> dict[str, Any]:
+    return {"update_id": update_id, "message": {"chat": {"id": chat}, "text": body}}
+
+
+async def turns(pool: Pool) -> list[dict[str, Any]]:
+    async with pool.connection() as conn:
+        cur = await conn.execute(
+            "SELECT id, conversation_id, turn, prompt, model, created_by, idempotency_key, state "
+            "FROM tasks ORDER BY created_at"
+        )
+        return list(await cur.fetchall())
+
+
+async def end(pool: Pool, state: str, *, answer: str = "", error: str = "") -> None:
+    store = TaskStore(pool)
+    claimed = await store.claim("w", 30)
+    assert claimed is not None
+    await store.finish(
+        claimed[1],
+        state=state,  # type: ignore[arg-type]
+        termination="done",
+        error=error or None,
+        result_text=answer,
+        usage=Usage(),
+    )
+
+
+def test_long_answers_are_split_at_line_breaks() -> None:
+    assert parts("") == [] and parts("short") == ["short"]
+    para = "x" * (PART_CHARS - 100)
+    assert parts(f"{para}\n\n{para}") == [para, para]
+    unbroken = "y" * (PART_CHARS * 2 + 5)
+    assert [len(p) for p in parts(unbroken)] == [PART_CHARS, PART_CHARS, 5]
+
+
+async def test_other_chats_learn_their_id_and_nothing_else(pool: Pool) -> None:
+    bot = FakeBot()
+    gw = TelegramGateway(pool, api(bot), Settings(**CHATTING))  # type: ignore[arg-type]
+    bot.updates = [text(10, "do something", chat=99), {"update_id": 11, "edited_message": {}}]
+    assert await gw.receive_once() == 2
+    assert bot.sent == [
+        (
+            99,
+            "This chat is not linked to SEED. Its id is 99: set SEED_TELEGRAM_CHAT_ID=99 "
+            "on the server to link it.",
+        )
+    ]
+    assert await turns(pool) == []
+
+
+async def test_a_message_is_a_chat_turn_and_its_answer_comes_back(pool: Pool) -> None:
+    bot = FakeBot()
+    gw = TelegramGateway(pool, api(bot), Settings(**CHATTING))  # type: ignore[arg-type]
+    bot.updates = [text(20, "What is 2+2?")]
+    await gw.receive_once()
+    [first] = await turns(pool)
+    assert (first["prompt"], first["model"], first["created_by"], first["turn"]) == (
+        "What is 2+2?",
+        "m-default",
+        "admin",
+        1,
+    )
+    assert first["idempotency_key"] == "telegram:20"
+    assert bot.sent[-1] == (CHAT, "Working on it…")
+
+    bot.updates = [text(21, "And 3+3?")]  # the first is still being answered
+    await gw.receive_once()
+    assert bot.sent[-1][1].startswith("SEED is still answering")
+    assert len(await turns(pool)) == 1
+
+    assert await gw.deliver_answers() == 0  # not ended yet
+    await end(pool, "completed", answer="4")
+    assert await gw.deliver_answers() == 1
+    assert bot.sent[-1] == (CHAT, "4")
+    assert await gw.deliver_answers() == 0  # sent once
+
+    bot.updates = [text(22, "And 3+3?")]
+    await gw.receive_once()
+    second = (await turns(pool))[-1]
+    assert (second["conversation_id"], second["turn"]) == (first["conversation_id"], 2)
+
+
+async def test_a_message_read_twice_is_answered_once(pool: Pool) -> None:
+    bot = FakeBot()
+    gw = TelegramGateway(pool, api(bot), Settings(**CHATTING))  # type: ignore[arg-type]
+    bot.updates = [text(30, "Hello")]
+    await gw.receive_once()
+    await end(pool, "completed", answer="Hi")
+    await gw.deliver_answers()
+    again = TelegramGateway(pool, api(bot), Settings(**CHATTING))  # type: ignore[arg-type]
+    await again.receive_once()
+    assert bot.offsets[-1] == 31  # the next gateway reads on from where this one stopped
+    bot.updates = [text(30, "Hello")]  # Telegram sends it again all the same
+    await again.receive_once()
+    assert len(await turns(pool)) == 1
+
+
+async def test_new_starts_another_conversation_and_help_explains(pool: Pool) -> None:
+    bot = FakeBot()
+    gw = TelegramGateway(pool, api(bot), Settings(**CHATTING))  # type: ignore[arg-type]
+    bot.updates = [text(40, "/start")]
+    await gw.receive_once()
+    assert "/new starts another" in bot.sent[-1][1]
+    bot.updates = [text(41, "First")]
+    await gw.receive_once()
+    await end(pool, "completed", answer="ok")
+    bot.updates = [text(42, "/new@SeedBot"), text(43, "Second")]
+    await gw.receive_once()
+    assert bot.sent[-2][1] == "Your next message starts a new conversation."
+    first, second = await turns(pool)
+    assert first["conversation_id"] != second["conversation_id"] and second["turn"] == 1
+    # The answer to the first was still owed when /new came: it is not lost.
+    assert await gw.deliver_answers() == 0  # the second is now the one owed
+
+
+async def test_a_conversation_deleted_in_the_app_is_started_afresh(pool: Pool) -> None:
+    bot = FakeBot()
+    gw = TelegramGateway(pool, api(bot), Settings(**CHATTING))  # type: ignore[arg-type]
+    bot.updates = [text(50, "First")]
+    await gw.receive_once()
+    await end(pool, "completed", answer="ok")
+    [first] = await turns(pool)
+    async with pool.connection() as conn:
+        await conn.execute("DELETE FROM tasks WHERE id = %s", (first["id"],))
+        await conn.execute("DELETE FROM conversations WHERE id = %s", (first["conversation_id"],))
+    bot.updates = [text(51, "Again")]
+    await gw.receive_once()
+    [again] = await turns(pool)
+    assert again["turn"] == 1 and bot.sent[-1][1] == "Working on it…"
+
+
+async def test_waiting_for_an_approval_is_told_once_and_a_failure_is_reported(
+    pool: Pool,
+) -> None:
+    bot = FakeBot()
+    gw = TelegramGateway(pool, api(bot), Settings(**CHATTING))  # type: ignore[arg-type]
+    bot.updates = [text(60, "Run ls")]
+    await gw.receive_once()
+    [turn] = await turns(pool)
+    store = TaskStore(pool)
+    claimed = await store.claim("w", 30)
+    assert claimed is not None
+    await store.pause(claimed[1], ToolCall(id="c1", name="run_command", arguments={}))
+    assert await gw.deliver_answers() == 0
+    link = f"https://seed.example/chat/{turn['conversation_id']}"
+    assert bot.sent[-1] == (
+        CHAT,
+        f"✋ Waiting for your approval to call run_command. Approve or deny it in SEED.\n{link}",
+    )
+    await gw.deliver_answers()
+    assert sum("Waiting for your approval" in t for _, t in bot.sent) == 1
+    await store.decide(turn["id"], call_id="c1", approved=True, by="admin")
+    await end(pool, "failed", error="The model gave up.")
+    assert await gw.deliver_answers() == 1
+    assert bot.sent[-1] == (CHAT, f"❌ That failed: The model gave up.\n{link}")
+
+
+async def test_it_says_why_it_cannot_answer(pool: Pool) -> None:
+    bot = FakeBot()
+    gw = TelegramGateway(pool, api(bot), Settings(telegram_chat_id=CHAT, default_model="m"))
+    bot.updates = [text(70, "Hi"), {"update_id": 71, "message": {"chat": {"id": CHAT}}}]
+    await gw.receive_once()
+    assert [t for _, t in bot.sent] == [
+        "SEED has no model provider configured, so it cannot answer.",
+        "SEED reads text messages only.",
+    ]
+    no_model = TelegramGateway(pool, api(bot), Settings(telegram_chat_id=CHAT, ollama_api_key="k"))
+    bot.updates = [text(72, "Hi")]
+    await no_model.receive_once()
+    assert bot.sent[-1][1] == "No model is chosen: set SEED_DEFAULT_MODEL on the server."
+    assert await turns(pool) == []
+
+
+async def test_a_long_answer_arrives_in_parts_and_an_empty_one_links_to_it(pool: Pool) -> None:
+    bot = FakeBot()
+    gw = TelegramGateway(pool, api(bot), Settings(**CHATTING))  # type: ignore[arg-type]
+    bot.updates = [text(80, "Write a lot")]
+    await gw.receive_once()
+    await end(pool, "completed", answer="z" * (PART_CHARS + 10))
+    await gw.deliver_answers()
+    assert [len(t) for _, t in bot.sent[1:]] == [PART_CHARS, 10]
+    bot.updates = [text(81, "Make a page")]
+    await gw.receive_once()
+    await end(pool, "completed", answer="  ")
+    await gw.deliver_answers()
+    [turn, _] = await turns(pool)
+    assert bot.sent[-1][1] == (
+        "Done. The answer has no text to show here.\n"
+        f"https://seed.example/chat/{turn['conversation_id']}"
+    )

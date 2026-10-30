@@ -2268,3 +2268,32 @@ Bell menu at 390×800 in Chromium: `menu left 16 right gap 22` (was flush at 0 l
 the VPS.
 
 **Open questions:** none new.
+
+## Increment 33 — Chat with SEED from Telegram (M8 step 4b)
+
+**Changed:** a text message from the linked chat is a Chat turn (`ChatStore`, key
+`telegram:<update id>`), and the answer is sent back when it ends. `/new`, `/start`
+and `/help`. Approvals are announced once per call. The update offset is kept in the
+database. Migration 0019 (`telegram_chats`, `telegram_offset`) (D-032).
+
+**Tested**
+```
+backend: ruff, format, mypy clean; pytest (DB) → 232 passed, 1 skipped (8 new)
+```
+Breakage checks 11/12 caught. The survivor is equivalent in practice: starting a
+new conversation on an error other than not_found or turn_in_progress (the only
+other code is an idempotency conflict, which a Telegram update cannot cause).
+
+Real processes (Postgres, worker, gateway, a fake Bot API, and an Ollama stub that
+echoes):
+```
+SEND 4242 "Working on it…"
+SEND 4242 "You said: What is 2+2? (user messages seen: 1)"
+SEND 4242 "Working on it…"
+SEND 4242 "You said: And again? (user messages seen: 2)"
+tasks: 1|completed|telegram:500 · 2|completed|telegram:501   offset: 502
+```
+The second turn carried the first as context.
+
+**Not tested:** the real Telegram API; a turn waiting for an approval in the real
+processes (covered by the store-level test).

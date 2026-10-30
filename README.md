@@ -116,6 +116,10 @@ it — with full visibility and control.
   each notification to Telegram once, with a link back when `SEED_PUBLIC_URL` is set.
   Only notifications from the last hour are sent, so starting it sends no backlog.
   Any other chat that messages the bot is told its id, and nothing else.
+  From the linked chat, a text message is a Chat turn: it continues that chat's
+  conversation (it shows in Chat too) and the answer comes back when the turn ends.
+  `/new` starts another conversation. A turn waiting for an approval is announced
+  with a link; approve it in the app.
 - **Notifications (M8):** the bell in the top bar lists what happened while you were
   away: a task you started on its own finished or failed, a task waits for your
   approval, a schedule skipped a run. Chat turns are not announced. Opening one marks it
