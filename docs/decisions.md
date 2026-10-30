@@ -801,3 +801,40 @@ says a command needs one instead of claiming a status. Skills are not built, and
 document defines what a skill is: open question for Stephen, who decides if M8 owns
 them. A tool added to the worker must be added to the catalog and to `AVAILABLE_IN`;
 a missing text fails the catalog test rather than showing a blank.
+
+## D-029 — Schedules are saved tasks that the workers start when they are due
+
+**Date:** 2026-10-30
+
+**Context:** M8 lists scheduling. The requirements give no more than the word, so
+what a schedule is, how it recurs and what happens on overlap or downtime are
+choices. Tasks must not be duplicated and must survive restarts (SEED Flow).
+
+**Options:** (1) a cron expression, run by a separate scheduler process; (2) a
+timetable of two kinds (every N minutes, or daily at a time in a timezone), checked
+by the workers already running; (3) the operating system's cron calling the API.
+
+**Choice:** Option 2. A `schedules` row holds the prompt, model, optional project,
+the timetable and `next_run_at`. On every pass each worker locks the due rows
+(`FOR UPDATE SKIP LOCKED`) and, in one transaction per batch, inserts the task
+(with the project's instructions and memory as a task started there gets,
+D-023), sets the next run, and writes `schedule_started_task` to the audit log
+(actor empty for the timetable, the owner for "run now"). The task also carries the
+key `schedule:<id>:<due time>`, so a due time cannot start two. The next run counts
+from when the schedule fired, so downtime does not cause a burst: missed runs start
+one task. A run is skipped (`skipped_busy`) while the task started last time is
+queued, running or waiting, so a slow task is never piled on. An interval is 5
+minutes to a week. A daily time uses an IANA timezone (the tzdata package ships
+the names, as the slim image has none); a time that does not exist on the night the
+clocks go forward runs just after the gap, one that happens twice runs the first
+time. Deleting a project deletes its schedules; deleting a schedule keeps its
+tasks. "Run now" starts the task without moving the timetable.
+
+**Reason:** No new process or service, the same locking pattern as the task queue,
+and exactly-once starting that holds with any number of workers.
+
+**Consequences:** Resolution is the worker's poll interval (2 s by default), not the
+second. Weekdays-only, monthly and cron syntax are not offered; they are not in the
+requirements. A scheduled task has no person watching: one that needs approval
+waits in Command Center, "Needs attention", like any task. A model name is not
+checked until the task runs, so a wrong one fails that task.

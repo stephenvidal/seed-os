@@ -112,6 +112,13 @@ it — with full visibility and control.
   calls (arguments, result, time, approval), checkpoints, and the raw event log
   (streamed text chunks are counted, not listed). A running task refreshes every
   3 s. Model reasoning is never stored, so it is never shown.
+- **Schedules (M8):** a schedule is a saved task (prompt, model, optional project)
+  that starts every N minutes or daily at a time in a timezone (D-029). Every
+  worker checks for due schedules on each pass; a due time starts at most one task,
+  whatever the number of workers. Runs missed while nothing was running start once,
+  and a run is skipped while the task the schedule started last time is still going
+  (queued, running, or waiting for an approval). A scheduled task that wants to run
+  a command waits for your approval like any other.
 - **Tools & Skills (M8):** every tool SEED can use, from the worker's own
   definitions: what it does, its permission (reads, writes, runs code), whether
   a person approves each call (from `SEED_APPROVAL_REQUIRED_TOOLS`), its limits
@@ -154,6 +161,9 @@ it — with full visibility and control.
 | DELETE | `/api/v1/conversations/{id}` | admin | 204; removes the conversation, its turns and their events; 409 `turn_in_progress` while a turn is queued, running or waiting; 404 `not_found` |
 | POST | `/api/v1/conversations/{id}/turns` | admin | `{prompt, model?}`, optional `Idempotency-Key` → 201 task continuing the shown path, carrying its completed turns as context; `model` switches the conversation's model; 409 `turn_in_progress` while a turn is unfinished; 404 `not_found` |
 | POST | `/api/v1/tasks` | admin | `{model, prompt, title?, project_id?}`, optional `Idempotency-Key` header → 201 task (`queued`); with `project_id` the task copies the project's instructions and approved memory and gets its `remember` and `search_knowledge` tools (404 `project_not_found`); 200 with the existing task on a repeated key; 409 `idempotency_conflict`; 503 `provider_not_configured` |
+| GET / POST | `/api/v1/schedules` | admin | List the caller's schedules by name / create one (201): `{name, prompt, model, project_id?, kind: "interval" \| "daily", every_minutes (interval: 5-10080), at_time ("09:30", daily), timezone (IANA name, default UTC), enabled}`; the response adds `next_run_at` (null while disabled), `last_run_at`, `last_outcome` (`started` or `skipped_busy`) and `last_task_id`; 404 `project_not_found`; audited |
+| GET / PUT / DELETE | `/api/v1/schedules/{id}` | admin | Read, replace (same body; the next run is worked out afresh) or delete (204; its tasks stay); 404 `not_found` |
+| POST | `/api/v1/schedules/{id}/run` | admin | Start the schedule's task now → 201 `{task_id}`; the timetable is unchanged |
 | GET | `/api/v1/tools` | admin | `?hours=1..720` (default 24) → `{generated_at, window_hours, tools[], usage[]}`: `tools` is the catalog (`name, description, permission, timeout_s, max_output_chars, requires_approval` (the tool's own flag or `SEED_APPROVAL_REQUIRED_TOOLS`), `deferred` (answered by another task), `available_in`, `arguments[{name, type, required, description}]`); `usage` is `[{tool, calls, ok, failed, avg_ms, failures{kind: n}}]` from tool results recorded in the window, most used first, or `null` with no database |
 | GET | `/api/v1/overview` | admin | `?hours=1..720` (default 24) → `{window_hours, generated_at, counts, attention[], active[], recent[], usage[], agents[]}`: queued/running/waiting (for approval)/delegating (waiting for an agent's task) now; completed/failed/canceled, recent work and per-model tokens for tasks finished in the window; `attention` is every task waiting for approval then failures in the window (10 max), `active` running, then queued and delegating (10 max), `recent` 5 max; `agents` `[{name, working, completed, failed, canceled, input_tokens, output_tokens}]` for agent tasks working now or finished in the window, busiest first; all users' tasks |
 | GET | `/api/v1/artifacts` | admin | Saved files, most recently changed first: `{id, path, media_type, conversation_id, source_title, task_id, versions, latest{version, task_id, size, deleted, created_at}, …}`; `?conversation_id=`, `?project_id=`, `?limit=1..500` |
