@@ -26,6 +26,7 @@ from pydantic import BaseModel
 from ..agents.store import AgentCopy
 from ..core.agent import Checkpoint, DelegatedResult
 from ..core.messages import ToolCall, Usage
+from ..notifications.store import notify
 from .db import Pool
 
 TaskState = Literal["queued", "running", "waiting", "completed", "failed", "canceled"]
@@ -553,12 +554,23 @@ class TaskStore:
                     lease_owner = NULL, lease_expires_at = NULL, updated_at = now()
                 WHERE id = %(id)s AND lease_owner = %(worker)s AND attempt = %(attempt)s
                   AND state = 'running'
-                RETURNING id
+                RETURNING *
                 """,
                 {**_fence(lease), "call": Jsonb(call.model_dump(mode="json"))},
             )
-            if await cur.fetchone() is None:
+            row = await cur.fetchone()
+            if row is None:
                 raise LeaseLost(str(lease.task_id))
+            # An agent task's approval is asked of the person too: nobody else can decide.
+            if row["conversation_id"] is None:
+                await notify(
+                    conn,
+                    row["created_by"],
+                    "approval_needed",
+                    row["title"],
+                    f"Waiting for your approval to call {call.name}.",
+                    task_id=row["id"],
+                )
 
     async def delegation_status(self, task_id: uuid.UUID) -> tuple[set[str], set[str]]:
         """The delegate calls of a task's current run that have an agent task still
@@ -716,12 +728,28 @@ _RESULT_TEXT = {
 }
 
 
+def _worth_telling(row: DictRow) -> bool:
+    """A task a person started on its own: not a chat turn they are reading as it
+    runs, and not an agent task, whose result goes to its parent."""
+    return row["conversation_id"] is None and row["parent_task_id"] is None
+
+
 async def _ended(conn: AsyncConnection[DictRow], row: DictRow) -> None:
     """After a task's state changed: when it has ended, report it to its parent and
     cancel the agent tasks it still has running, as nothing would read their
     results (D-026). Call in the transaction that changed the task."""
     if row["state"] not in TERMINAL:
         return
+    if _worth_telling(row) and row["state"] != "canceled":
+        done = row["state"] == "completed"
+        await notify(
+            conn,
+            row["created_by"],
+            "task_completed" if done else "task_failed",
+            row["title"],
+            (row["result_text"] if done else row["error"]) or "",
+            task_id=row["id"],
+        )
     await _report_to_parent(conn, row)
     cur = await conn.execute(
         "SELECT id FROM tasks WHERE parent_task_id = %s "

@@ -19,6 +19,8 @@ from .flow import api as tasks_api
 from .flow import overview
 from .flow.db import make_pool, migrate
 from .flow.store import TaskStore
+from .notifications import api as notifications_api
+from .notifications.store import NotificationStore
 from .projects import api as projects_api
 from .projects.knowledge import KnowledgeStore
 from .projects.memory import MemoryStore
@@ -53,6 +55,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.project_store = ProjectStore(pool)
             app.state.agent_store = AgentStore(pool)
             app.state.schedule_store = ScheduleStore(pool)
+            app.state.notification_store = NotificationStore(pool)
             app.state.memory_store = MemoryStore(pool)
             app.state.knowledge_store = KnowledgeStore(pool)
             app.state.auth_store = auth.AuthStore(pool)
@@ -87,6 +90,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(projects_api.router)
     app.include_router(agents_api.router)
     app.include_router(schedules_api.router)
+    app.include_router(notifications_api.router)
     app.include_router(overview.router)
     app.include_router(tools_api.router)
     app.include_router(studio_api.router)
