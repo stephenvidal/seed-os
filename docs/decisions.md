@@ -931,3 +931,39 @@ continued, branched or moved to a project in the app.
 **Consequences:** Approving from Telegram (inline buttons) is not built. Only text is
 read: photos, files and voice get a short refusal. Answers are plain text, so
 Markdown shows as typed.
+
+## D-033 — Skills: Hermes Agent style SKILL.md, loaded on demand
+
+**Date:** 2026-10-30
+
+**Context:** D-028 left open what a skill is. Stephen chose the approach of Nous
+Research's Hermes Agent (research: `/mnt/project-files/seed-os/hermes-skills-research.md`)
+and answered its three questions: the agent may write skills on its own, with the
+owner's approval; an agent definition can carry its own private skills; importing a
+Hermes SKILL.md (paste or upload) is in the first version. Out of scope, by his
+direction: a hub or third-party installs, scripts inside skills, and conditional
+activation.
+
+**Options:** (1) skills as always-on text appended to every prompt, like an agent's
+instructions; (2) Hermes progressive disclosure: the prompt carries only an index of
+names and descriptions, and the agent reads a skill in full when a request matches.
+
+**Choice:** Option 2. A skill is a row in `skills` (migration 0020) with the fields
+of a SKILL.md that SEED acts on: a lower-case `name` (up to 64, the same rule as
+Hermes), a `description` (up to 1,024), `tags` and a `body` (up to 20,000). A skill
+with an `agent_id` is private to that agent and is deleted with it; one without is
+shared. Names are unique per owner across both, so `/name` never names two skills.
+Import reads a SKILL.md's YAML header (PyYAML `safe_load`), takes tags from the top
+level or `metadata.hermes.tags`, and reports every other header key back as ignored
+instead of dropping it silently. Files beside a SKILL.md (`references/`, scripts)
+are not imported. Built in steps: the store, import and API first; then the index in
+each task's prompt, `skill_list` and `skill_view`, each agent's allowed skills and
+the `/name` prefix in Chat and Telegram; then `skill_manage`, whose writes wait for
+the owner's approval; then the page.
+
+**Reason:** Plain text the owner can read and edit, which costs only an index line
+until it is used, and the same shape as Hermes so its skills import as text.
+
+**Consequences:** A new dependency, PyYAML. Hermes features that need more than text
+(platform gating, required tools or environment variables, bundles) are not acted
+on; an imported skill that relies on them says so in `ignored`.

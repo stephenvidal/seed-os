@@ -136,8 +136,9 @@ it — with full visibility and control.
   definitions: what it does, its permission (reads, writes, runs code), whether
   a person approves each call (from `SEED_APPROVAL_REQUIRED_TOOLS`), its limits
   and arguments, and where it is offered; below, how often each was used and how
-  calls failed over the last 24 hours, from recorded tool results. Skills are not
-  built.
+  calls failed over the last 24 hours, from recorded tool results. Skills (D-033)
+  can be written and imported through the API; tasks do not use them yet, and
+  the page does not show them yet.
 - Models: page structure with an empty state naming the milestone that delivers it.
 
 ## API (as built)
@@ -164,6 +165,10 @@ it — with full visibility and control.
 | GET | `/api/v1/agents` | admin | The caller's agents by name: `{id, name, description, instructions, model, tools[], …}`; the first call adds the starter agents (Researcher, Coder, Reviewer) once |
 | POST | `/api/v1/agents` | admin | `{name, description, instructions?, model?, tools[]}` → 201; name 1-40 letters, digits, spaces, `-` or `_`, unique per owner ignoring case (409 `name_taken`); tools from `list_files`, `read_file`, `write_file`, `run_command`, `search_knowledge`; blank model means the delegating task's |
 | GET / PUT / DELETE | `/api/v1/agents/{id}` | admin | Read, replace (same body as POST) or delete (204) an agent; 404 `not_found`; audited as `agent_created`/`agent_updated`/`agent_deleted` |
+| GET | `/api/v1/skills` | admin | The caller's skills by name, shared and private: `{id, agent_id, name, description, tags[], body, …}`; `agent_id` set means private to that agent |
+| POST | `/api/v1/skills` | admin | `{name, description, tags[], body, agent_id?}` → 201; name 1-64 lower-case letters, digits or `-` (lower-cased), unique per owner across shared and private (409 `name_taken`); description up to 1,024; up to 20 tags of 40; body up to 20,000; an `agent_id` that is not the caller's agent is 422 `no_such_agent` |
+| POST | `/api/v1/skills/import` | admin | `{text, agent_id?}`: a Hermes Agent SKILL.md (YAML header between `---` lines, then the instructions) → 201 `{skill, ignored[]}`; keeps name, description, tags (top level or `metadata.hermes.tags`) and body; `ignored` lists header keys SEED does not act on; 422 `invalid_skill_md` says what is wrong |
+| GET / PUT / DELETE | `/api/v1/skills/{id}` | admin | Read, replace (same body as POST) or delete (204) a skill; 404 `not_found`; audited as `skill_created`/`skill_updated`/`skill_deleted`; deleting an agent deletes its private skills |
 | GET | `/api/v1/projects/{id}/memories` | admin | The project's notes, proposals first, then approved, newest first: `{id, content, status, created_by, source_task_id, source_conversation_id, approved_by, approved_at, …}`; `?status=proposed\|approved`; 404 `not_found` |
 | POST | `/api/v1/projects/{id}/memories` | admin | `{content}` (whitespace collapsed, 1–500 chars) → 201 note, approved as written; 404; 422 |
 | PATCH | `/api/v1/projects/{id}/memories/{memory_id}` | admin | `{content?, approve?}` → the note; `approve: true` makes a proposal reach the model; 404 `not_found` |

@@ -17,6 +17,9 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
   error messages, so a failure rate can be read.
 
 ### Added
+- Skills (M8, D-033): `/api/v1/skills` to write, import (Hermes Agent SKILL.md),
+  list, change and delete skills, shared or private to one agent. Migration 0020.
+  Tasks do not use them yet.
 - Chat with SEED from Telegram (M8, D-032): a message from the linked chat is a Chat
   turn and its answer is sent back; `/new`, `/help`; migration 0019.
 - Telegram gateway (M8, D-031): a `gateway` service sends each notification to one
