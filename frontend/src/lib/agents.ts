@@ -11,6 +11,12 @@ export const AGENT_TOOLS = [
     note: "needs the sandbox; asks you first by default",
   },
   { name: "search_knowledge", label: "Search project knowledge", note: "in projects only" },
+  {
+    name: "web_search",
+    label: "Search the web",
+    note: "text from the web is treated as untrusted",
+  },
+  { name: "web_fetch", label: "Read web pages", note: "text from the web is treated as untrusted" },
   { name: "skill_manage", label: "Write its own skills", note: "asks you first, every time" },
 ] as const;
 

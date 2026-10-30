@@ -50,6 +50,7 @@ from ..skills.store import SkillStore
 from ..studio.capture import restore, save_changes
 from ..studio.store import ArtifactStore
 from ..studio.workspace import LocalFiles, SandboxFiles, WorkspaceFiles
+from ..web.tools import WebClient, web_tools
 from .db import make_pool, migrate
 from .store import Delegation, Lease, LeaseLost, Task, TaskStore
 
@@ -110,6 +111,13 @@ class Worker:
             return False
         await self.execute(*claimed)
         return True
+
+    def _web(self) -> WebClient | None:
+        """The web client, when tasks may use the web (D-037)."""
+        key = self.settings.ollama_api_key
+        if not self.settings.web_tools or key is None:
+            return None
+        return WebClient(self.settings.ollama_base_url, key.get_secret_value())
 
     async def _tidy(self) -> None:
         """Delete old read notifications, at most once an hour per worker (D-036)."""
@@ -214,6 +222,9 @@ class Worker:
             local = Path(self.settings.workspace_root) / str(task.workspace)
             tools = workspace_tools(local)
             files = LocalFiles(local)
+        web = self._web()
+        if web is not None:
+            tools.extend(web_tools(web))
         skill_store = SkillStore(self.store.pool)
         tools.append(  # D-033; each write waits for the owner's approval
             skill_manage_tool(
@@ -312,6 +323,8 @@ class Worker:
             cancel.set()
             beat.cancel()
             await provider.aclose()
+            if web is not None:
+                await web.aclose()
 
     async def _summary(
         self, task: Task, lease: Lease, provider: Provider

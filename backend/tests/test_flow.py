@@ -435,3 +435,26 @@ async def test_without_limits_cost_is_not_checked(store: TaskStore, tmp_path: Pa
     await worker(store, settings, [reply("hi")], "w1").run_once()
     done = await store.get(task.id)
     assert done is not None and done.state == "completed"
+
+
+async def test_a_task_can_search_the_web_and_gets_fenced_content(
+    store: TaskStore, wsettings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-037: the worker offers web_search, and what it returns is fenced."""
+    from seed_api.web.tools import WebClient
+
+    def web(_: httpx.Request) -> httpx.Response:
+        body = {"results": [{"title": "T", "url": "https://a.test", "content": "page text"}]}
+        return httpx.Response(200, json=body)
+
+    client = WebClient("https://web.test", "k", transport=httpx.MockTransport(web))
+    monkeypatch.setattr(Worker, "_web", lambda self: client)
+    task = await new_task(store)
+    w = worker(store, wsettings, [calls(("web_search", {"query": "q"})), reply("done")], "w1")
+    await w.run_once()
+    done = await store.get(task.id)
+    assert done is not None and done.state == "completed"
+    results = [
+        e.data for e in await store.events(task.id, after=0, limit=100) if e.type == "tool_result"
+    ]
+    assert results[0]["ok"] is True and "UNTRUSTED CONTENT" in json.dumps(results[0])

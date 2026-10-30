@@ -15,7 +15,14 @@ from ..flow.db import Pool
 # a project; a delegated run gets each only where it exists. skill_manage writes
 # the agent's private skills, each call approved by the owner (D-033).
 ToolName = Literal[
-    "list_files", "read_file", "write_file", "run_command", "search_knowledge", "skill_manage"
+    "list_files",
+    "read_file",
+    "write_file",
+    "run_command",
+    "search_knowledge",
+    "web_search",
+    "web_fetch",
+    "skill_manage",
 ]
 TOOL_NAMES: tuple[ToolName, ...] = (
     "list_files",
@@ -23,6 +30,8 @@ TOOL_NAMES: tuple[ToolName, ...] = (
     "write_file",
     "run_command",
     "search_knowledge",
+    "web_search",
+    "web_fetch",
     "skill_manage",
 )
 
@@ -34,6 +43,8 @@ AGENT_TOOL_LABELS: dict[str, str] = {
     "write_file": "write files",
     "run_command": "run commands",
     "search_knowledge": "search project knowledge",
+    "web_search": "search the web",
+    "web_fetch": "read web pages",
     "skill_manage": "write its own skills, with approval",
 }
 
