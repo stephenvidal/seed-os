@@ -11,27 +11,41 @@ import { Spinner } from "../components/ui/Spinner";
 import { AGENTS, AGENT_TOOLS, agentsApi } from "../lib/agents";
 import type { Agent, AgentInput, AgentTool } from "../lib/agents";
 import { ApiError, api } from "../lib/api";
+import { SKILLS, skillsApi } from "../lib/skills";
 
 const field =
   "rounded-control border border-border bg-surface-1 px-2.5 text-sm text-fg outline-none focus:border-accent";
 const tidy = (s: string) => s.split(/\s+/).filter(Boolean).join(" ");
 const message = (e: Error) => (e instanceof ApiError ? e.message : "Unexpected error.");
 
-const BLANK: AgentInput = { name: "", description: "", instructions: "", model: null, tools: [] };
+const BLANK: AgentInput = {
+  name: "",
+  description: "",
+  instructions: "",
+  model: null,
+  tools: [],
+  skills: [],
+};
 
 /** Create or change an agent: every field is sent, as the API replaces the whole definition. */
 function AgentForm({
   initial,
+  agentId,
   submitLabel,
   onSave,
   onCancel,
 }: {
   initial: AgentInput;
+  /** The agent being changed; none for a new one. */
+  agentId?: string;
   submitLabel: string;
   onSave: (body: AgentInput) => Promise<unknown>;
   onCancel: () => void;
 }) {
   const models = useQuery({ queryKey: ["models"], queryFn: api.models, retry: false });
+  const skills = useQuery({ queryKey: SKILLS, queryFn: skillsApi.list, retry: false });
+  const shared = skills.data?.filter((s) => s.agent_id === null) ?? [];
+  const own = skills.data?.filter((s) => agentId && s.agent_id === agentId) ?? [];
   const [draft, setDraft] = useState(initial);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -41,6 +55,12 @@ function AgentForm({
       tools: draft.tools.includes(tool)
         ? draft.tools.filter((t) => t !== tool)
         : [...draft.tools, tool],
+    });
+  const toggleSkill = (id: string) =>
+    set({
+      skills: draft.skills.includes(id)
+        ? draft.skills.filter((s) => s !== id)
+        : [...draft.skills, id],
     });
   const ready = tidy(draft.name) && tidy(draft.description);
   // A model the agent names that the provider does not list still shows.
@@ -59,6 +79,7 @@ function AgentForm({
         instructions: draft.instructions,
         model: draft.model,
         tools: draft.tools,
+        skills: draft.skills,
       });
     } catch (err) {
       setError(message(err as Error));
@@ -132,6 +153,31 @@ function AgentForm({
           </label>
         ))}
       </fieldset>
+      <fieldset className="flex flex-col gap-1.5">
+        <legend className="mb-1 text-xs text-fg-muted">Skills it may use</legend>
+        {skills.isSuccess && shared.length === 0 && (
+          <p className="text-xs text-fg-muted">
+            You have no shared skills yet. Write them on Tools &amp; Skills.
+          </p>
+        )}
+        {shared.map((s) => (
+          <label key={s.id} className="flex items-center gap-2 text-sm text-fg">
+            <input
+              type="checkbox"
+              checked={draft.skills.includes(s.id)}
+              onChange={() => toggleSkill(s.id)}
+              className="accent-accent"
+            />
+            <span className="font-mono text-xs">{s.name}</span>
+            <span className="min-w-0 truncate text-xs text-fg-muted">{s.description}</span>
+          </label>
+        ))}
+        {own.length > 0 && (
+          <p className="text-xs text-fg-muted">
+            Its own skills, always available to it: {own.map((s) => s.name).join(", ")}
+          </p>
+        )}
+      </fieldset>
       {error && (
         <p role="alert" className="text-xs text-danger">
           {error}
@@ -162,6 +208,7 @@ function AgentRow({ agent }: { agent: Agent }) {
       <li aria-label={`Edit ${agent.name}`}>
         <AgentForm
           initial={agent}
+          agentId={agent.id}
           submitLabel="Save"
           onCancel={() => setMode("view")}
           onSave={async (body) => {
@@ -204,6 +251,11 @@ function AgentRow({ agent }: { agent: Agent }) {
           <Badge>no tools</Badge>
         ) : (
           tools.map((t) => <Badge key={t.name}>{t.label}</Badge>)
+        )}
+        {agent.skills.length > 0 && (
+          <Badge>
+            {agent.skills.length} shared skill{agent.skills.length === 1 ? "" : "s"}
+          </Badge>
         )}
         {agent.instructions && <Badge>instructions</Badge>}
       </div>

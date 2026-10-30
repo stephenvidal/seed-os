@@ -36,8 +36,8 @@ it — with full visibility and control.
   arrows under a message switch between its versions (ADR-0013).
 - **Agents (M7):** specialists SEED can hand part of a job to (D-024). The Agents
   page lists them and edits each one's name, what it is for, instructions, model
-  and allowed tools. It starts with an editable Researcher, Coder and Reviewer,
-  given once.
+  and allowed tools, and the shared skills it may use (D-033). It starts with an
+  editable Researcher, Coder and Reviewer, given once.
 - **Delegation (M7):** while answering, SEED has a `delegate` tool listing your
   agents (D-025). Delegating starts the agent's own task: it gets only the task
   text and what to report back, the agent's instructions and model, and only its
@@ -136,8 +136,11 @@ it — with full visibility and control.
   definitions: what it does, its permission (reads, writes, runs code), whether
   a person approves each call (from `SEED_APPROVAL_REQUIRED_TOOLS`), its limits
   and arguments, and where it is offered; below, how often each was used and how
-  calls failed over the last 24 hours, from recorded tool results. The page does
-  not show skills yet.
+  calls failed over the last 24 hours, from recorded tool results. Below, your
+  skills: write, change or delete them, or import a Hermes Agent SKILL.md by
+  pasting it or choosing the file (the page says which header keys SEED does not
+  use). Each shows who may use it and links to the task that wrote it, when SEED
+  did.
 - **Skills (M8, D-033):** procedures you save, in the shape of a Hermes Agent
   SKILL.md, written or imported through the API. Each task's prompt lists the
   skills it may see by name and description only; the agent reads one in full

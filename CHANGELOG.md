@@ -19,6 +19,9 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
   error messages, so a failure rate can be read.
 
 ### Added
+- Skills page (M8, D-033): the Skills panel on Tools & Skills lists, writes,
+  changes, deletes and imports skills (paste or file); the agent form picks the
+  shared skills an agent may use and shows its own.
 - Skills (M8, D-033): `/api/v1/skills` to write, import (Hermes Agent SKILL.md),
   list, change and delete skills, shared or private to one agent. Migration 0020.
 - Skills in tasks (M8, D-033): each prompt lists the skills the task may see,

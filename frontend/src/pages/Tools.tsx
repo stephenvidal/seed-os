@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, BarChart3, Sparkles } from "lucide-react";
+import { AlertTriangle, BarChart3 } from "lucide-react";
 import { Badge } from "../components/ui/Badge";
 import { EmptyState } from "../components/ui/EmptyState";
 import { PageHeader } from "../components/ui/PageHeader";
@@ -8,6 +8,7 @@ import { Spinner } from "../components/ui/Spinner";
 import { ApiError } from "../lib/api";
 import { TOOLS, toolsApi } from "../lib/tools";
 import type { ToolInfo, ToolUsage, ToolsView } from "../lib/tools";
+import { SkillsPanel } from "./Skills";
 
 const n = new Intl.NumberFormat();
 const ms = (v: number | null) =>
@@ -176,7 +177,7 @@ export function ToolsPage() {
                 {asking.length === 0
                   ? "No tool waits for approval: every call runs on its own."
                   : `A task pauses for your approval before each call to ${asking.join(", ")}.`}{" "}
-                This is set by SEED_APPROVAL_REQUIRED_TOOLS on the server.
+                This is set by SEED_APPROVAL_REQUIRED_TOOLS on the server; skill_manage always asks.
               </p>
             </Panel>
             <Panel title={`Usage (${data.window_hours}h)`}>
@@ -184,11 +185,7 @@ export function ToolsPage() {
             </Panel>
           </>
         )}
-        <Panel title="Skills">
-          <EmptyState icon={Sparkles} title="No skills yet">
-            Skills are not built. Tools are what SEED can use today.
-          </EmptyState>
-        </Panel>
+        <SkillsPanel />
       </div>
     </>
   );

@@ -26,6 +26,7 @@ const agent = (over: Record<string, unknown> = {}) => ({
   instructions: "Cite sources.",
   model: null,
   tools: ["list_files", "read_file"],
+  skills: [],
   created_at: "2026-10-29T10:00:00Z",
   updated_at: "2026-10-29T10:00:00Z",
   ...over,
@@ -103,6 +104,7 @@ describe("Agents", () => {
       instructions: "",
       model: "m-small",
       tools: ["run_command"],
+      skills: [],
     });
     await user.click(create);
     await waitFor(() => expect(screen.queryByRole("group", { name: "New agent" })).toBeNull());
@@ -140,6 +142,7 @@ describe("Agents", () => {
       instructions: "Cite sources.",
       model: null,
       tools: ["read_file"],
+      skills: [],
     });
 
     await user.click(screen.getByRole("button", { name: "Delete Researcher" }));
@@ -153,5 +156,52 @@ describe("Agents", () => {
       }),
     );
     expect(await screen.findByText("No agents yet")).toBeInTheDocument();
+  });
+
+  it("allows an agent shared skills and shows its own", async () => {
+    const skill = (id: string, name: string, agentId: string | null) => ({
+      id,
+      owner: "admin",
+      agent_id: agentId,
+      name,
+      description: `For ${name}.`,
+      tags: [],
+      body: "Steps.",
+      written_by_task: null,
+      created_at: "2026-10-30T10:00:00Z",
+      updated_at: "2026-10-30T10:00:00Z",
+    });
+    let agents = [agent({ skills: ["s1"] })];
+    const spy = mockApi({
+      "GET /api/v1/auth/me": ME,
+      "GET /api/v1/models": MODELS,
+      "GET /api/v1/skills": {
+        status: 200,
+        body: [skill("s1", "cite", null), skill("s2", "deploy", null), skill("s3", "mine", "a1")],
+      },
+      "GET /api/v1/agents": () => ({ status: 200, body: agents }),
+      "PUT /api/v1/agents/a1": () => {
+        agents = [agent({ skills: ["s2"] })];
+        return { status: 200, body: agents[0] };
+      },
+    });
+    const user = userEvent.setup();
+    renderApp(<App />, "/agents");
+    const list = await screen.findByRole("list", { name: "Agents" });
+    expect(within(list).getByRole("listitem")).toHaveTextContent("1 shared skill");
+    await user.click(screen.getByRole("button", { name: "Edit Researcher" }));
+    const form = screen.getByRole("listitem", { name: "Edit Researcher" });
+    const skills = within(form).getByRole("group", { name: "Skills it may use" });
+    await within(skills).findByText("deploy");
+    expect(within(skills).queryByText("mine")).toBeNull(); // private: not a choice
+    expect(skills).toHaveTextContent("Its own skills, always available to it: mine");
+    const [cite, deploy] = within(skills).getAllByRole("checkbox");
+    expect(cite).toBeChecked();
+    await user.click(cite!);
+    await user.click(deploy!);
+    await user.click(within(form).getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(sent(spy, "PUT", "/api/v1/agents/a1")).toMatchObject({ skills: ["s2"] }),
+    );
   });
 });

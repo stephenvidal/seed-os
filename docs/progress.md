@@ -2377,3 +2377,33 @@ being allowed it (2 failed).
 app showing a long skill (the card shows the call's arguments as it does today).
 
 **Open questions:** none new.
+
+## Increment 37 — Skills page (M8, D-033 step 4)
+
+**Changed:** the Skills panel on Tools & Skills (`pages/Skills.tsx`, `lib/skills.ts`):
+list with who may use each skill, tags and a link to the task that wrote it; write,
+change and delete; import a SKILL.md by paste or file, showing the header keys
+SEED does not use. The agent form gains "Skills it may use" (shared skills) and
+lists the agent's own; agent rows show how many shared skills they have. The
+approval policy says `skill_manage` always asks.
+
+**Tested**
+```
+frontend: typecheck, lint, format clean; npm test → 129 passed (5 new)
+```
+Breakage checks 7/7 caught: empty tags kept, name not lower-cased, ignored keys
+not shown, file not read, the "only <agent>" badge, private skills offered to an
+agent, the form not sending `skills`.
+
+Real browser (Chromium 390×800, Vite + API + Postgres): imported a Hermes SKILL.md
+from a file, wrote a skill, allowed it to Coder:
+```
+status: Imported deploy-k8s. SEED does not use these parts of its header: metadata.hermes.category, platforms, version.
+scrollWidth/innerWidth: 390/390
+coder row: Coder | 1 shared skill
+API: [('Coder', ['89611ad8-…']), ('Researcher', []), ('Reviewer', [])]
+```
+
+**Not tested:** the approval card for a long `skill_manage` call in the browser.
+
+**Open questions:** none new.

@@ -26,11 +26,16 @@ export type Agent = {
   /** null: the model of the task that delegates. */
   model: string | null;
   tools: AgentTool[];
+  /** Ids of the shared skills it may use (D-033); its private skills are always its own. */
+  skills: string[];
   created_at: string;
   updated_at: string;
 };
 
-export type AgentInput = Pick<Agent, "name" | "description" | "instructions" | "model" | "tools">;
+export type AgentInput = Pick<
+  Agent,
+  "name" | "description" | "instructions" | "model" | "tools" | "skills"
+>;
 
 export const AGENTS = ["agents"] as const;
 
