@@ -838,3 +838,32 @@ second. Weekdays-only, monthly and cron syntax are not offered; they are not in 
 requirements. A scheduled task has no person watching: one that needs approval
 waits in Command Center, "Needs attention", like any task. A model name is not
 checked until the task runs, so a wrong one fails that task.
+
+## D-030 — Notifications are rows written with the change they report, in the app first
+
+**Date:** 2026-10-30
+
+**Context:** M8 lists notifications; WS-1 and WS-10 name them. Stephen chose in-app
+first (2026-10-30); delivery outside the app waits for the gateways step. What
+counts as news is a choice: the requirements do not say.
+
+**Options:** (1) derive a feed from task events when the bell is opened; (2) store a
+notification row in the transaction that made the change, with a read mark; (3) a
+queue that a separate process reads and delivers.
+
+**Choice:** Option 2. A `notifications` row (owner, kind, title, one-line body cut
+to 300 characters, task or schedule, read time) is inserted by the same transaction
+that: ends a task as completed or failed; parks a task for an approval; or skips a
+schedule's run because its last task is still going. Only work a person is not
+watching is announced: chat turns are not (the person is reading them), agent tasks'
+endings are not (their result goes to the parent task), and a task the person
+canceled is not. An agent task that needs an approval is announced, as nobody else
+can decide it. Rows go with their task or schedule. API: list (newest first, with
+the total unread), mark one read, mark all read.
+
+**Reason:** Exactly the changes that committed are announced, with no new process,
+and a read mark survives reloads and devices. A later gateway can read the same rows.
+
+**Consequences:** Rows are kept until their task or schedule is deleted; there is no
+expiry yet. Open question: should read notifications be removed after some time,
+and after how long? The bell polls; there is no push to the browser.

@@ -16,6 +16,13 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
   error messages, so a failure rate can be read.
 
 ### Added
+- Notification bell (M8): in the top bar on every page, with the unread count;
+  opening one marks it read and goes to its task (or to Schedules); mark all read.
+  It checks every 30 seconds.
+- Notifications (M8, D-030): `/api/v1/notifications` (list with unread count, mark
+  read, mark all read); written when a task you started on its own completes or
+  fails, when a task waits for your approval, and when a schedule skips a run;
+  migration 0017.
 - Schedules page (M8): list, create, edit, pause or resume, run now and delete schedules;
   the time zone defaults to the browser's.
 - Schedules (M8, D-029): `/api/v1/schedules` (list, create, replace, delete, run

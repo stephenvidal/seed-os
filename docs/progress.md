@@ -2189,3 +2189,51 @@ file." for a file.
 ruff, format and mypy clean.
 
 **Not tested:** the sandbox's own listing (it uses the same function).
+
+## Increment 30 — Notifications backend (M8 step 3a)
+
+**Changed:** migration 0017 (`notifications`), `seed_api.notifications` (store and
+API), and writes in the transactions that finish a task, park it for an approval,
+and skip a schedule's run (D-030). Stephen chose in-app first.
+
+**Tested**
+```
+backend: ruff check → All checks passed! · ruff format --check → 82 files already formatted
+         mypy → Success: no issues found in 55 source files
+         pytest (DB) → 216 passed, 1 skipped
+```
+7 new tests: completed and failed tasks announced with a one-line, cut body;
+canceled not announced; chat turns and agent task endings not announced, an agent
+task's approval announced, a chat turn's not; a skipped schedule run announced and
+removed with its schedule; reading per owner; the API's list, unread count, order,
+mark read and 404, mark all read, limit check, and sign-in required.
+Breakage checks 10/10 caught (cancel exclusion, chat/agent rule, chat approvals,
+owner check, read mark, unread filter, body cut, skipped-run write, order).
+
+**Not tested:** the real worker loop end to end (the store functions it calls are
+tested); the live site. The page and bell come next.
+
+**Open questions:** expiry of read notifications (D-030).
+
+## Increment 31 — Notification bell (M8 step 3b)
+
+**Changed:** `NotificationBell` in the top bar: unread count, a menu of the latest 20
+(kind, time, title, one-line body, unread dot), opening one marks it read and goes to
+its task (a skipped run goes to Schedules), mark all read; refreshed every 30 s.
+
+**Tested**
+```
+frontend: typecheck, lint, format:check clean; npm test → 124 passed (4 new)
+```
+Breakage checks 5/5 caught (no mark read, no navigation, no mark all, unread dot
+always shown, no refresh after reading).
+
+Real stack (API, Postgres, Vite, Chromium at 390×800), three notifications inserted:
+```
+bell: Notifications, 3 unread
+url: http://localhost:8080/schedules bell: Notifications, 2 unread
+```
+(the opened row had no task, so it went to Schedules.) Screenshot checked: the menu
+fits the phone width and long bodies wrap.
+
+**Not tested:** the live site.

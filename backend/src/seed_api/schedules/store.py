@@ -21,6 +21,7 @@ from pydantic import BaseModel
 from ..chat.store import ChatError, project_context
 from ..flow.db import Pool
 from ..flow.store import insert_task
+from ..notifications.store import notify
 from .recurrence import Kind, next_run
 
 Outcome = Literal["started", "skipped_busy"]
@@ -211,6 +212,16 @@ class ScheduleStore:
                     )
                 )
                 started += task_id is not None
+                if busy:
+                    await notify(
+                        conn,
+                        row["owner"],
+                        "schedule_skipped",
+                        row["name"],
+                        "Skipped a run: the task it started last time is still going.",
+                        schedule_id=row["id"],
+                        task_id=row["last_task_id"],
+                    )
                 nxt = next_run(
                     row["kind"],
                     row["clock"],
