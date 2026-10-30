@@ -151,15 +151,15 @@ def test_failure_reasons_are_the_three_commonest_messages(api: TestClient, db_ur
     add_events(
         db_url,
         task,
-        *[bad("Not a directory: x")] * 4,
+        *[bad("No such directory: x")] * 4,
         *[bad("Path escapes the workspace.")] * 3,
-        *[bad("Not a directory: x" + "y" * 300)] * 2,  # cut to 200 characters
+        *[bad("No such directory: x" + "y" * 300)] * 2,  # cut to 200 characters
         bad("zeta"),
         bad("alpha"),
     )
     reasons = by_name(api.get("/api/v1/tools").json(), "usage")["list_files"]["reasons"]
     assert reasons == [
-        {"message": "Not a directory: x", "count": 4},
+        {"message": "No such directory: x", "count": 4},
         {"message": "Path escapes the workspace.", "count": 3},
-        {"message": "Not a directory: x" + "y" * 182, "count": 2},
+        {"message": "No such directory: x" + "y" * 180, "count": 2},
     ]

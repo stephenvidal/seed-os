@@ -2177,3 +2177,15 @@ schedule, ignoring the project choice.
 **Not tested:** in a browser at 390 px or against the real API; the live site.
 
 **Open questions:** none new.
+
+## Increment 29 — list_files error wording
+
+**Changed:** the live check of #37 showed the file tools' errors were the agent
+guessing paths in an empty workspace. `list_files` said "Not a directory" for a path
+that does not exist; it now says "No such directory: x", and "Not a directory: x is a
+file." for a file.
+
+**Tested:** `pytest tests/test_tools.py` → 5 passed (new test: missing path vs file);
+ruff, format and mypy clean.
+
+**Not tested:** the sandbox's own listing (it uses the same function).

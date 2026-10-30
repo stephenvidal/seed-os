@@ -61,8 +61,10 @@ class WriteOutput(BaseModel):
 
 def list_entries(root: Path, rel: str) -> ListOutput:
     base = resolve(root, rel)
+    if not base.exists():
+        raise ToolFailure(f"No such directory: {rel}")
     if not base.is_dir():
-        raise ToolFailure(f"Not a directory: {rel}")
+        raise ToolFailure(f"Not a directory: {rel} is a file.")
     entries: list[Entry] = []
     for p in sorted(base.rglob("*")):
         if len(entries) >= MAX_LIST_ENTRIES:

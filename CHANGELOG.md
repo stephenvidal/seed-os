@@ -8,6 +8,8 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
   they now render (D-020). The per-step output cap is 16,384 tokens, up from 4,096.
 
 ### Changed
+- `list_files` says "No such directory" for a path that does not exist, and that
+  a path is a file when it is one.
 - Tools page (M8): usage is a stacked list that reads at 390 px (the table's headings
   ran together and "offered in" was cut off); each tool's time and output limits show
   on its row; `GET /api/v1/tools` usage gains `reasons`, each tool's three commonest
