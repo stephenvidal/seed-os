@@ -110,3 +110,16 @@ async def test_workspace_write_list_read(tmp_path: Path) -> None:
     )
     read = await reg.execute(ToolCall(id="c", name="read_file", arguments={"path": "src/app.html"}))
     assert read.output == {"path": "src/app.html", "content": "<h1>x</h1>"}
+
+
+async def test_listing_says_whether_the_path_is_missing_or_a_file(tmp_path: Path) -> None:
+    reg = ToolRegistry(workspace_tools(tmp_path))
+    (tmp_path / "a.txt").write_text("x")
+
+    async def listing(path: str) -> str | None:
+        out = await reg.execute(ToolCall(id="c", name="list_files", arguments={"path": path}))
+        assert not out.ok
+        return out.error
+
+    assert await listing("nope") == "No such directory: nope"
+    assert await listing("a.txt") == "Not a directory: a.txt is a file."
