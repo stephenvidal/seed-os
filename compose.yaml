@@ -59,6 +59,22 @@ services:
     read_only: true
     tmpfs: [/tmp]
     mem_limit: 256m
+  gateway:
+    build: ./backend
+    command: ["python", "-m", "seed_api.gateways.telegram"]
+    # Telegram gateway (D-031). Exits at once when SEED_TELEGRAM_BOT_TOKEN is unset.
+    # It long-polls Telegram, so it needs a route out but no published port.
+    restart: on-failure:5
+    env_file: .env
+    environment: *seed-env
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    read_only: true
+    tmpfs: [/tmp]
+    mem_limit: 128m
   sandbox:
     build: ./backend
     # asyncio loop: uvloop cannot start a subprocess as another user.

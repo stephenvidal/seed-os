@@ -58,6 +58,7 @@ export function NotificationBell() {
         <Menu.Content
           align="end"
           sideOffset={6}
+          collisionPadding={16}
           className="z-50 flex max-h-[min(28rem,80vh)] w-[min(22rem,calc(100vw-2rem))] flex-col rounded-panel border border-border bg-surface-1 shadow-pop"
         >
           <div className="flex items-center gap-2 border-b border-border px-3 py-2">

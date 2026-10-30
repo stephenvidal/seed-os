@@ -8,6 +8,7 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
   they now render (D-020). The per-step output cap is 16,384 tokens, up from 4,096.
 
 ### Changed
+- The notification menu keeps a 16 px gap from the screen's edges on a phone.
 - `list_files` says "No such directory" for a path that does not exist, and that
   a path is a file when it is one.
 - Tools page (M8): usage is a stacked list that reads at 390 px (the table's headings
@@ -16,6 +17,10 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
   error messages, so a failure rate can be read.
 
 ### Added
+- Telegram gateway (M8, D-031): a `gateway` service sends each notification to one
+  Telegram chat; other chats are told their id. Migration 0018. New settings
+  `SEED_TELEGRAM_BOT_TOKEN`, `SEED_TELEGRAM_CHAT_ID`, `SEED_TELEGRAM_USER`,
+  `SEED_PUBLIC_URL`.
 - Notification bell (M8): in the top bar on every page, with the unread count;
   opening one marks it read and goes to its task (or to Schedules); mark all read.
   It checks every 30 seconds.

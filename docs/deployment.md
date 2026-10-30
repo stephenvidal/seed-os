@@ -86,6 +86,16 @@ Backups are manual until M9:
 (run in `/opt/seed`). Restore into an empty database with
 `gunzip -c FILE | docker compose exec -T db psql -U seed seed`.
 
+### Telegram (M8, optional)
+The `gateway` service sends your notifications to Telegram. It exits at start while
+no token is set. To switch it on:
+1. In Telegram, message @BotFather, send `/newbot`, and copy the token it gives.
+2. Add `SEED_TELEGRAM_BOT_TOKEN=<token>` and `SEED_PUBLIC_URL=https://seed.nsystems.live`
+   to `/opt/seed/.env`, then run `docker compose up -d gateway` in `/opt/seed`.
+3. Message your bot. It replies with your chat's id. Add `SEED_TELEGRAM_CHAT_ID=<id>`
+   to `.env` and run `docker compose up -d gateway` again.
+The token is a secret like the others: vault and `.env` only.
+
 ### Secrets handling
 `SEED_ADMIN_PASSWORD` and `SEED_POSTGRES_PASSWORD` live in the encrypted vault
 (`vault.py get SEED_ADMIN_PASSWORD` on golden-eye) and in `/opt/seed/.env` on the
