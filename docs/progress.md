@@ -2189,6 +2189,7 @@ file." for a file.
 ruff, format and mypy clean.
 
 **Not tested:** the sandbox's own listing (it uses the same function).
+
 ## Increment 30 — Notifications backend (M8 step 3a)
 
 **Changed:** migration 0017 (`notifications`), `seed_api.notifications` (store and
