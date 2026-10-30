@@ -27,6 +27,8 @@ from .projects.memory import MemoryStore
 from .projects.store import ProjectStore
 from .schedules import api as schedules_api
 from .schedules.store import ScheduleStore
+from .skills import api as skills_api
+from .skills.store import SkillStore
 from .studio import api as studio_api
 from .studio.store import ArtifactStore
 
@@ -54,6 +56,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.chat_store = ChatStore(pool)
             app.state.project_store = ProjectStore(pool)
             app.state.agent_store = AgentStore(pool)
+            app.state.skill_store = SkillStore(pool)
             app.state.schedule_store = ScheduleStore(pool)
             app.state.notification_store = NotificationStore(pool)
             app.state.memory_store = MemoryStore(pool)
@@ -89,6 +92,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(chat_api.router)
     app.include_router(projects_api.router)
     app.include_router(agents_api.router)
+    app.include_router(skills_api.router)
     app.include_router(schedules_api.router)
     app.include_router(notifications_api.router)
     app.include_router(overview.router)

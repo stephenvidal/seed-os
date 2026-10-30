@@ -2318,3 +2318,23 @@ Breakage check: sending answers without `markdown=True` fails
 HTML is unconfirmed; the plain-text fallback is covered against a fake Bot API.
 
 **Open questions:** none.
+## Increment 34 — Skills: store, SKILL.md import and API (M8, D-033 step 1)
+
+**Changed:** migration 0020 (`skills`); `seed_api.skills` (store, SKILL.md reader,
+API at `/api/v1/skills` with `/import`); PyYAML added. Skills are shared, or private
+to one agent. Tasks do not use them yet (next step).
+
+**Tested**
+```
+backend: ruff, format, mypy clean ("Success: no issues found in 61 source files")
+pytest (DB) → 244 passed, 1 skipped (12 new in tests/test_skills.py)
+```
+Breakage checks 5/5 caught: accepting another owner's agent (1 failed), listing
+`metadata.hermes.tags` as ignored after using it (2 failed), not lower-casing the
+name (3 failed), updating without the owner check (3 failed), the YAML error's line
+number off by one (1 failed).
+
+**Not tested:** a real Hermes skill from the upstream repo (the test uses one written
+in its documented shape); the page (not built yet).
+
+**Open questions:** none new.
