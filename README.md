@@ -113,7 +113,7 @@ it — with full visibility and control.
   (streamed text chunks are counted, not listed). A running task refreshes every
   3 s. Model reasoning is never stored, so it is never shown.
 - **Telegram (M8):** with a bot token and chat id set, the `gateway` service sends
-  each notification to Telegram once, with a link back when `SEED_PUBLIC_URL` is set.
+  each notification to Telegram once, with a link back when `SEED_PUBLIC_URL` is set. Answers from chats keep their Markdown formatting (bold, italic, code, links, bullets); tables stay as text.
   Only notifications from the last hour are sent, so starting it sends no backlog.
   Any other chat that messages the bot is told its id, and nothing else.
   From the linked chat, a text message is a Chat turn: it continues that chat's

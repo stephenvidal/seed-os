@@ -22,6 +22,7 @@ from seed_api.gateways.telegram import (
     TelegramGateway,
     message_for,
     parts,
+    telegram_html,
 )
 from seed_api.notifications.store import Notification
 
@@ -39,6 +40,8 @@ class FakeBot:
 
     def __init__(self) -> None:
         self.sent: list[tuple[int, str]] = []
+        self.modes: list[str | None] = []
+        self.reject_html = False
         self.updates: list[dict[str, Any]] = []
         self.offsets: list[int | None] = []
         self.refuse: int | None = None
@@ -52,6 +55,11 @@ class FakeBot:
                 return httpx.Response(
                     self.refuse, json={"ok": False, "description": "Forbidden: bot was blocked"}
                 )
+            if self.reject_html and body.get("parse_mode"):
+                return httpx.Response(
+                    400, json={"ok": False, "description": "Bad Request: can't parse entities"}
+                )
+            self.modes.append(body.get("parse_mode"))
             self.sent.append((body["chat_id"], body["text"]))
             return httpx.Response(200, json={"ok": True, "result": {}})
         self.offsets.append(body.get("offset"))
@@ -271,7 +279,7 @@ async def test_a_message_is_a_chat_turn_and_its_answer_comes_back(pool: Pool) ->
     assert await gw.deliver_answers() == 0  # not ended yet
     await end(pool, "completed", answer="4")
     assert await gw.deliver_answers() == 1
-    assert bot.sent[-1] == (CHAT, "4")
+    assert bot.sent[-1] == (CHAT, "4") and bot.modes[-1] == "HTML"
     assert await gw.deliver_answers() == 0  # sent once
 
     bot.updates = [text(22, "And 3+3?")]
@@ -388,3 +396,34 @@ async def test_a_long_answer_arrives_in_parts_and_an_empty_one_links_to_it(pool:
         "Done. The answer has no text to show here.\n"
         f"https://seed.example/chat/{turn['conversation_id']}"
     )
+
+
+def test_markdown_becomes_telegram_html() -> None:
+    md = (
+        "# Plan\n- **Write** files & *notes*\n  - run `a<b` now\n"
+        "See [docs](https://x.test/a?b=1&c=2) and snake_case_name.\n"
+        "```py\nif a < b:\n    **not bold**\n```\nend"
+    )
+    assert telegram_html(md) == (
+        "<b>Plan</b>\n"
+        "\u2022 <b>Write</b> files &amp; <i>notes</i>\n"
+        "  \u2022 run <code>a&lt;b</code> now\n"
+        'See <a href="https://x.test/a?b=1&amp;c=2">docs</a> and snake_case_name.\n'
+        "<pre>if a &lt; b:\n    **not bold**</pre>\n"
+        "end"
+    )
+    assert telegram_html("2 * 3 * 4 and <script>") == "2 * 3 * 4 and &lt;script&gt;"
+    assert telegram_html("```\nunclosed <b>") == "<pre>unclosed &lt;b&gt;</pre>"
+
+
+async def test_answer_falls_back_to_plain_text_when_telegram_refuses_html() -> None:
+    bot = FakeBot()
+    bot.reject_html = True
+    client = api(bot)
+    await client.send_message(CHAT, "**hi** <there>", markdown=True)
+    assert bot.sent == [(CHAT, "**hi** <there>")] and bot.modes == [None]
+    bot.refuse = 403  # other refusals are not retried as plain text
+    with pytest.raises(TelegramError):
+        await client.send_message(CHAT, "**hi**", markdown=True)
+    assert len(bot.sent) == 1
+    await client.aclose()

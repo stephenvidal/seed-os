@@ -7,6 +7,11 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
 - HTML answers that were not fenced or a whole page showed as an empty answer;
   they now render (D-020). The per-step output cap is 16,384 tokens, up from 4,096.
 
+### Fixed (Telegram)
+- Answers sent to Telegram show Markdown as formatting (bold, italic, code, links, bullets,
+  headings) instead of literal `**` and `-` marks. Telegram refusing the formatted
+  message sends it as plain text.
+
 ### Changed
 - A call to a tool that needs approval is checked first: a call whose arguments
   do not fit is answered at once instead of being put to you.
