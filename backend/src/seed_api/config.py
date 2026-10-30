@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     # Model providers. Unset key => the provider is not configured.
     ollama_api_key: SecretStr | None = None
     ollama_base_url: str = "https://ollama.com"
+    # Web search and fetch for tasks (D-037); they need the Ollama key.
+    web_tools: bool = True
     provider_timeout_seconds: float = 120.0
     default_model: str | None = None
     # Limits for every agent run (each task attempt).
