@@ -1010,3 +1010,16 @@ are never below the bill; the off-peak half price and the cached-input rate are 
 **Consequences:** No limits by default; Stephen sets the figures (the monthly budget is still an
 open question). The 24 hours are rolling and counted from tasks' saved usage, so summaries made
 for a chat turn count once the turn ends. Spend is not yet shown in the app, and (c) is not built.
+
+
+## D-036 — Read notifications are deleted 30 days after they were read
+
+**Context:** D-030 left open whether read notifications should expire. Stephen answered yes,
+after 30 days (2026-10-30), as recommended.
+
+**Choice:** A worker deletes notifications whose `read_at` is older than
+`SEED_NOTIFICATION_KEEP_READ_DAYS` (default 30), at most once an hour per worker. Unread
+notifications are never deleted, however old.
+
+**Consequences:** The bell's history of read items is 30 days long. Marking an old item read
+starts its 30 days then, not at creation.

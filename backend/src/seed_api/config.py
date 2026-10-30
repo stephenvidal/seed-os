@@ -71,6 +71,8 @@ class Settings(BaseSettings):
     # Artifacts (ADR-0014): where saved file content lives, on a persistent volume.
     # Unset => task files are not saved.
     artifact_root: str | None = None
+    # Read notifications are deleted this many days after they were read (D-036).
+    notification_keep_read_days: int = Field(default=30, ge=1)
     # Where people open SEED (https://seed.example.com), for links sent outside it.
     public_url: str | None = None
     # Telegram gateway (D-031). Unset token => the gateway does not run. The chat id

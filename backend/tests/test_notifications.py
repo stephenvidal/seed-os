@@ -211,3 +211,21 @@ def test_the_api_lists_counts_and_marks_read(api: TestClient, db_url: str) -> No
 def test_notifications_need_a_session(db_settings: Settings) -> None:
     with start(db_settings) as c:
         assert c.get("/api/v1/notifications").status_code == 401
+
+
+async def test_only_notifications_read_long_ago_are_deleted(pool: Pool) -> None:
+    notes = NotificationStore(pool)
+    async with pool.connection() as conn:
+        for title, read in [
+            ("old read", "now() - interval '31 days'"),
+            ("new read", "now() - interval '29 days'"),
+            ("unread", "NULL"),
+        ]:
+            await conn.execute(
+                f"INSERT INTO notifications (owner, kind, title, read_at, created_at) "  # noqa: S608
+                f"VALUES ('admin', 'task_completed', %s, {read}, now() - interval '90 days')",
+                (title,),
+            )
+    assert await notes.purge_read(30) == 1
+    left = {n.title for n in await notes.recent("admin", limit=10, unread_only=False)}
+    assert left == {"new read", "unread"}

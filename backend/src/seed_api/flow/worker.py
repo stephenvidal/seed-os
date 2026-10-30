@@ -13,6 +13,7 @@ import logging
 import os
 import signal
 import socket
+import time
 import uuid
 from collections.abc import Callable
 from dataclasses import replace
@@ -38,6 +39,7 @@ from ..core.tools import ToolFailure, ToolRegistry
 from ..core.workspace_tools import workspace_tools
 from ..errors import ApiError
 from ..models import make_provider, system_prompt
+from ..notifications.store import NotificationStore
 from ..projects.knowledge import KnowledgeStore, knowledge_tool
 from ..projects.memory import MemoryStore, remember_tool
 from ..sandbox.client import SandboxClient, sandbox_tools
@@ -85,6 +87,7 @@ class Worker:
         self.provider_factory = provider_factory
         self.worker_id = worker_id or f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:6]}"
         self.stop = asyncio.Event()
+        self._tidied: float | None = None
 
     async def run_forever(self) -> None:
         log.info("worker %s started", self.worker_id)
@@ -101,11 +104,28 @@ class Worker:
         claim and execute at most one. Returns whether a task was executed."""
         await self.store.sweep()
         await self.schedules.fire_due(self.settings.task_max_attempts)
+        await self._tidy()
         claimed = await self.store.claim(self.worker_id, self.settings.worker_lease_seconds)
         if claimed is None:
             return False
         await self.execute(*claimed)
         return True
+
+    async def _tidy(self) -> None:
+        """Delete old read notifications, at most once an hour per worker (D-036)."""
+        now = time.monotonic()
+        if self._tidied is not None and now - self._tidied < 3600:
+            return
+        self._tidied = now
+        gone = await NotificationStore(self.store.pool).purge_read(
+            self.settings.notification_keep_read_days
+        )
+        if gone:
+            log.info(
+                "deleted %d notifications read over %d days ago",
+                gone,
+                self.settings.notification_keep_read_days,
+            )
 
     async def _budget_stop(self, task: Task) -> tuple[str, str] | None:
         """Why the task may not run: (termination, message), or None (D-035). A

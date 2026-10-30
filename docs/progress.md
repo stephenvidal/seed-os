@@ -2477,3 +2477,20 @@ shown in the app (there is no spend view yet); delegated child tasks beyond each
 being checked on its own claim.
 
 **Open questions:** the dollar figures to set on the VPS (the monthly budget).
+
+## Increment 39 — Read notifications expire (D-036)
+
+**Changed:** `NotificationStore.purge_read`, called from the worker pass at most hourly;
+`SEED_NOTIFICATION_KEEP_READ_DAYS` (30); README; D-036 (closes D-030's open question,
+Stephen said yes on 2026-10-30).
+
+**Tested**
+```
+backend: ruff, mypy clean; pytest (DB) → 267 passed, 1 skipped (1 new)
+```
+Breakage check: flipping the comparison (keeping old, deleting recent) fails
+`test_only_notifications_read_long_ago_are_deleted`.
+
+**Not tested:** the hourly call from a running worker (only `purge_read` is tested directly).
+
+**Open questions:** none.
