@@ -2427,3 +2427,26 @@ API: [('Coder', ['89611ad8-…']), ('Researcher', []), ('Reviewer', [])]
 **Not tested:** the approval card for a long `skill_manage` call in the browser.
 
 **Open questions:** none new.
+
+## Increment 35 — Approve and Deny in Telegram (D-034)
+
+**Changed:** the "waiting for your approval" message in Telegram now shows the call's
+arguments and Approve / Deny buttons. A press decides that call (same `TaskStore.decide`,
+audited as `tool_approved`/`tool_denied` with `via: telegram`) and edits the message to show
+the outcome. Presses from another chat, for an old or different call, or after the task moved
+on are refused with a short note. Decision D-034.
+
+**Tested**
+```
+backend: ruff, format, mypy clean; pytest (DB) → 261 passed, 1 skipped (2 new tests)
+```
+Breakage check: dropping the "only the linked chat" test in `decide` fails
+`test_deny_button_denies_and_strangers_cannot_decide`.
+
+**Not tested:** the real Telegram API (no bot token here): button rendering, the
+`callback_query` update shape beyond what the Bot API documents, and `editMessageText` on a
+long message.
+
+**Open questions:** should notifications of approvals for tasks not started from Telegram
+(a lone task, a schedule) also carry buttons? Not built: they would need a mapping from
+notification to call.

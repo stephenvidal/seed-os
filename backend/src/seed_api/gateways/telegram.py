@@ -16,7 +16,9 @@ twice is answered once. /new starts a new conversation.
 """
 
 import asyncio
+import hashlib
 import html
+import json
 import logging
 import re
 import signal
@@ -25,10 +27,11 @@ from typing import Any
 
 import httpx
 
+from ..auth import AuthStore
 from ..chat.store import ChatError, ChatStore
 from ..config import Settings, get_settings
 from ..flow.db import Pool, make_pool, migrate
-from ..flow.store import TERMINAL
+from ..flow.store import TERMINAL, TaskStore
 from ..notifications.store import Notification
 
 log = logging.getLogger("seed.telegram")
@@ -40,6 +43,7 @@ SEND_EVERY_SECONDS = 3.0
 BACKOFF_SECONDS = 10.0
 # Telegram takes up to 4096 characters a message; longer answers go in parts.
 PART_CHARS = 4000
+ARGS_CHARS = 1500  # of a call's arguments shown when asking for approval
 
 HELP = (
     "Send a message and SEED answers it, as in Chat. Messages continue one "
@@ -89,13 +93,23 @@ class TelegramApi:
         return data["result"]
 
     async def get_updates(self, offset: int | None) -> list[dict[str, Any]]:
-        body: dict[str, Any] = {"timeout": POLL_SECONDS, "allowed_updates": ["message"]}
+        body: dict[str, Any] = {
+            "timeout": POLL_SECONDS,
+            "allowed_updates": ["message", "callback_query"],
+        }
         if offset is not None:
             body["offset"] = offset
         result: list[dict[str, Any]] = await self._call("getUpdates", body)
         return result
 
-    async def send_message(self, chat_id: int, text: str, *, markdown: bool = False) -> None:
+    async def send_message(
+        self,
+        chat_id: int,
+        text: str,
+        *,
+        markdown: bool = False,
+        buttons: list[tuple[str, str]] | None = None,
+    ) -> None:
         """Send `text`; with `markdown`, as Telegram HTML made from it. Telegram refusing
         that (a tag it cannot parse, a message grown too long) sends the plain text."""
         body: dict[str, Any] = {
@@ -103,6 +117,10 @@ class TelegramApi:
             "text": text,
             "link_preview_options": {"is_disabled": True},
         }
+        if buttons:  # one row of (label, callback data)
+            body["reply_markup"] = {
+                "inline_keyboard": [[{"text": t, "callback_data": d} for t, d in buttons]]
+            }
         if markdown:
             try:
                 await self._call(
@@ -113,6 +131,22 @@ class TelegramApi:
                 if e.status != 400:
                     raise
         await self._call("sendMessage", body)
+
+    async def answer_callback(self, callback_id: str, text: str) -> None:
+        """Dismiss the button's spinner, with a short note shown to the person."""
+        await self._call("answerCallbackQuery", {"callback_query_id": callback_id, "text": text})
+
+    async def edit_message(self, chat_id: int, message_id: int, text: str) -> None:
+        """Replace a message's text, which also removes its buttons."""
+        await self._call(
+            "editMessageText",
+            {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "text": text,
+                "link_preview_options": {"is_disabled": True},
+            },
+        )
 
     async def aclose(self) -> None:
         await self._http.aclose()
@@ -168,6 +202,13 @@ def telegram_html(text: str) -> str:
             out.append(f"<pre>{html.escape(fence[1].rstrip(chr(10)), quote=False)}</pre>")
             last = fence.end() + (text[fence.end() : fence.end() + 1] == "\n")
     return "\n".join(out)
+
+
+def decision_key(task_id: Any, call_id: Any) -> str:
+    """What a button carries to name the call it decides: Telegram allows 64 bytes, and
+    a call id can be long. It names one call of one task, so an old button decides
+    nothing once the task moved on."""
+    return hashlib.sha256(f"{task_id}/{call_id}".encode()).hexdigest()[:24]
 
 
 def parts(text: str) -> list[str]:
@@ -243,7 +284,56 @@ class TelegramGateway:
                 )
         return sent
 
+    async def decide(self, query: dict[str, Any]) -> None:
+        """A press of Approve or Deny under a waiting message. Only the linked chat may
+        decide, and only the call that message asked about."""
+        message = query.get("message") or {}
+        chat = (message.get("chat") or {}).get("id")
+        data = query.get("data")
+        if chat != self.chat_id or not isinstance(data, str) or ":" not in data:
+            await self.api.answer_callback(query["id"], "This chat cannot decide that.")
+            return
+        verb, _, key = data.partition(":")
+        async with self.pool.connection() as conn:
+            cur = await conn.execute(
+                "SELECT t.id, t.awaiting_approval FROM telegram_chats c "
+                "JOIN tasks t ON t.id = c.awaiting_task "
+                "WHERE c.chat_id = %s AND t.state = 'waiting'",
+                (chat,),
+            )
+            row = await cur.fetchone()
+        call = row["awaiting_approval"] if row else None
+        if (
+            row is None
+            or call is None
+            or verb not in ("ok", "no")
+            or key != decision_key(row["id"], call["id"])
+        ):
+            await self.api.answer_callback(query["id"], "That request is no longer waiting.")
+            return
+        approved = verb == "ok"
+        task = await TaskStore(self.pool).decide(
+            row["id"], call_id=call["id"], approved=approved, by=self.owner
+        )
+        if task is None:
+            await self.api.answer_callback(query["id"], "That request is no longer waiting.")
+            return
+        await AuthStore(self.pool).audit(
+            "tool_approved" if approved else "tool_denied",
+            actor=self.owner,
+            target=f"{row['id']}/{call['id']}",
+            detail={"tool": call["name"], "arguments": call["arguments"], "via": "telegram"},
+        )
+        await self.api.answer_callback(query["id"], "Approved." if approved else "Denied.")
+        old = str(message.get("text") or "")
+        verdict = "✅ Approved" if approved else "❌ Denied"
+        if isinstance(chat, int) and isinstance(message.get("message_id"), int):
+            await self.api.edit_message(chat, message["message_id"], f"{old}\n\n{verdict}")
+
     async def handle(self, update: dict[str, Any]) -> None:
+        if "callback_query" in update:
+            await self.decide(update["callback_query"])
+            return
         message = update.get("message") or {}
         chat = (message.get("chat") or {}).get("id")
         if not isinstance(chat, int):
@@ -352,10 +442,16 @@ class TelegramGateway:
         here = self.link(f"/chat/{row['conversation_id']}")
         call = row["awaiting_approval"]
         if row["state"] == "waiting" and call and call.get("id") != row["told_call"]:
+            shown = json.dumps(call.get("arguments") or {}, ensure_ascii=False, indent=1)
+            if len(shown) > ARGS_CHARS:
+                shown = shown[:ARGS_CHARS] + "…"
             await self.api.send_message(
                 row["chat_id"],
-                f"✋ Waiting for your approval to call {call.get('name')}. "
-                f"Approve or deny it in SEED.{here}",
+                f"✋ Waiting for your approval to call {call.get('name')}:\n{shown}{here}",
+                buttons=[
+                    ("✅ Approve", f"ok:{decision_key(row['id'], call.get('id'))}"),
+                    ("❌ Deny", f"no:{decision_key(row['id'], call.get('id'))}"),
+                ],
             )
             async with self.pool.connection() as conn:
                 await conn.execute(
