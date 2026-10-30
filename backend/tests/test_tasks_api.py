@@ -116,7 +116,7 @@ def test_tasks_survive_an_api_restart(db_settings: Settings, db_url: str) -> Non
         assert second.get(f"/api/v1/tasks/{tid}").json()["state"] == "queued"
     with psycopg.connect(db_url) as conn:
         row = conn.execute("SELECT count(*) FROM schema_migrations").fetchone()
-        assert row == (15,)  # migrations ran once, not per start
+        assert row == (16,)  # migrations ran once, not per start
 
 
 def sse(text: str) -> list[tuple[str | None, str | None, dict]]:  # type: ignore[type-arg]
