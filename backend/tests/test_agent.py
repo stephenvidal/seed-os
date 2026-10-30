@@ -317,6 +317,17 @@ async def test_a_second_gated_call_pauses_again() -> None:
     assert [c.id for c in again[-1].pending] == ["call_1"]
 
 
+async def test_a_gated_call_with_bad_arguments_is_not_put_to_a_person() -> None:
+    ran: list[int] = []
+    step = calls(("danger", {"n": "x"}))
+    result, events, _ = await gated_run(ScriptedProvider([step, reply("ok")]), gated(ran))
+    assert result.termination == "completed" and ran == []
+    types = [e.type for e in events]
+    assert "approval_requested" not in types
+    [res] = [e for e in events if e.type == "tool_result"]
+    assert res.data["error_kind"] == "invalid_arguments"
+
+
 async def test_the_registry_refuses_a_gated_tool_without_approval() -> None:
     ran: list[int] = []
     out = await gated(ran).execute(ToolCall(id="x", name="danger", arguments={"n": 1}))

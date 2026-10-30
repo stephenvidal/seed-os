@@ -72,6 +72,7 @@ async def test_registry_outcomes() -> None:
     crashed = await reg.execute(call("boom", n=1))
     assert crashed.error_kind == "tool_error" and "secret" not in (crashed.error or "")
     assert (await reg.execute(call("danger", n=1))).error_kind == "approval_required"
+    assert (await reg.execute(call("danger", n="x"))).error_kind == "invalid_arguments"
 
 
 def test_specs_expose_json_schema_and_reject_duplicates() -> None:

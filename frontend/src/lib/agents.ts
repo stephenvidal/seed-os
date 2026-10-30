@@ -11,6 +11,7 @@ export const AGENT_TOOLS = [
     note: "needs the sandbox; asks you first by default",
   },
   { name: "search_knowledge", label: "Search project knowledge", note: "in projects only" },
+  { name: "skill_manage", label: "Write its own skills", note: "asks you first, every time" },
 ] as const;
 
 export type AgentTool = (typeof AGENT_TOOLS)[number]["name"];

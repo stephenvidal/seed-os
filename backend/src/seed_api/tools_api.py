@@ -23,6 +23,7 @@ from .flow.store import TaskStore
 from .projects.knowledge import knowledge_tool
 from .projects.memory import remember_tool
 from .sandbox.client import sandbox_tools
+from .skills.manage import skill_manage_tool
 from .skills.runtime import skill_tools
 
 router = APIRouter(prefix="/api/v1/tools", tags=["tools"])
@@ -43,6 +44,8 @@ AVAILABLE_IN: dict[str, str] = {
     "skill_list": "Tasks that may see a skill: SEED's see the shared ones, an agent's those "
     "it is allowed and its own",
     "skill_view": "Tasks that may see a skill, as for skill_list",
+    "skill_manage": "Every task; SEED's write shared skills, an agent's its own private ones. "
+    "You approve each call",
 }
 
 
@@ -124,6 +127,7 @@ def catalog(settings: Settings) -> list[ToolInfo]:
         knowledge_tool(none, project_id=nil),
         delegate_tool([]),
         *skill_tools([]),
+        skill_manage_tool(none, owner="", agent_id=None, task_id=nil),
     ]
     gated = set(settings.approval_required_tools)
     out: list[ToolInfo] = []
