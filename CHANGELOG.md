@@ -8,6 +8,10 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
   they now render (D-020). The per-step output cap is 16,384 tokens, up from 4,096.
 
 ### Added
+- Schedules (M8, D-029): `/api/v1/schedules` (list, create, replace, delete, run
+  now); a saved task starting every N minutes or daily at a time in a timezone,
+  started by the workers exactly once per due time; migration 0016; new
+  dependency `tzdata`.
 - Tools & Skills (M8, D-028): the page lists the worker's tools with permission,
   approval policy, limits, arguments and where each is offered, and how often each
   was used and failed, from recorded results. `GET /api/v1/tools`; migration 0015

@@ -2091,3 +2091,48 @@ missing `AVAILABLE_IN` text is caught); approval policy when the API and worker 
 with different settings.
 
 **Open questions:** what a "skill" is and whether M8 owns it (D-028).
+
+## Increment 26 — Schedules, backend (M8 step 2a)
+
+**Iteration:** M8 step 2a. **Done when:** a schedule can be saved through the API; a
+worker starts its task when it is due, exactly once however many workers poll;
+missed runs and a still-running last task do not pile up tasks; the next time is
+right across timezones and clock changes — each shown by a test that fails when it
+breaks, and against the real stack.
+
+**Changed**
+- Migration `0016_schedules`; `schedules/recurrence.py` (next run), `store.py`
+  (CRUD, `fire_due`, `run_now`), `api.py` (`/api/v1/schedules`); the worker calls
+  `fire_due` on each pass; dependency `tzdata`.
+- D-029, README, CHANGELOG, roadmap.
+
+**Tested**
+```
+backend: ruff check → All checks passed! · ruff format --check → clean
+         mypy → Success: no issues found in 52 source files
+         pytest (DB) → 208 passed, 1 skipped
+```
+26 new tests (the DB-less ones run without a database): recurrence (interval, daily in two timezones, both clock changes, bad
+input); the API (create, list, replace, delete, run now, audit, 11 refused
+timetables, project scoping); firing (due, not due, six concurrent workers → one
+task, missed runs, a due time already used, busy skip including a task waiting for
+approval, disabled, a project's context, a worker starting and running a due task).
+Breakage checks 20/22 caught; the two survivors are equivalent (`SKIP LOCKED`
+only avoids waiting, and the `enabled` test is covered by a table check).
+
+Real stack (API, worker, Postgres, stub model), by API: created an hourly schedule,
+made it due, and 6 s later:
+```
+Hourly check 2026-10-30T01:04:31Z (next run, before)
+after: Hourly check started next 2026-10-30T01:04:33Z
+task: Scheduled: Hourly check completed 'plain answer'
+audit: admin|schedule_created · |schedule_started_task|schedule
+tasks total (8 s later): 1
+```
+The next run moved from 01:04:31 (created + 1 h) to 01:04:33 (fired + 1 h), and no
+second task started.
+
+**Not tested:** a schedule in the live deployment; a clock change inside a running
+worker; very many schedules (20 are handled per pass).
+
+**Open questions:** none new. Step 2b is the page to manage schedules.

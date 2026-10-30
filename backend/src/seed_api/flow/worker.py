@@ -40,6 +40,7 @@ from ..models import make_provider, system_prompt
 from ..projects.knowledge import KnowledgeStore, knowledge_tool
 from ..projects.memory import MemoryStore, remember_tool
 from ..sandbox.client import SandboxClient, sandbox_tools
+from ..schedules.store import ScheduleStore
 from ..studio.capture import restore, save_changes
 from ..studio.store import ArtifactStore
 from ..studio.workspace import LocalFiles, SandboxFiles, WorkspaceFiles
@@ -72,6 +73,7 @@ class Worker:
         worker_id: str | None = None,
     ) -> None:
         self.store = store
+        self.schedules = ScheduleStore(store.pool)
         self.sandbox = sandbox
         self.artifacts = artifacts
         self.settings = settings
@@ -90,9 +92,10 @@ class Worker:
         log.info("worker %s stopped", self.worker_id)
 
     async def run_once(self) -> bool:
-        """Settle dead tasks, then claim and execute at most one. Returns whether
-        a task was executed."""
+        """Settle dead tasks, start the tasks of schedules that are due (D-029), then
+        claim and execute at most one. Returns whether a task was executed."""
         await self.store.sweep()
+        await self.schedules.fire_due(self.settings.task_max_attempts)
         claimed = await self.store.claim(self.worker_id, self.settings.worker_lease_seconds)
         if claimed is None:
             return False
