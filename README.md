@@ -145,6 +145,9 @@ it — with full visibility and control.
   SEED sees your shared skills; an agent sees the shared skills you allow it and
   its private ones. A message that starts with `/name`, in Chat or Telegram,
   follows that skill; a name you have no skill for is answered by saying so.
+  SEED can save, change or delete your shared skills with `skill_manage`, and an
+  agent you allow it can do the same for its private skills; you approve every
+  such call first, and a call that cannot run is answered without asking you.
 - Models: page structure with an empty state naming the milestone that delivers it.
 
 ## API (as built)
@@ -169,9 +172,9 @@ it — with full visibility and control.
 | PATCH | `/api/v1/projects/{id}` | admin | `{name?, instructions?}` → the project; 404 `not_found`; 422 |
 | DELETE | `/api/v1/projects/{id}` | admin | 204; its conversations and tasks are kept and leave the project; 404 `not_found` |
 | GET | `/api/v1/agents` | admin | The caller's agents by name: `{id, name, description, instructions, model, tools[], …}`; the first call adds the starter agents (Researcher, Coder, Reviewer) once |
-| POST | `/api/v1/agents` | admin | `{name, description, instructions?, model?, tools[], skills[]?}` → 201; `skills` are ids of your shared skills it may use (422 `no_such_skill` otherwise; a skill that is deleted or made private leaves the list; left out of a PUT, the list is kept); name 1-40 letters, digits, spaces, `-` or `_`, unique per owner ignoring case (409 `name_taken`); tools from `list_files`, `read_file`, `write_file`, `run_command`, `search_knowledge`; blank model means the delegating task's |
+| POST | `/api/v1/agents` | admin | `{name, description, instructions?, model?, tools[], skills[]?}` → 201; `skills` are ids of your shared skills it may use (422 `no_such_skill` otherwise; a skill that is deleted or made private leaves the list; left out of a PUT, the list is kept); name 1-40 letters, digits, spaces, `-` or `_`, unique per owner ignoring case (409 `name_taken`); tools from `list_files`, `read_file`, `write_file`, `run_command`, `search_knowledge`, `skill_manage`; blank model means the delegating task's |
 | GET / PUT / DELETE | `/api/v1/agents/{id}` | admin | Read, replace (same body as POST) or delete (204) an agent; 404 `not_found`; audited as `agent_created`/`agent_updated`/`agent_deleted` |
-| GET | `/api/v1/skills` | admin | The caller's skills by name, shared and private: `{id, agent_id, name, description, tags[], body, …}`; `agent_id` set means private to that agent |
+| GET | `/api/v1/skills` | admin | The caller's skills by name, shared and private: `{id, agent_id, name, description, tags[], body, written_by_task, …}`; `agent_id` set means private to that agent; `written_by_task` is the task that last wrote it with your approval (null: you did) |
 | POST | `/api/v1/skills` | admin | `{name, description, tags[], body, agent_id?}` → 201; name 1-64 lower-case letters, digits or `-` (lower-cased), unique per owner across shared and private (409 `name_taken`); description up to 1,024; up to 20 tags of 40; body up to 20,000; an `agent_id` that is not the caller's agent is 422 `no_such_agent` |
 | POST | `/api/v1/skills/import` | admin | `{text, agent_id?}`: a Hermes Agent SKILL.md (YAML header between `---` lines, then the instructions) → 201 `{skill, ignored[]}`; keeps name, description, tags (top level or `metadata.hermes.tags`) and body; `ignored` lists header keys SEED does not act on; 422 `invalid_skill_md` says what is wrong |
 | GET / PUT / DELETE | `/api/v1/skills/{id}` | admin | Read, replace (same body as POST) or delete (204) a skill; 404 `not_found`; audited as `skill_created`/`skill_updated`/`skill_deleted`; deleting an agent deletes its private skills |

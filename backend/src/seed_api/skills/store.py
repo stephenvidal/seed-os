@@ -22,6 +22,8 @@ class Skill(BaseModel):
     description: str
     tags: list[str]
     body: str
+    # The task that last wrote it, with the owner's approval; None: the owner did.
+    written_by_task: uuid.UUID | None
     created_at: datetime
     updated_at: datetime
 
@@ -63,6 +65,14 @@ class SkillStore:
                 )
             return [Skill.model_validate(r) for r in await cur.fetchall()]
 
+    async def named(self, owner: str, name: str) -> Skill | None:
+        async with self.pool.connection() as conn:
+            cur = await conn.execute(
+                "SELECT * FROM skills WHERE owner = %s AND name = %s", (owner, name)
+            )
+            row = await cur.fetchone()
+        return Skill.model_validate(row) if row else None
+
     async def get(self, owner: str, skill_id: uuid.UUID) -> Skill | None:
         async with self.pool.connection() as conn:
             cur = await conn.execute(
@@ -80,18 +90,20 @@ class SkillStore:
         description: str,
         tags: list[str],
         body: str,
+        written_by_task: uuid.UUID | None = None,
     ) -> Skill:
         """Raises NameTaken or NoSuchAgent."""
         try:
             async with self.pool.connection() as conn:
                 cur = await conn.execute(
-                    "INSERT INTO skills (id, owner, agent_id, name, description, tags, body) "
-                    "SELECT %s, %s, %s, %s, %s, %s, %s "
+                    "INSERT INTO skills "
+                    "(id, owner, agent_id, name, description, tags, body, written_by_task) "
+                    "SELECT %s, %s, %s, %s, %s, %s, %s, %s "
                     "WHERE %s::uuid IS NULL "
                     "   OR EXISTS (SELECT 1 FROM agents WHERE id = %s AND owner = %s) "
                     "RETURNING *",
                     (uuid.uuid4(), owner, agent_id, name, description, tags, body)
-                    + (agent_id, agent_id, owner),
+                    + (written_by_task, agent_id, agent_id, owner),
                 )
                 row = await cur.fetchone()
         except UniqueViolation:
@@ -112,6 +124,7 @@ class SkillStore:
         description: str,
         tags: list[str],
         body: str,
+        written_by_task: uuid.UUID | None = None,
     ) -> Skill | None:
         """Replace the skill. None when there is no such skill; raises NameTaken
         or NoSuchAgent."""
@@ -125,8 +138,9 @@ class SkillStore:
             try:
                 cur = await conn.execute(
                     "UPDATE skills SET agent_id = %s, name = %s, description = %s, tags = %s, "
-                    "body = %s, updated_at = now() WHERE id = %s AND owner = %s RETURNING *",
-                    (agent_id, name, description, tags, body, skill_id, owner),
+                    "body = %s, written_by_task = %s, updated_at = now() "
+                    "WHERE id = %s AND owner = %s RETURNING *",
+                    (agent_id, name, description, tags, body, written_by_task, skill_id, owner),
                 )
             except UniqueViolation:
                 raise NameTaken from None

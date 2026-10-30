@@ -2349,3 +2349,31 @@ no `skill_forced` event (1 failed), a PUT without `skills` clearing the list
 scripted); `/name` through the real Telegram API.
 
 **Open questions:** none new.
+
+## Increment 36 — skill_manage, with the owner's approval (M8, D-033 step 3)
+
+**Changed:** `skill_manage` (create, update, delete) on every SEED task, writing
+the owner's shared skills, and on agents allowed it (a new agent tool), writing
+only their private skills; each call needs approval. Migration 0022
+(`written_by_task`). Skill rules moved to `skills/rules.py`, shared by the API and
+the tool. The agent loop and registry now check arguments before approval, so a
+call that cannot run is not put to the person. Agents page: "Write its own
+skills" is a tool you can allow.
+
+**Tested**
+```
+backend: ruff, format, mypy clean ("Success: no issues found in 64 source files")
+pytest (DB) → 257 passed, 1 skipped (5 new: tests/test_skill_manage.py, one in test_agent.py)
+frontend: typecheck, lint, format clean; npm test → 124 passed
+```
+Breakage checks 8/8 caught: an agent changing a shared skill (1 failed), no
+approval (3 failed), an update with `tags: []` keeping the old tags (1 failed), an
+update without instructions clearing them (1 failed), no `written_by_task` on
+create (1 failed), asking approval for invalid arguments (1 failed), the registry
+running a gated tool unapproved (1 failed), agents getting `skill_manage` without
+being allowed it (2 failed).
+
+**Not tested:** a real model choosing to save a skill; the approval card in the
+app showing a long skill (the card shows the call's arguments as it does today).
+
+**Open questions:** none new.

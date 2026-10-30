@@ -3,7 +3,8 @@
 The registry validates model-supplied arguments against the tool's input model,
 enforces the timeout, and turns every failure into a typed outcome the model can
 read. A tool that `requires_approval` runs only when the caller says a person
-approved this call (the agent loop pauses for that); otherwise it is refused. A
+approved this call (the agent loop pauses for that); otherwise it is refused.
+Arguments are checked first, so nobody is asked to approve a call that cannot run. A
 `deferred` tool never runs in the loop: its result arrives later from outside
 the run (a delegated task, D-025), and the loop pauses until it does.
 """
@@ -87,17 +88,17 @@ class ToolRegistry:
         tool = self._tools.get(call.name)
         if tool is None:
             return done(ok=False, error_kind="unknown_tool", error=f"No tool named {call.name!r}.")
+        try:
+            args = tool.input_model.model_validate(call.arguments)
+        except ValidationError as e:
+            fields = "; ".join(f"{'.'.join(map(str, x['loc']))}: {x['msg']}" for x in e.errors())
+            return done(ok=False, error_kind="invalid_arguments", error=fields[:500])
         if tool.requires_approval and not approved:
             return done(
                 ok=False,
                 error_kind="approval_required",
                 error="This tool needs a person's approval, which this call does not have.",
             )
-        try:
-            args = tool.input_model.model_validate(call.arguments)
-        except ValidationError as e:
-            fields = "; ".join(f"{'.'.join(map(str, x['loc']))}: {x['msg']}" for x in e.errors())
-            return done(ok=False, error_kind="invalid_arguments", error=fields[:500])
         try:
             result = await asyncio.wait_for(tool.handler(args), timeout=tool.timeout_s)
         except TimeoutError:

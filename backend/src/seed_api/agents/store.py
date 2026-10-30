@@ -12,14 +12,18 @@ from pydantic import BaseModel
 from ..flow.db import Pool
 
 # What an agent may be allowed. run_command needs the sandbox and search_knowledge
-# a project; a delegated run gets each only where it exists.
-ToolName = Literal["list_files", "read_file", "write_file", "run_command", "search_knowledge"]
+# a project; a delegated run gets each only where it exists. skill_manage writes
+# the agent's private skills, each call approved by the owner (D-033).
+ToolName = Literal[
+    "list_files", "read_file", "write_file", "run_command", "search_knowledge", "skill_manage"
+]
 TOOL_NAMES: tuple[ToolName, ...] = (
     "list_files",
     "read_file",
     "write_file",
     "run_command",
     "search_knowledge",
+    "skill_manage",
 )
 
 
@@ -30,6 +34,7 @@ AGENT_TOOL_LABELS: dict[str, str] = {
     "write_file": "write files",
     "run_command": "run commands",
     "search_knowledge": "search project knowledge",
+    "skill_manage": "write its own skills, with approval",
 }
 
 

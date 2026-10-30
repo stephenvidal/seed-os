@@ -41,6 +41,7 @@ from ..projects.knowledge import KnowledgeStore, knowledge_tool
 from ..projects.memory import MemoryStore, remember_tool
 from ..sandbox.client import SandboxClient, sandbox_tools
 from ..schedules.store import ScheduleStore
+from ..skills.manage import skill_manage_tool
 from ..skills.runtime import forced_prompt, forced_skill, skill_tools, skills_index
 from ..skills.store import SkillStore
 from ..studio.capture import restore, save_changes
@@ -148,6 +149,15 @@ class Worker:
             local = Path(self.settings.workspace_root) / str(task.workspace)
             tools = workspace_tools(local)
             files = LocalFiles(local)
+        skill_store = SkillStore(self.store.pool)
+        tools.append(  # D-033; each write waits for the owner's approval
+            skill_manage_tool(
+                skill_store,
+                owner=task.created_by,
+                agent_id=task.agent.id if task.agent is not None else None,
+                task_id=task.id,
+            )
+        )
         if task.agent is not None:  # an agent's task (D-025): only the tools it may use
             if task.project_id is not None:
                 tools.append(
@@ -171,7 +181,7 @@ class Worker:
             if agents:
                 tools.append(delegate_tool(agents))
         # The skills it may see (D-033); a `/name` message from the owner follows one.
-        skills = await SkillStore(self.store.pool).visible(task.created_by, task.agent)
+        skills = await skill_store.visible(task.created_by, task.agent)
         if skills:
             tools.extend(skill_tools(skills))
         forced = forced_skill(task.prompt, skills) if task.agent is None else None

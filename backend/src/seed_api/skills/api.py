@@ -1,6 +1,5 @@
 """Skills API (D-033): write, import, list, change and delete the owner's skills."""
 
-import re
 import uuid
 from typing import Annotated
 
@@ -9,15 +8,13 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from ..auth import AuthStore, AuthStoreDep, Principal, client_ip, require_role
 from ..errors import ApiError
+from .rules import clean_body, clean_description, clean_name, clean_tags
 from .skillmd import MAX_TEXT, SkillMdError, parse
 from .store import NameTaken, NoSuchAgent, Skill, SkillStore
 
 router = APIRouter(prefix="/api/v1/skills", tags=["skills"])
 
 AdminOnly = Annotated[Principal, Depends(require_role("admin"))]
-MAX_BODY = 20_000
-MAX_TAGS = 20
-_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 
 
 def get_skills(request: Request) -> SkillStore:
@@ -45,42 +42,22 @@ class SkillIn(BaseModel):
     @field_validator("name")
     @classmethod
     def name_ok(cls, v: str) -> str:
-        v = v.strip().lower()
-        if not _NAME.match(v):
-            raise ValueError(
-                "Use 1-64 lower-case letters, digits or hyphens, starting with a letter or digit."
-            )
-        return v
+        return clean_name(v)
 
     @field_validator("description")
     @classmethod
     def description_ok(cls, v: str) -> str:
-        v = " ".join(v.split())
-        if not v:
-            raise ValueError("Say what the skill is for.")
-        if len(v) > 1024:
-            raise ValueError("Keep the description to 1024 characters.")
-        return v
+        return clean_description(v)
 
     @field_validator("tags")
     @classmethod
     def tags_ok(cls, v: list[str]) -> list[str]:
-        tags = list(dict.fromkeys(t for t in (" ".join(x.split()) for x in v) if t))
-        if len(tags) > MAX_TAGS:
-            raise ValueError(f"Use at most {MAX_TAGS} tags.")
-        if any(len(t) > 40 for t in tags):
-            raise ValueError("Keep each tag to 40 characters.")
-        return tags
+        return clean_tags(v)
 
     @field_validator("body")
     @classmethod
     def body_ok(cls, v: str) -> str:
-        v = v.strip()
-        if not v:
-            raise ValueError("Write the skill's instructions.")
-        if len(v) > MAX_BODY:
-            raise ValueError(f"Keep the instructions to {MAX_BODY} characters.")
-        return v
+        return clean_body(v)
 
 
 class ImportIn(BaseModel):

@@ -200,7 +200,10 @@ async def run_agent(
                 )
             tool = tools.get(call.name)
             within_cap = offset + i < limits.max_tool_calls_per_step
-            needs = within_cap and tool is not None and tool.requires_approval
+            # A call whose arguments do not fit is answered at once, not put to a person.
+            needs = (
+                within_cap and tool is not None and tool.requires_approval and _valid(tool, call)
+            )
             if needs and call.id not in decided:
                 await emit(
                     "approval_requested",

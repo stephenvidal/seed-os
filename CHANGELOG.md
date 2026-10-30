@@ -8,6 +8,8 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
   they now render (D-020). The per-step output cap is 16,384 tokens, up from 4,096.
 
 ### Changed
+- A call to a tool that needs approval is checked first: a call whose arguments
+  do not fit is answered at once instead of being put to you.
 - The notification menu keeps a 16 px gap from the screen's edges on a phone.
 - `list_files` says "No such directory" for a path that does not exist, and that
   a path is a file when it is one.
@@ -23,6 +25,9 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
   `skill_list` and `skill_view` read them, agents get `skills` (the shared skills
   they may use), and a message starting with `/name` follows that skill.
   Migration 0021.
+- `skill_manage` (M8, D-033): SEED saves, changes or deletes your shared skills,
+  and an agent allowed it its private ones; you approve each call. Skills record
+  the task that last wrote them (`written_by_task`, migration 0022).
 - Chat with SEED from Telegram (M8, D-032): a message from the linked chat is a Chat
   turn and its answer is sent back; `/new`, `/help`; migration 0019.
 - Telegram gateway (M8, D-031): a `gateway` service sends each notification to one

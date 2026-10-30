@@ -33,6 +33,7 @@ def skill(name: str, body: str = "Do it.") -> Skill:
         description=f"For {name}.",
         tags=["t"],
         body=body,
+        written_by_task=None,
         created_at=now,
         updated_at=now,
     )

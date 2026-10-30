@@ -23,6 +23,7 @@ NAMES = [
     "delegate",
     "skill_list",
     "skill_view",
+    "skill_manage",
 ]
 
 
@@ -58,6 +59,7 @@ def test_the_catalog_lists_every_tool_with_its_limits_and_policy(api: TestClient
         "delegate": "exec",
         "skill_list": "read",
         "skill_view": "read",
+        "skill_manage": "write",
     }
     run = tools["run_command"]
     assert run["requires_approval"] is True  # SEED_APPROVAL_REQUIRED_TOOLS defaults to it
@@ -83,7 +85,8 @@ def test_the_approval_policy_follows_the_setting(db_settings: Settings) -> None:
     )
     with start(settings) as c:
         tools = by_name(sign_in(c).get("/api/v1/tools").json())
-    assert {n for n, t in tools.items() if t["requires_approval"]} == {"write_file", "delegate"}
+    gated = {n for n, t in tools.items() if t["requires_approval"]}
+    assert gated == {"write_file", "delegate", "skill_manage"}  # skill_manage always asks
 
 
 def add_events(db_url: str, task_id: str, *results: tuple[dict[str, object], float]) -> None:
