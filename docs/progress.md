@@ -2297,3 +2297,24 @@ The second turn carried the first as context.
 
 **Not tested:** the real Telegram API; a turn waiting for an approval in the real
 processes (covered by the store-level test).
+
+## Increment 34 — Markdown in Telegram answers (M8 step 4b follow-up)
+
+**Changed:** an answer sent to Telegram is converted from Markdown to Telegram HTML
+(`telegram_html`: bold, italic, inline and fenced code, links, headings as bold lines,
+"- " as bullets), with all other characters escaped. If Telegram answers 400 the same
+piece is sent as plain text, so no answer is lost. Notifications and status lines stay
+plain. No new decision: it fixes the plain-text gap seen in Stephen's first Telegram
+chat (literal `**` marks).
+
+**Tested**
+```
+backend: ruff, format, mypy clean; pytest (DB) → 234 passed, 1 skipped (2 new tests)
+```
+Breakage check: sending answers without `markdown=True` fails
+`test_a_message_is_a_chat_turn_and_its_answer_comes_back`.
+
+**Not tested:** the real Telegram API (no bot token here), so how Telegram renders the
+HTML is unconfirmed; the plain-text fallback is covered against a fake Bot API.
+
+**Open questions:** none.

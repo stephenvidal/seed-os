@@ -16,7 +16,9 @@ twice is answered once. /new starts a new conversation.
 """
 
 import asyncio
+import html
 import logging
+import re
 import signal
 from datetime import timedelta
 from typing import Any
@@ -92,14 +94,79 @@ class TelegramApi:
         result: list[dict[str, Any]] = await self._call("getUpdates", body)
         return result
 
-    async def send_message(self, chat_id: int, text: str) -> None:
-        await self._call(
-            "sendMessage",
-            {"chat_id": chat_id, "text": text, "link_preview_options": {"is_disabled": True}},
-        )
+    async def send_message(self, chat_id: int, text: str, *, markdown: bool = False) -> None:
+        """Send `text`; with `markdown`, as Telegram HTML made from it. Telegram refusing
+        that (a tag it cannot parse, a message grown too long) sends the plain text."""
+        body: dict[str, Any] = {
+            "chat_id": chat_id,
+            "text": text,
+            "link_preview_options": {"is_disabled": True},
+        }
+        if markdown:
+            try:
+                await self._call(
+                    "sendMessage", {**body, "text": telegram_html(text), "parse_mode": "HTML"}
+                )
+                return
+            except TelegramError as e:
+                if e.status != 400:
+                    raise
+        await self._call("sendMessage", body)
 
     async def aclose(self) -> None:
         await self._http.aclose()
+
+
+_FENCE = re.compile(r"```[^\n]*\n(.*?)(?:```|\Z)", re.S)
+_CODE = re.compile(r"`([^`\n]+)`")
+_LINK = re.compile(r"\[([^\]\n]+)\]\((https?://[^\s)]+)\)")
+_BOLD = re.compile(r"\*\*(?=\S)(.+?)(?<=\S)\*\*|(?<!\w)__(?=\S)(.+?)(?<=\S)__(?!\w)")
+_ITALIC = re.compile(r"(?<![\w*])\*(?=[^\s*])([^*\n]+?)(?<=[^\s*])\*(?![\w*])")
+_HEADING = re.compile(r"^#{1,6}\s+(.+?)\s*#*$")
+_BULLET = re.compile(r"^(\s*)[-*+]\s+")
+
+
+def _inline(line: str) -> str:
+    """One line of Markdown as Telegram HTML: code, links, bold and italic."""
+    held: list[str] = []
+
+    def hold(markup: str) -> str:
+        held.append(markup)
+        return f"\x00{len(held) - 1}\x00"
+
+    line = _CODE.sub(lambda m: hold(f"<code>{html.escape(m[1], quote=False)}</code>"), line)
+    line = _LINK.sub(
+        lambda m: hold(
+            f'<a href="{html.escape(m[2], quote=True)}">{html.escape(m[1], quote=False)}</a>'
+        ),
+        line,
+    )
+    line = html.escape(line, quote=False)
+    line = _BOLD.sub(lambda m: f"<b>{m[1] or m[2]}</b>", line)
+    line = _ITALIC.sub(lambda m: f"<i>{m[1]}</i>", line)
+    return re.sub(r"\x00(\d+)\x00", lambda m: held[int(m[1])], line)
+
+
+def telegram_html(text: str) -> str:
+    """Markdown as the HTML Telegram shows: **bold**, *italic*, `code`, fenced code,
+    [links](https://…), headings as bold lines and "- " items as bullets. Anything else
+    (tables, quotes) stays as text, with its characters escaped."""
+    out: list[str] = []
+    last = 0
+    for fence in [*_FENCE.finditer(text), None]:
+        prose = text[last : fence.start() if fence else len(text)]
+        if fence:
+            prose = prose.removesuffix("\n")  # the line break before the fence
+        for line in prose.split("\n") if prose else []:
+            heading = _HEADING.match(line)
+            if heading:
+                out.append(f"<b>{_inline(heading[1])}</b>")
+            else:
+                out.append(_inline(_BULLET.sub(r"\1• ", line)))
+        if fence:
+            out.append(f"<pre>{html.escape(fence[1].rstrip(chr(10)), quote=False)}</pre>")
+            last = fence.end() + (text[fence.end() : fence.end() + 1] == "\n")
+    return "\n".join(out)
 
 
 def parts(text: str) -> list[str]:
@@ -297,6 +364,7 @@ class TelegramGateway:
             return 0
         if row["state"] not in TERMINAL:
             return 0
+        answered = row["state"] == "completed" and bool((row["result_text"] or "").strip())
         if row["state"] == "completed":
             answer = (row["result_text"] or "").strip()
             pieces = parts(answer) or [f"Done. The answer has no text to show here.{here}"]
@@ -305,7 +373,7 @@ class TelegramGateway:
         else:
             pieces = ["That message was canceled."]
         for piece in pieces:
-            await self.api.send_message(row["chat_id"], piece)
+            await self.api.send_message(row["chat_id"], piece, markdown=answered)
         async with self.pool.connection() as conn:
             await conn.execute(
                 "UPDATE telegram_chats SET awaiting_task = NULL, told_call = NULL, "
