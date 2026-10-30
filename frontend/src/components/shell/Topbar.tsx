@@ -5,6 +5,7 @@ import { modLabel } from "../../lib/shortcuts";
 import { useTheme } from "../../lib/theme";
 import { Button } from "../ui/Button";
 import { Kbd } from "../ui/Kbd";
+import { NotificationBell } from "./NotificationBell";
 import { UserMenu } from "./UserMenu";
 
 export function Topbar({
@@ -66,6 +67,7 @@ export function Topbar({
         >
           {resolved === "dark" ? <Sun size={16} /> : <Moon size={16} />}
         </Button>
+        <NotificationBell />
         <UserMenu />
       </div>
     </header>

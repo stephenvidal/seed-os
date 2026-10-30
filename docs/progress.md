@@ -2213,3 +2213,26 @@ owner check, read mark, unread filter, body cut, skipped-run write, order).
 tested); the live site. The page and bell come next.
 
 **Open questions:** expiry of read notifications (D-030).
+
+## Increment 31 — Notification bell (M8 step 3b)
+
+**Changed:** `NotificationBell` in the top bar: unread count, a menu of the latest 20
+(kind, time, title, one-line body, unread dot), opening one marks it read and goes to
+its task (a skipped run goes to Schedules), mark all read; refreshed every 30 s.
+
+**Tested**
+```
+frontend: typecheck, lint, format:check clean; npm test → 124 passed (4 new)
+```
+Breakage checks 5/5 caught (no mark read, no navigation, no mark all, unread dot
+always shown, no refresh after reading).
+
+Real stack (API, Postgres, Vite, Chromium at 390×800), three notifications inserted:
+```
+bell: Notifications, 3 unread
+url: http://localhost:8080/schedules bell: Notifications, 2 unread
+```
+(the opened row had no task, so it went to Schedules.) Screenshot checked: the menu
+fits the phone width and long bodies wrap.
+
+**Not tested:** the live site.

@@ -112,6 +112,10 @@ it — with full visibility and control.
   calls (arguments, result, time, approval), checkpoints, and the raw event log
   (streamed text chunks are counted, not listed). A running task refreshes every
   3 s. Model reasoning is never stored, so it is never shown.
+- **Notifications (M8):** the bell in the top bar lists what happened while you were
+  away: a task you started on its own finished or failed, a task waits for your
+  approval, a schedule skipped a run. Chat turns are not announced. Opening one marks it
+  read and goes to the task.
 - **Schedules (M8):** the Schedules page (sidebar, `G` then `E`) lists, creates, edits,
   pauses, runs now and deletes them. A schedule is a saved task (prompt, model, optional project)
   that starts every N minutes or daily at a time in a timezone (D-029). Every
