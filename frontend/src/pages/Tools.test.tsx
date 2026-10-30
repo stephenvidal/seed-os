@@ -67,6 +67,8 @@ describe("Tools & Skills", () => {
   it("lists each tool with its permission and approval policy, and how they were used", async () => {
     mockApi({
       "GET /api/v1/auth/me": ME,
+      "GET /api/v1/skills": { status: 200, body: [] },
+      "GET /api/v1/agents": { status: 200, body: [] },
       "GET /api/v1/tools?hours=24": { status: 200, body: VIEW },
     });
     const user = userEvent.setup();
@@ -111,6 +113,8 @@ describe("Tools & Skills", () => {
   it("says plainly when nothing waits for approval and nothing was used", async () => {
     mockApi({
       "GET /api/v1/auth/me": ME,
+      "GET /api/v1/skills": { status: 200, body: [] },
+      "GET /api/v1/agents": { status: 200, body: [] },
       "GET /api/v1/tools?hours=24": {
         status: 200,
         body: { ...VIEW, tools: [tool()], usage: [] },
@@ -124,6 +128,8 @@ describe("Tools & Skills", () => {
   it("explains that usage needs a database", async () => {
     mockApi({
       "GET /api/v1/auth/me": ME,
+      "GET /api/v1/skills": { status: 200, body: [] },
+      "GET /api/v1/agents": { status: 200, body: [] },
       "GET /api/v1/tools?hours=24": { status: 200, body: { ...VIEW, usage: null } },
     });
     renderApp(<App />, "/tools");
@@ -134,6 +140,8 @@ describe("Tools & Skills", () => {
   it("shows a failure to load", async () => {
     mockApi({
       "GET /api/v1/auth/me": ME,
+      "GET /api/v1/skills": { status: 200, body: [] },
+      "GET /api/v1/agents": { status: 200, body: [] },
       "GET /api/v1/tools?hours=24": {
         status: 500,
         body: { error: { code: "internal", message: "Broke." } },
