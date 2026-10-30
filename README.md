@@ -112,7 +112,8 @@ it — with full visibility and control.
   calls (arguments, result, time, approval), checkpoints, and the raw event log
   (streamed text chunks are counted, not listed). A running task refreshes every
   3 s. Model reasoning is never stored, so it is never shown.
-- **Schedules (M8):** a schedule is a saved task (prompt, model, optional project)
+- **Schedules (M8):** the Schedules page (sidebar, `G` then `E`) lists, creates, edits,
+  pauses, runs now and deletes them. A schedule is a saved task (prompt, model, optional project)
   that starts every N minutes or daily at a time in a timezone (D-029). Every
   worker checks for due schedules on each pass; a due time starts at most one task,
   whatever the number of workers. Runs missed while nothing was running start once,

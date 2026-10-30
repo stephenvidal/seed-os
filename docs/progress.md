@@ -2157,3 +2157,23 @@ by reading, not by a screenshot); the live site.
 code's failures are the model naming a path that does not exist, a directory, an
 absolute path or a file that is not UTF-8. The page now shows the actual messages,
 so the live site will say which.
+
+## Increment 28 — Schedules page (M8 step 2b)
+
+**Changed:** `/schedules` (sidebar, `G` then `E`): list with timetable in words, next
+and last run, skipped-run note, link to the last task; form to create or edit
+(name, prompt, model defaulting to the provider's, project, every N minutes 5–10080
+or daily at a time and time zone defaulting to the browser's); pause or resume,
+run now (links to the started task), delete after a confirm.
+
+**Tested**
+```
+frontend: typecheck, lint, format:check clean; npm test → 120 passed (5 new)
+```
+Breakage checks, each caught by a failing test: dropping the upper bound of the
+interval, not flipping `enabled` on pause, sending `every_minutes` for a daily
+schedule, ignoring the project choice.
+
+**Not tested:** in a browser at 390 px or against the real API; the live site.
+
+**Open questions:** none new.
