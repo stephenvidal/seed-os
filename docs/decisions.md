@@ -967,3 +967,21 @@ until it is used, and the same shape as Hermes so its skills import as text.
 **Consequences:** A new dependency, PyYAML. Hermes features that need more than text
 (platform gating, required tools or environment variables, bundles) are not acted
 on; an imported skill that relies on them says so in `ignored`.
+
+
+## D-034 — Approvals can be decided from the Telegram chat
+
+**Context:** D-032 announced a chat turn waiting for approval with a link to the app. Stephen
+(2026-10-30) wanted to decide in Telegram itself, the way Chat shows Approve and Deny.
+
+**Options:** (a) keep the link; (b) inline buttons under the message; (c) reply "yes"/"no" as text.
+
+**Choice:** (b). The message shows the call's arguments (up to 1,500 characters) so the person
+sees what they approve. A button carries a 24-character hash of the task and call ids (Telegram
+allows 64 bytes), so a press decides only that call: an old message, another chat, or a call that
+moved on does nothing and says so. The decision goes through the same `TaskStore.decide` as the
+API, as the gateway's owner, and writes the same audit entries (`tool_approved`/`tool_denied`)
+with `via: telegram`. Pressing edits the message to show the outcome, which removes the buttons.
+
+**Consequences:** only turns started from Telegram have buttons. Notifications of other tasks
+needing approval still carry a link. The gateway now also reads `callback_query` updates.

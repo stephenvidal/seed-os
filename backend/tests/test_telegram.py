@@ -41,6 +41,9 @@ class FakeBot:
     def __init__(self) -> None:
         self.sent: list[tuple[int, str]] = []
         self.modes: list[str | None] = []
+        self.markups: list[Any] = []
+        self.callbacks: list[tuple[str, str]] = []
+        self.edits: list[tuple[int, str]] = []
         self.reject_html = False
         self.updates: list[dict[str, Any]] = []
         self.offsets: list[int | None] = []
@@ -60,7 +63,14 @@ class FakeBot:
                     400, json={"ok": False, "description": "Bad Request: can't parse entities"}
                 )
             self.modes.append(body.get("parse_mode"))
+            self.markups.append(body.get("reply_markup"))
             self.sent.append((body["chat_id"], body["text"]))
+            return httpx.Response(200, json={"ok": True, "result": {}})
+        if request.url.path.endswith("/answerCallbackQuery"):
+            self.callbacks.append((body["callback_query_id"], body["text"]))
+            return httpx.Response(200, json={"ok": True, "result": True})
+        if request.url.path.endswith("/editMessageText"):
+            self.edits.append((body["message_id"], body["text"]))
             return httpx.Response(200, json={"ok": True, "result": {}})
         self.offsets.append(body.get("offset"))
         out, self.updates = self.updates, []
@@ -213,7 +223,8 @@ def text(update_id: int, body: str, chat: int = CHAT) -> dict[str, Any]:
 async def turns(pool: Pool) -> list[dict[str, Any]]:
     async with pool.connection() as conn:
         cur = await conn.execute(
-            "SELECT id, conversation_id, turn, prompt, model, created_by, idempotency_key, state "
+            "SELECT id, conversation_id, turn, prompt, model, created_by, idempotency_key, state, "
+            "approvals "
             "FROM tasks ORDER BY created_at"
         )
         return list(await cur.fetchall())
@@ -353,8 +364,10 @@ async def test_waiting_for_an_approval_is_told_once_and_a_failure_is_reported(
     link = f"https://seed.example/chat/{turn['conversation_id']}"
     assert bot.sent[-1] == (
         CHAT,
-        f"✋ Waiting for your approval to call run_command. Approve or deny it in SEED.\n{link}",
+        f"✋ Waiting for your approval to call run_command:\n{{}}\n{link}",
     )
+    row = bot.markups[-1]["inline_keyboard"][0]
+    assert [b["text"] for b in row] == ["✅ Approve", "❌ Deny"]
     await gw.deliver_answers()
     assert sum("Waiting for your approval" in t for _, t in bot.sent) == 1
     await store.decide(turn["id"], call_id="c1", approved=True, by="admin")
@@ -427,3 +440,66 @@ async def test_answer_falls_back_to_plain_text_when_telegram_refuses_html() -> N
         await client.send_message(CHAT, "**hi**", markdown=True)
     assert len(bot.sent) == 1
     await client.aclose()
+
+
+def press(update_id: int, data: str, chat: int = CHAT) -> dict[str, Any]:
+    return {
+        "update_id": update_id,
+        "callback_query": {
+            "id": f"q{update_id}",
+            "data": data,
+            "message": {"message_id": 9, "chat": {"id": chat}, "text": "✋ Waiting"},
+        },
+    }
+
+
+async def waiting(pool: Pool, gw: TelegramGateway, bot: FakeBot, update_id: int) -> dict[str, Any]:
+    """A chat turn that stopped for approval of a run_command call, and the keyboard
+    that asked about it."""
+    bot.updates = [text(update_id, "Run ls")]
+    await gw.receive_once()
+    store = TaskStore(pool)
+    claimed = await store.claim("w", 30)
+    assert claimed is not None
+    await store.pause(
+        claimed[1], ToolCall(id="c1", name="run_command", arguments={"command": "ls"})
+    )
+    await gw.deliver_answers()
+    return {b["text"]: b["callback_data"] for b in bot.markups[-1]["inline_keyboard"][0]}
+
+
+async def test_approve_button_decides_the_call_and_is_recorded(pool: Pool) -> None:
+    bot = FakeBot()
+    gw = TelegramGateway(pool, api(bot), Settings(**CHATTING))  # type: ignore[arg-type]
+    keys = await waiting(pool, gw, bot, 80)
+    assert '"command": "ls"' in bot.sent[-1][1]  # the person sees what they approve
+    bot.updates = [press(81, keys["✅ Approve"])]
+    await gw.receive_once()
+    [turn] = await turns(pool)
+    assert turn["state"] == "queued" and turn["approvals"]["c1"]["approved"] is True
+    assert bot.callbacks[-1][1] == "Approved." and bot.edits[-1][1].endswith("✅ Approved")
+    async with pool.connection() as conn:
+        cur = await conn.execute("SELECT actor, action, detail FROM audit_log")
+        [audit] = await cur.fetchall()
+    assert (audit["action"], audit["detail"]["via"]) == ("tool_approved", "telegram")
+    bot.updates = [press(82, keys["✅ Approve"])]  # pressed again: nothing is waiting
+    await gw.receive_once()
+    assert bot.callbacks[-1][1] == "That request is no longer waiting."
+
+
+async def test_deny_button_denies_and_strangers_cannot_decide(pool: Pool) -> None:
+    bot = FakeBot()
+    gw = TelegramGateway(pool, api(bot), Settings(**CHATTING))  # type: ignore[arg-type]
+    keys = await waiting(pool, gw, bot, 90)
+    bot.updates = [press(91, keys["✅ Approve"], chat=777)]
+    await gw.receive_once()
+    assert bot.callbacks[-1][1] == "This chat cannot decide that."
+    bot.updates = [press(92, "ok:" + "0" * 24)]  # a button for some other call
+    await gw.receive_once()
+    assert bot.callbacks[-1][1] == "That request is no longer waiting."
+    [turn] = await turns(pool)
+    assert turn["state"] == "waiting"
+    bot.updates = [press(93, keys["❌ Deny"])]
+    await gw.receive_once()
+    [turn] = await turns(pool)
+    assert turn["approvals"]["c1"]["approved"] is False and bot.edits[-1][1].endswith("❌ Denied")

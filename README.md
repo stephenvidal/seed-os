@@ -119,7 +119,10 @@ it — with full visibility and control.
   From the linked chat, a text message is a Chat turn: it continues that chat's
   conversation (it shows in Chat too) and the answer comes back when the turn ends.
   `/new` starts another conversation. A turn waiting for an approval is announced
-  with a link; approve it in the app.
+  with the call's arguments and Approve / Deny buttons; only the linked chat can press
+  them, each press is recorded in the audit log as made via Telegram, and a button for
+  a call that is no longer waiting does nothing. Approvals of tasks not started from
+  Telegram are still decided in the app.
 - **Notifications (M8):** the bell in the top bar lists what happened while you were
   away: a task you started on its own finished or failed, a task waits for your
   approval, a schedule skipped a run. Chat turns are not announced. Opening one marks it
