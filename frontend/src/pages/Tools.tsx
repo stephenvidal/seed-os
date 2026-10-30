@@ -31,15 +31,22 @@ function ToolRow({ tool }: { tool: ToolInfo }) {
             {tool.requires_approval ? "asks you first" : "runs on its own"}
           </Badge>
           {tool.deferred && <Badge>answered by an agent</Badge>}
-          <span className="min-w-0 flex-1 truncate text-xs text-fg-muted">{tool.available_in}</span>
+          <span className="font-mono text-xs text-fg-muted">
+            {tool.timeout_s} s · {n.format(tool.max_output_chars)} chars
+          </span>
+          <span className="basis-full text-xs text-fg-muted sm:basis-0 sm:flex-1">
+            {tool.available_in}
+          </span>
         </summary>
         <div className="flex flex-col gap-3 border-t border-border px-4 py-3 text-xs">
           <p className="text-fg-muted whitespace-pre-wrap">{tool.description}</p>
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
             <dt className="text-fg-muted">Time limit</dt>
-            <dd className="font-mono text-fg">{tool.timeout_s} s</dd>
+            <dd className="font-mono text-fg">{tool.timeout_s} s per call</dd>
             <dt className="text-fg-muted">Output kept</dt>
             <dd className="font-mono text-fg">{n.format(tool.max_output_chars)} characters</dd>
+            <dt className="text-fg-muted">Offered in</dt>
+            <dd className="text-fg">{tool.available_in}</dd>
           </dl>
           <table className="w-full">
             <thead className="text-left text-fg-muted">
@@ -81,39 +88,52 @@ function UsageTable({ data }: { data: ToolsView }) {
         Nothing has used a tool in the last {data.window_hours} hours.
       </EmptyState>
     );
-  const failures = (u: ToolUsage) =>
-    Object.entries(u.failures)
-      .map(([kind, count]) => `${kind.replace("_", " ")} ${count}`)
-      .join(", ");
   return (
-    <div className="overflow-x-auto px-4 py-3">
-      <table className="w-full text-xs">
-        <thead className="text-left text-fg-muted">
-          <tr>
-            <th className="pb-2 font-medium">Tool</th>
-            <th className="pb-2 text-right font-medium">Calls</th>
-            <th className="pb-2 text-right font-medium">Succeeded</th>
-            <th className="pb-2 text-right font-medium">Failed</th>
-            <th className="pb-2 text-right font-medium">Average time</th>
-            <th className="pb-2 pl-4 font-medium">Why they failed</th>
-          </tr>
-        </thead>
-        <tbody className="font-mono tabular-nums text-fg">
-          {data.usage.map((u) => (
-            <tr key={u.tool} className="border-t border-border">
-              <td className="py-1.5 pr-3">{u.tool}</td>
-              <td className="py-1.5 text-right">{n.format(u.calls)}</td>
-              <td className="py-1.5 text-right">{n.format(u.ok)}</td>
-              <td className={`py-1.5 text-right ${u.failed ? "text-danger" : ""}`}>
-                {n.format(u.failed)}
-              </td>
-              <td className="py-1.5 text-right">{ms(u.avg_ms)}</td>
-              <td className="py-1.5 pl-4 font-sans text-fg-muted">{failures(u) || "—"}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <ul aria-label="Tool usage" className="divide-y divide-border">
+      {data.usage.map((u) => (
+        <UsageRow key={u.tool} u={u} />
+      ))}
+    </ul>
+  );
+}
+
+function UsageRow({ u }: { u: ToolUsage }) {
+  const kinds = Object.entries(u.failures)
+    .map(([kind, count]) => `${kind.replace("_", " ")} ${count}`)
+    .join(", ");
+  const stats: [string, string, boolean?][] = [
+    ["Calls", n.format(u.calls)],
+    ["Succeeded", n.format(u.ok)],
+    ["Failed", n.format(u.failed), u.failed > 0],
+    ["Average time", ms(u.avg_ms)],
+  ];
+  return (
+    <li className="flex flex-col gap-1.5 px-4 py-3 text-xs">
+      <span className="font-mono text-sm text-fg">{u.tool}</span>
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-4">
+        {stats.map(([label, value, bad]) => (
+          <div key={label}>
+            <dt className="text-fg-muted">{label}</dt>
+            <dd className={`font-mono tabular-nums ${bad ? "text-danger" : "text-fg"}`}>{value}</dd>
+          </div>
+        ))}
+      </dl>
+      {u.failed > 0 && (
+        <div className="text-fg-muted">
+          <p>Why they failed: {kinds || "—"}</p>
+          {u.reasons.length > 0 && (
+            <ul aria-label={`${u.tool} errors`} className="mt-1 flex flex-col gap-0.5">
+              {u.reasons.map((r) => (
+                <li key={r.message} className="break-words">
+                  <span className="font-mono tabular-nums text-fg">{n.format(r.count)}×</span>{" "}
+                  {r.message}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </li>
   );
 }
 

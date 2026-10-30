@@ -28,6 +28,8 @@ router = APIRouter(prefix="/api/v1/tools", tags=["tools"])
 AdminOnly = Annotated[Principal, Depends(require_role("admin"))]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 
+REASONS_PER_TOOL = 3
+
 # Where each tool is offered. Fixed by the worker's code (flow/worker.py).
 AVAILABLE_IN: dict[str, str] = {
     "list_files": "Every task and chat turn",
@@ -62,6 +64,11 @@ class ToolInfo(BaseModel):
     arguments: list[Argument]
 
 
+class FailureReason(BaseModel):
+    message: str
+    count: int
+
+
 class ToolUsage(BaseModel):
     tool: str
     calls: int
@@ -70,6 +77,8 @@ class ToolUsage(BaseModel):
     avg_ms: int | None
     # Failures by kind (denied, timeout, invalid_arguments, tool_error, ...).
     failures: dict[str, int]
+    # The most common error messages the tool returned, so a failure rate can be read.
+    reasons: list[FailureReason]
 
 
 class ToolsView(BaseModel):
@@ -162,6 +171,28 @@ async def usage(conn: AsyncConnection[DictRow], since: datetime) -> list[ToolUsa
     failures: dict[str, dict[str, int]] = {}
     for r in await cur.fetchall():
         failures.setdefault(r["tool"], {})[r["kind"]] = r["n"]
+    cur = await conn.execute(
+        """
+        SELECT tool, message, n FROM (
+            SELECT tool, message, n,
+                   row_number() OVER (PARTITION BY tool ORDER BY n DESC, message) AS rank
+            FROM (
+                SELECT data->>'tool' AS tool, left(coalesce(data->>'error', ''), 200) AS message,
+                       count(*)::int AS n
+                FROM task_events
+                WHERE type = 'tool_result' AND created_at >= %(since)s AND data ? 'tool'
+                  AND data->>'ok' <> 'true'
+                GROUP BY 1, 2
+            ) grouped
+        ) ranked
+        WHERE rank <= %(top)s AND message <> ''
+        ORDER BY tool, n DESC, message
+        """,
+        {"since": since, "top": REASONS_PER_TOOL},
+    )
+    reasons: dict[str, list[FailureReason]] = {}
+    for r in await cur.fetchall():
+        reasons.setdefault(r["tool"], []).append(FailureReason(message=r["message"], count=r["n"]))
     return [
         ToolUsage(
             tool=r["tool"],
@@ -170,6 +201,7 @@ async def usage(conn: AsyncConnection[DictRow], since: datetime) -> list[ToolUsa
             failed=r["calls"] - r["ok"],
             avg_ms=r["avg_ms"],
             failures=failures.get(r["tool"], {}),
+            reasons=reasons.get(r["tool"], []),
         )
         for r in rows
     ]

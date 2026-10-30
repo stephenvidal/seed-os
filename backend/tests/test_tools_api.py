@@ -101,7 +101,16 @@ def test_usage_counts_recorded_tool_results_in_the_window(api: TestClient, db_ur
         task,
         (ok, 1),
         ({**ok, "duration_ms": 30}, 2),
-        ({"tool": "read_file", "ok": False, "error_kind": "tool_error", "duration_ms": 5}, 2),
+        (
+            {
+                "tool": "read_file",
+                "ok": False,
+                "error_kind": "tool_error",
+                "error": "No such file: a.txt",
+                "duration_ms": 5,
+            },
+            2,
+        ),
         ({"tool": "run_command", "ok": False, "error_kind": "denied", "duration_ms": 0}, 1),
         ({"tool": "run_command", "ok": False, "error_kind": "denied", "duration_ms": 0}, 1),
         ({"tool": "run_command", "ok": False, "error_kind": "denied", "duration_ms": 0}, 1),
@@ -121,10 +130,36 @@ def test_usage_counts_recorded_tool_results_in_the_window(api: TestClient, db_ur
         "failed": 1,
         "avg_ms": 15,
         "failures": {"tool_error": 1},
+        "reasons": [{"message": "No such file: a.txt", "count": 1}],
     }
     assert use["run_command"]["failed"] == 4 and use["run_command"]["ok"] == 0
     assert use["run_command"]["failures"] == {"denied": 3, "timeout": 1}
+    # Failures with no message are not listed; the commonest messages come first, at most three.
+    assert use["run_command"]["reasons"] == []
     assert use["run_command"]["avg_ms"] == 0  # the one event without a duration is skipped
     assert use["delegate"]["avg_ms"] is None
     wide = api.get("/api/v1/tools?hours=72").json()
     assert by_name(wide, "usage")["read_file"]["calls"] == 4
+
+
+def test_failure_reasons_are_the_three_commonest_messages(api: TestClient, db_url: str) -> None:
+    task = api.post("/api/v1/tasks", json={"model": "m", "prompt": "p"}).json()["id"]
+
+    def bad(message: str) -> tuple[dict[str, object], float]:
+        return ({"tool": "list_files", "ok": False, "error": message}, 1)
+
+    add_events(
+        db_url,
+        task,
+        *[bad("Not a directory: x")] * 4,
+        *[bad("Path escapes the workspace.")] * 3,
+        *[bad("Not a directory: x" + "y" * 300)] * 2,  # cut to 200 characters
+        bad("zeta"),
+        bad("alpha"),
+    )
+    reasons = by_name(api.get("/api/v1/tools").json(), "usage")["list_files"]["reasons"]
+    assert reasons == [
+        {"message": "Not a directory: x", "count": 4},
+        {"message": "Path escapes the workspace.", "count": 3},
+        {"message": "Not a directory: x" + "y" * 182, "count": 2},
+    ]

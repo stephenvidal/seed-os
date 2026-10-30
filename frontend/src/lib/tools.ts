@@ -24,6 +24,8 @@ export type ToolUsage = {
   failed: number;
   avg_ms: number | null;
   failures: Record<string, number>;
+  /** The commonest error messages the tool returned. */
+  reasons: { message: string; count: number }[];
 };
 
 export type ToolsView = {
