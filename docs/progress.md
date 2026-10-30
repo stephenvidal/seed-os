@@ -2237,3 +2237,34 @@ url: http://localhost:8080/schedules bell: Notifications, 2 unread
 fits the phone width and long bodies wrap.
 
 **Not tested:** the live site.
+
+## Increment 32 — Telegram gateway: notifications (M8 step 4a)
+
+**Changed:** `seed_api.gateways.telegram` (Bot API client, gateway, `main`); a
+`gateway` service in both compose files; migration 0018 (`telegram_sent_at`);
+settings for the token, chat, user and public URL (D-031). The notification menu
+now keeps a 16 px gap from the screen's edges (from the live check of #40).
+
+**Tested**
+```
+backend: ruff, format, mypy clean; pytest (DB) → 224 passed, 1 skipped (7 new)
+frontend: npm test → 124 passed
+compose: `docker compose config -q` passes for compose.yaml and deploy/compose.yaml
+```
+Breakage checks 10/11 caught. The survivor is equivalent: on a passing refusal,
+skipping on to the next row instead of stopping still leaves every row unsent.
+
+Real process against a fake Bot API (Postgres, `python -m seed_api.gateways.telegram`):
+```
+no token: "SEED_TELEGRAM_BOT_TOKEN unset: the Telegram gateway is off", exit 0
+SEND bot999… 555 "This chat is not linked to SEED. Its id is 555: set SEED_TELEGRAM_CHAT_ID=555 …"
+SEND bot999… 4242 "✅ Finished: Weekly report\nAll good.\nhttps://seed.example/schedules"
+(four recent notifications sent once each, marked sent; "topsecret" in the gateway log: 0 times)
+```
+
+Bell menu at 390×800 in Chromium: `menu left 16 right gap 22` (was flush at 0 live).
+
+**Not tested:** the real Telegram API (no bot token here); the gateway container on
+the VPS.
+
+**Open questions:** none new.

@@ -867,3 +867,36 @@ and a read mark survives reloads and devices. A later gateway can read the same 
 **Consequences:** Rows are kept until their task or schedule is deleted; there is no
 expiry yet. Open question: should read notifications be removed after some time,
 and after how long? The bell polls; there is no push to the browser.
+
+## D-031 — Telegram gateway: a separate process that long-polls, starting with notifications
+
+**Date:** 2026-10-30
+
+**Context:** M8 lists gateways. Stephen chose Telegram as the first (2026-10-30).
+Notifications exist in the app (D-030). The VPS sits behind a Cloudflare tunnel.
+
+**Options:** (1) a webhook route on the API, which needs a public URL Telegram can
+reach and a secret path; (2) long polling (`getUpdates`) from a process of its own;
+(3) long polling inside the worker.
+
+**Choice:** Option 2: a `gateway` service (`python -m seed_api.gateways.telegram`). It
+needs no inbound route, and Telegram allows one reader of a bot's updates, which
+rules out the worker (it runs as several). It talks to one chat,
+`SEED_TELEGRAM_CHAT_ID`, on behalf of one SEED user (`SEED_TELEGRAM_USER`, default
+the first admin). A message from any other chat gets its chat id back, so the owner
+can link their own chat without a lookup. Every few seconds, the gateway sends that
+user's unsent notifications from the last hour, oldest first, as plain text with a
+link when `SEED_PUBLIC_URL` is set, and marks each sent (`telegram_sent_at`, migration
+0018) once Telegram has accepted it. A passing refusal (429, 5xx, network) leaves it
+for the next pass. A lasting one (blocked bot, bad chat) is logged and not retried.
+The token is never logged: httpx's request log, which prints URLs, is quietened, and
+errors name only the exception type.
+
+**Reason:** No new inbound exposure, no extra secret, and the notification rows from
+D-030 are reused as they are.
+
+**Consequences:** Notifications older than an hour are never sent, so a gateway that
+was off sends no backlog. One chat and one user per deployment. Chatting with SEED
+from Telegram comes next; until then, the linked chat's messages get an
+acknowledgement only. The update offset lives in memory, so after a restart a
+message may be answered twice.

@@ -63,6 +63,15 @@ class Settings(BaseSettings):
     # Artifacts (ADR-0014): where saved file content lives, on a persistent volume.
     # Unset => task files are not saved.
     artifact_root: str | None = None
+    # Where people open SEED (https://seed.example.com), for links sent outside it.
+    public_url: str | None = None
+    # Telegram gateway (D-031). Unset token => the gateway does not run. The chat id
+    # is the one chat SEED talks to; the bot tells any other chat its id. The user
+    # is whose notifications are sent there (default: the first admin).
+    telegram_bot_token: SecretStr | None = None
+    telegram_chat_id: int | None = None
+    telegram_user: str | None = None
+    telegram_api_url: str = "https://api.telegram.org"
 
 
 @lru_cache

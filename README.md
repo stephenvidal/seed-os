@@ -112,6 +112,10 @@ it — with full visibility and control.
   calls (arguments, result, time, approval), checkpoints, and the raw event log
   (streamed text chunks are counted, not listed). A running task refreshes every
   3 s. Model reasoning is never stored, so it is never shown.
+- **Telegram (M8):** with a bot token and chat id set, the `gateway` service sends
+  each notification to Telegram once, with a link back when `SEED_PUBLIC_URL` is set.
+  Only notifications from the last hour are sent, so starting it sends no backlog.
+  Any other chat that messages the bot is told its id, and nothing else.
 - **Notifications (M8):** the bell in the top bar lists what happened while you were
   away: a task you started on its own finished or failed, a task waits for your
   approval, a schedule skipped a run. Chat turns are not announced. Opening one marks it
@@ -251,6 +255,10 @@ docker compose exec api python -m seed_api.users list    # in the compose stack
 | `SEED_SANDBOX_MEMORY_MB` / `SEED_SANDBOX_CPU_SECONDS` / `SEED_SANDBOX_MAX_PROCESSES` / `SEED_SANDBOX_MAX_FILE_MB` | `512` / `60` / `64` / `64` | Per-command limits, set on the sandbox service |
 | `SEED_SANDBOX_ROOT` | `/workspaces` | Sandbox: where task workspaces live |
 | `SEED_SANDBOX_ISOLATE_USERS` | `true` | Sandbox: run each task as its own user (needs root in the container; `false` only for tests) |
+| `SEED_PUBLIC_URL` | unset | Where people open SEED (`https://…`); messages sent outside the app link back to it. Unset: no links |
+| `SEED_TELEGRAM_BOT_TOKEN` | unset | Telegram gateway (D-031): the bot's token from @BotFather. Unset: the `gateway` service exits at start |
+| `SEED_TELEGRAM_CHAT_ID` | unset | The one chat SEED sends to. Message the bot and it replies with your chat's id |
+| `SEED_TELEGRAM_USER` | `SEED_ADMIN_USERNAME` | Whose notifications go to that chat |
 
 ## Repository map
 | Path | Purpose |
