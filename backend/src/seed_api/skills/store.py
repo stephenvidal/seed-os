@@ -9,6 +9,7 @@ from datetime import datetime
 from psycopg.errors import ForeignKeyViolation, UniqueViolation
 from pydantic import BaseModel
 
+from ..agents.store import AgentCopy
 from ..flow.db import Pool
 
 
@@ -43,6 +44,23 @@ class SkillStore:
             cur = await conn.execute(
                 "SELECT * FROM skills WHERE owner = %s ORDER BY name", (owner,)
             )
+            return [Skill.model_validate(r) for r in await cur.fetchall()]
+
+    async def visible(self, owner: str, agent: AgentCopy | None) -> list[Skill]:
+        """The skills a task may see, by name: SEED's own tasks see the shared
+        skills; an agent's task sees the shared skills it is allowed and its own."""
+        async with self.pool.connection() as conn:
+            if agent is None:
+                cur = await conn.execute(
+                    "SELECT * FROM skills WHERE owner = %s AND agent_id IS NULL ORDER BY name",
+                    (owner,),
+                )
+            else:
+                cur = await conn.execute(
+                    "SELECT * FROM skills WHERE owner = %s "
+                    "AND (agent_id = %s OR (agent_id IS NULL AND id = ANY(%s))) ORDER BY name",
+                    (owner, agent.id, agent.skills),
+                )
             return [Skill.model_validate(r) for r in await cur.fetchall()]
 
     async def get(self, owner: str, skill_id: uuid.UUID) -> Skill | None:
@@ -115,11 +133,25 @@ class SkillStore:
             except ForeignKeyViolation:  # the agent was deleted meanwhile
                 raise NoSuchAgent from None
             row = await cur.fetchone()
+            if row is not None and agent_id is not None:  # private now: no agent shares it
+                await conn.execute(
+                    "UPDATE agents SET skills = array_remove(skills, %s) "
+                    "WHERE owner = %s AND %s = ANY(skills)",
+                    (skill_id, owner, skill_id),
+                )
         return Skill.model_validate(row) if row else None
 
     async def delete(self, owner: str, skill_id: uuid.UUID) -> bool:
-        async with self.pool.connection() as conn:
+        """Also takes it off the lists of the agents allowed it."""
+        async with self.pool.connection() as conn, conn.transaction():
             cur = await conn.execute(
                 "DELETE FROM skills WHERE id = %s AND owner = %s RETURNING id", (skill_id, owner)
             )
-            return await cur.fetchone() is not None
+            if await cur.fetchone() is None:
+                return False
+            await conn.execute(
+                "UPDATE agents SET skills = array_remove(skills, %s) "
+                "WHERE owner = %s AND %s = ANY(skills)",
+                (skill_id, owner, skill_id),
+            )
+            return True

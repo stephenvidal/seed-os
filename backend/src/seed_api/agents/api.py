@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from ..auth import AuthStoreDep, Principal, client_ip, require_role
 from ..errors import ApiError
-from .store import Agent, AgentStore, NameTaken, ToolName
+from .store import Agent, AgentStore, NameTaken, NoSuchSkill, ToolName
 
 router = APIRouter(prefix="/api/v1/agents", tags=["agents"])
 
@@ -40,6 +40,9 @@ class AgentIn(BaseModel):
     # None or blank: the delegating task's model.
     model: str | None = Field(default=None, max_length=200)
     tools: list[ToolName] = Field(default_factory=list)
+    # The owner's shared skills it may use (D-033). Left out: none for a new agent,
+    # and a changed one keeps its list.
+    skills: list[uuid.UUID] | None = Field(default=None, max_length=200)
 
     @field_validator("name")
     @classmethod
@@ -77,6 +80,10 @@ def _taken(name: str) -> ApiError:
     return ApiError(409, "name_taken", f"You already have an agent called {name}.")
 
 
+def _no_skill() -> ApiError:
+    return ApiError(422, "no_such_skill", "Allow only your own shared skills.")
+
+
 @router.get("", response_model=list[Agent])
 async def list_agents(principal: AdminOnly, store: AgentsDep) -> list[Agent]:
     """The signed-in user's agents, by name."""
@@ -91,6 +98,8 @@ async def create_agent(
         agent = await store.create(owner=principal.username, **body.model_dump())
     except NameTaken:
         raise _taken(body.name) from None
+    except NoSuchSkill:
+        raise _no_skill() from None
     await audit.audit(
         "agent_created",
         actor=principal.username,
@@ -124,6 +133,8 @@ async def update_agent(
         agent = await store.update(agent_id, owner=principal.username, **body.model_dump())
     except NameTaken:
         raise _taken(body.name) from None
+    except NoSuchSkill:
+        raise _no_skill() from None
     if agent is None:
         raise ApiError(404, "not_found", "No such agent.")
     await audit.audit(

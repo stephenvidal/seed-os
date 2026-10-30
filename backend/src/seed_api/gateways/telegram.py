@@ -41,7 +41,8 @@ PART_CHARS = 4000
 
 HELP = (
     "Send a message and SEED answers it, as in Chat. Messages continue one "
-    "conversation; /new starts another. Notifications arrive here too."
+    "conversation; /new starts another. Start a message with /name to use your "
+    "skill called name. Notifications arrive here too."
 )
 
 HEADING: dict[str, str] = {

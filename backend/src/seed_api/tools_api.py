@@ -23,6 +23,7 @@ from .flow.store import TaskStore
 from .projects.knowledge import knowledge_tool
 from .projects.memory import remember_tool
 from .sandbox.client import sandbox_tools
+from .skills.runtime import skill_tools
 
 router = APIRouter(prefix="/api/v1/tools", tags=["tools"])
 AdminOnly = Annotated[Principal, Depends(require_role("admin"))]
@@ -39,6 +40,9 @@ AVAILABLE_IN: dict[str, str] = {
     "search_knowledge": "Tasks and chats in a project",
     "remember": "Chats in a project; proposes a note you approve",
     "delegate": "Tasks that may hand work on (SEED_DELEGATION_MAX_DEPTH), once you have agents",
+    "skill_list": "Tasks that may see a skill: SEED's see the shared ones, an agent's those "
+    "it is allowed and its own",
+    "skill_view": "Tasks that may see a skill, as for skill_list",
 }
 
 
@@ -119,6 +123,7 @@ def catalog(settings: Settings) -> list[ToolInfo]:
         remember_tool(none, project_id=nil, task_id=nil, conversation_id=None),
         knowledge_tool(none, project_id=nil),
         delegate_tool([]),
+        *skill_tools([]),
     ]
     gated = set(settings.approval_required_tools)
     out: list[ToolInfo] = []

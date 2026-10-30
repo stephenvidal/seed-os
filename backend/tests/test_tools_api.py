@@ -21,6 +21,8 @@ NAMES = [
     "remember",
     "search_knowledge",
     "delegate",
+    "skill_list",
+    "skill_view",
 ]
 
 
@@ -54,6 +56,8 @@ def test_the_catalog_lists_every_tool_with_its_limits_and_policy(api: TestClient
         "remember": "write",
         "search_knowledge": "read",
         "delegate": "exec",
+        "skill_list": "read",
+        "skill_view": "read",
     }
     run = tools["run_command"]
     assert run["requires_approval"] is True  # SEED_APPROVAL_REQUIRED_TOOLS defaults to it
