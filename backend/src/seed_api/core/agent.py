@@ -26,6 +26,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, ValidationError
 
 from .messages import ChatRequest, ChatResult, Completed, Message, TextDelta, ToolCall, Usage
+from .pricing import ModelPrice
 from .providers.base import Provider, ProviderError
 from .tools import Tool, ToolOutcome, ToolRegistry
 
@@ -34,6 +35,7 @@ Termination = Literal[
     "max_steps",
     "deadline",
     "token_budget",
+    "cost_budget",
     "provider_error",
     "cancelled",
     "awaiting_approval",
@@ -45,6 +47,9 @@ class RunLimits(BaseModel):
     max_steps: int = Field(default=8, ge=1, le=100)
     max_runtime_s: float = Field(default=300, gt=0, le=3600)
     max_total_tokens: int = Field(default=200_000, ge=1)
+    # A dollar cap on the run, with the price that turns its tokens into dollars.
+    max_cost_usd: float | None = Field(default=None, gt=0)
+    price: ModelPrice | None = None
     max_tool_calls_per_step: int = Field(default=8, ge=1, le=64)
     max_output_tokens_per_step: int | None = Field(default=16_384, gt=0)
     provider_retries: int = Field(default=2, ge=0, le=5)
@@ -299,6 +304,12 @@ async def run_agent(
             return await finish("deadline")
         if usage.input_tokens + usage.output_tokens >= limits.max_total_tokens:
             return await finish("token_budget")
+        if (
+            limits.max_cost_usd is not None
+            and limits.price is not None
+            and limits.price.cost(usage) >= limits.max_cost_usd
+        ):
+            return await finish("cost_budget")
 
         steps += 1
         # The last allowed step gets no tools and is told to answer, so a run that

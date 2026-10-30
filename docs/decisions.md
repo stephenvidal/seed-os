@@ -985,3 +985,28 @@ with `via: telegram`. Pressing edits the message to show the outcome, which remo
 
 **Consequences:** only turns started from Telegram have buttons. Notifications of other tasks
 needing approval still carry a link. The gateway now also reads `callback_query` updates.
+
+
+## D-035 — Spend limits stop a run, and refuse a task, in dollars
+
+**Context:** Stephen (2026-10-30) wants SEED to succeed Hermes Agent. The comparison with the
+original spec (shared folder, spec-vs-seed-os.md) ranks hard budgets second. Schedules and the
+Telegram chat now start work with nobody watching, and D-014's spend tracking was planned but
+never built, so there are no prices in the code. The token cap per run (`SEED_RUN_MAX_TOTAL_TOKENS`)
+says nothing about dollars.
+
+**Options:** (a) tokens only; (b) per-task and daily dollar limits from a price table; (c) read
+Ollama's balance API and stop when it is low.
+
+**Choice:** (b), for now. Prices are configuration (`SEED_MODEL_PRICES`, with the published
+deepseek-v4.1-flash price built in). `SEED_BUDGET_TASK_USD` ends a run after the step that takes
+it to the limit (termination `cost_budget`). `SEED_BUDGET_DAILY_USD` is checked when a worker
+claims a task: if tasks touched in the last 24 hours cost that much, the task fails at once as
+`daily_budget` without calling the model. A limit can be overshot by one step, since the cost is
+known only after a model call. With a limit set, a model with no price is refused
+(`price_unknown`): an unchecked limit would be a false promise. Costs use the list price, so they
+are never below the bill; the off-peak half price and the cached-input rate are ignored.
+
+**Consequences:** No limits by default; Stephen sets the figures (the monthly budget is still an
+open question). The 24 hours are rolling and counted from tasks' saved usage, so summaries made
+for a chat turn count once the turn ends. Spend is not yet shown in the app, and (c) is not built.

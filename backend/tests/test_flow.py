@@ -12,6 +12,7 @@ from pydantic import SecretStr
 
 from seed_api.auth import AuthStore, bootstrap_admin
 from seed_api.config import Settings, get_settings
+from seed_api.core.pricing import ModelPrice
 from seed_api.core.providers.base import ProviderError
 from seed_api.flow import api as tasks_api
 from seed_api.flow.db import Pool, make_pool, migrate
@@ -380,3 +381,57 @@ async def test_worker_runs_commands_in_the_sandbox(store: TaskStore, tmp_path: P
     assert result["ok"] and result["output"]["stdout"] == "built\n"
     assert (sandbox_root / str(task.id) / "out.txt").read_text() == "built\n"
     assert not (tmp_path / "local").exists()  # nothing touched the worker's own disk
+
+
+# D-035: spend limits. The fake model costs $1 per token, so one `reply` is $20.
+DEAR = {"fake": ModelPrice(input_per_m=1_000_000, output_per_m=1_000_000)}
+
+
+async def test_task_stops_when_its_run_costs_the_limit(store: TaskStore, tmp_path: Path) -> None:
+    settings = Settings(workspace_root=str(tmp_path), model_prices=DEAR, budget_task_usd=30)
+    task = await new_task(store)
+    loop = [calls(("list_files", {})) for _ in range(5)]
+    assert await worker(store, settings, loop, "w1").run_once() is True
+    done = await store.get(task.id)
+    assert done is not None
+    assert (done.state, done.termination) == ("failed", "cost_budget")
+    assert done.usage.input_tokens == 20  # stopped after two steps of $20 each
+
+
+async def test_daily_limit_refuses_the_next_task_without_calling_the_model(
+    store: TaskStore, tmp_path: Path
+) -> None:
+    settings = Settings(workspace_root=str(tmp_path), model_prices=DEAR, budget_daily_usd=30)
+    first, second = await new_task(store), await new_task(store)
+    w = worker(store, settings, [reply("one"), reply("two")], "w1")
+    await w.run_once()  # $20 spent, under the limit
+    await w.run_once()  # $40 spent
+    third = await new_task(store)
+    await w.run_once()
+    done = [await store.get(t.id) for t in (first, second, third)]
+    assert [d.state for d in done if d] == ["completed", "completed", "failed"]
+    refused = done[2]
+    assert refused is not None and refused.termination == "daily_budget"
+    assert refused.error is not None and "$30.00" in refused.error
+    assert len(w.provider.requests) == 2  # type: ignore[attr-defined]
+
+
+async def test_a_limit_with_an_unpriced_model_refuses_rather_than_ignores(
+    store: TaskStore, tmp_path: Path
+) -> None:
+    settings = Settings(workspace_root=str(tmp_path), budget_daily_usd=5)
+    task = await new_task(store)
+    w = worker(store, settings, [reply("hi")], "w1")
+    await w.run_once()
+    done = await store.get(task.id)
+    assert done is not None and done.termination == "price_unknown"
+    assert done.error is not None and "SEED_MODEL_PRICES" in done.error
+    assert w.provider.requests == []  # type: ignore[attr-defined]
+
+
+async def test_without_limits_cost_is_not_checked(store: TaskStore, tmp_path: Path) -> None:
+    settings = Settings(workspace_root=str(tmp_path))
+    task = await new_task(store)
+    await worker(store, settings, [reply("hi")], "w1").run_once()
+    done = await store.get(task.id)
+    assert done is not None and done.state == "completed"

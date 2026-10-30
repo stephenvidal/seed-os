@@ -468,6 +468,24 @@ class TaskStore:
             raise LeaseLost(str(lease.task_id))
         return bool(row["cancel_requested"])
 
+    async def usage_since(self, since: datetime) -> dict[str, Usage]:
+        """Tokens by model of every task touched since then, running ones included
+        (a running task's usage is saved at each checkpoint)."""
+        async with self.pool.connection() as conn:
+            cur = await conn.execute(
+                """
+                SELECT model,
+                       coalesce(sum((usage->>'input_tokens')::bigint), 0)::bigint AS i,
+                       coalesce(sum((usage->>'output_tokens')::bigint), 0)::bigint AS o
+                FROM tasks WHERE updated_at >= %(since)s GROUP BY model
+                """,
+                {"since": since},
+            )
+            return {
+                r["model"]: Usage(input_tokens=r["i"], output_tokens=r["o"])
+                for r in await cur.fetchall()
+            }
+
     async def append_event(self, lease: Lease, type_: str, data: dict[str, Any]) -> int:
         async with self.pool.connection() as conn, conn.transaction():
             cur = await conn.execute(

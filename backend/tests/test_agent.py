@@ -332,3 +332,12 @@ async def test_the_registry_refuses_a_gated_tool_without_approval() -> None:
     ran: list[int] = []
     out = await gated(ran).execute(ToolCall(id="x", name="danger", arguments={"n": 1}))
     assert out.error_kind == "approval_required" and ran == []
+
+
+async def test_stops_at_cost_budget(tmp_path: Path) -> None:
+    from seed_api.core.pricing import ModelPrice
+
+    loop = [calls(("list_files", {}), tokens=60) for _ in range(5)]
+    price = ModelPrice(input_per_m=1_000_000, output_per_m=0)  # $1 per input token
+    result, _ = await run(ScriptedProvider(loop), tmp_path, max_cost_usd=100, price=price)
+    assert result.termination == "cost_budget" and result.steps == 2

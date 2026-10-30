@@ -145,6 +145,9 @@ const TERMINATION_TEXT: Record<string, string> = {
   max_steps: "Stopped: step limit reached",
   deadline: "Stopped: time limit reached",
   token_budget: "Stopped: token budget reached",
+  cost_budget: "Stopped: spend limit for this task reached",
+  daily_budget: "Not run: daily spend limit used up",
+  price_unknown: "Not run: model price unknown, spend limit cannot be checked",
   provider_error: "Stopped: model provider error",
 };
 
