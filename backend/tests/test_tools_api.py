@@ -161,5 +161,5 @@ def test_failure_reasons_are_the_three_commonest_messages(api: TestClient, db_ur
     assert reasons == [
         {"message": "No such directory: x", "count": 4},
         {"message": "Path escapes the workspace.", "count": 3},
-        {"message": "No such directory: x" + "y" * 182, "count": 2},
+        {"message": "No such directory: x" + "y" * 180, "count": 2},
     ]
