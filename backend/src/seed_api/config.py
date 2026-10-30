@@ -5,6 +5,8 @@ from functools import lru_cache
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from .core.pricing import DEFAULT_PRICES, ModelPrice
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="SEED_", extra="ignore")
@@ -28,6 +30,12 @@ class Settings(BaseSettings):
     run_max_steps: int = 8
     run_max_runtime_seconds: float = 300
     run_max_total_tokens: int = 200_000
+    # Spend limits in US dollars (D-035). Unset => no limit. With a limit set, a task
+    # on a model with no known price is refused: list it in model_prices.
+    budget_task_usd: float | None = Field(default=None, gt=0)
+    budget_daily_usd: float | None = Field(default=None, gt=0)
+    # Per-million-token prices by model name, added to the built-in ones. JSON.
+    model_prices: dict[str, ModelPrice] = {}
     # SEED Flow (durable tasks). Unset database => the tasks API answers 503.
     database_url: SecretStr | None = None
     task_max_attempts: int = Field(default=3, ge=1, le=10)
@@ -63,6 +71,8 @@ class Settings(BaseSettings):
     # Artifacts (ADR-0014): where saved file content lives, on a persistent volume.
     # Unset => task files are not saved.
     artifact_root: str | None = None
+    # Read notifications are deleted this many days after they were read (D-036).
+    notification_keep_read_days: int = Field(default=30, ge=1)
     # Where people open SEED (https://seed.example.com), for links sent outside it.
     public_url: str | None = None
     # Telegram gateway (D-031). Unset token => the gateway does not run. The chat id
@@ -72,6 +82,9 @@ class Settings(BaseSettings):
     telegram_chat_id: int | None = None
     telegram_user: str | None = None
     telegram_api_url: str = "https://api.telegram.org"
+
+    def price_of(self, model: str) -> ModelPrice | None:
+        return self.model_prices.get(model) or DEFAULT_PRICES.get(model)
 
 
 @lru_cache

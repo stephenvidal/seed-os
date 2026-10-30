@@ -13,9 +13,11 @@ import logging
 import os
 import signal
 import socket
+import time
 import uuid
 from collections.abc import Callable
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
@@ -37,6 +39,7 @@ from ..core.tools import ToolFailure, ToolRegistry
 from ..core.workspace_tools import workspace_tools
 from ..errors import ApiError
 from ..models import make_provider, system_prompt
+from ..notifications.store import NotificationStore
 from ..projects.knowledge import KnowledgeStore, knowledge_tool
 from ..projects.memory import MemoryStore, remember_tool
 from ..sandbox.client import SandboxClient, sandbox_tools
@@ -58,6 +61,7 @@ _STATE: dict[Termination, Literal["completed", "failed", "canceled"]] = {
     "max_steps": "failed",
     "deadline": "failed",
     "token_budget": "failed",
+    "cost_budget": "failed",
     "provider_error": "failed",
 }
 
@@ -83,6 +87,7 @@ class Worker:
         self.provider_factory = provider_factory
         self.worker_id = worker_id or f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:6]}"
         self.stop = asyncio.Event()
+        self._tidied: float | None = None
 
     async def run_forever(self) -> None:
         log.info("worker %s started", self.worker_id)
@@ -99,14 +104,74 @@ class Worker:
         claim and execute at most one. Returns whether a task was executed."""
         await self.store.sweep()
         await self.schedules.fire_due(self.settings.task_max_attempts)
+        await self._tidy()
         claimed = await self.store.claim(self.worker_id, self.settings.worker_lease_seconds)
         if claimed is None:
             return False
         await self.execute(*claimed)
         return True
 
+    async def _tidy(self) -> None:
+        """Delete old read notifications, at most once an hour per worker (D-036)."""
+        now = time.monotonic()
+        if self._tidied is not None and now - self._tidied < 3600:
+            return
+        self._tidied = now
+        gone = await NotificationStore(self.store.pool).purge_read(
+            self.settings.notification_keep_read_days
+        )
+        if gone:
+            log.info(
+                "deleted %d notifications read over %d days ago",
+                gone,
+                self.settings.notification_keep_read_days,
+            )
+
+    async def _budget_stop(self, task: Task) -> tuple[str, str] | None:
+        """Why the task may not run: (termination, message), or None (D-035). A
+        spend limit that cannot be checked refuses the task rather than ignoring it."""
+        s = self.settings
+        if s.budget_task_usd is None and s.budget_daily_usd is None:
+            return None
+        if s.price_of(task.model) is None:
+            return (
+                "price_unknown",
+                f"No price is known for {task.model}, so the spend limit cannot be "
+                "checked. Add it to SEED_MODEL_PRICES.",
+            )
+        if s.budget_daily_usd is None:
+            return None
+        spent = 0.0
+        for model, usage in (
+            await self.store.usage_since(datetime.now(UTC) - timedelta(days=1))
+        ).items():
+            price = s.price_of(model)
+            if price is not None:
+                spent += price.cost(usage)
+        if spent >= s.budget_daily_usd:
+            return (
+                "daily_budget",
+                f"The daily spend limit of ${s.budget_daily_usd:.2f} is used up "
+                f"(${spent:.2f} in the last 24 hours).",
+            )
+        return None
+
     async def execute(self, task: Task, lease: Lease) -> None:
         log.info("task %s attempt %d claimed", task.id, lease.attempt)
+        stop = await self._budget_stop(task)
+        if stop is not None:
+            termination, message = stop
+            await self.store.append_event(lease, "budget_stopped", {"reason": termination})
+            await self.store.finish(
+                lease,
+                state="failed",
+                termination=termination,
+                error=message,
+                result_text="",
+                usage=task.checkpoint.usage if task.checkpoint is not None else Usage(),
+            )
+            log.warning("task %s refused: %s", task.id, message)
+            return
         cancel = asyncio.Event()
         why: dict[str, bool] = {"user": False, "shutdown": False, "lost": False}
 
@@ -194,6 +259,8 @@ class Worker:
             max_steps=self.settings.run_max_steps,
             max_runtime_s=self.settings.run_max_runtime_seconds,
             max_total_tokens=self.settings.run_max_total_tokens,
+            max_cost_usd=self.settings.budget_task_usd,
+            price=self.settings.price_of(task.model),
         )
         provider = self.provider_factory()
         beat = asyncio.create_task(heartbeat())

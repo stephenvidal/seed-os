@@ -64,6 +64,17 @@ class NotificationStore:
             )
             return [Notification(**r) for r in await cur.fetchall()]
 
+    async def purge_read(self, older_than_days: int) -> int:
+        """Delete notifications that were read more than that many days ago (D-036).
+        Unread ones are never deleted."""
+        async with self.pool.connection() as conn:
+            cur = await conn.execute(
+                "DELETE FROM notifications WHERE read_at < now() - make_interval(days => %s) "
+                "RETURNING id",
+                (older_than_days,),
+            )
+            return len(await cur.fetchall())
+
     async def unread(self, owner: str) -> int:
         async with self.pool.connection() as conn:
             cur = await conn.execute(

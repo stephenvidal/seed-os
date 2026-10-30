@@ -264,6 +264,9 @@ docker compose exec api python -m seed_api.users list    # in the compose stack
 | `SEED_DEFAULT_MODEL` | unset | Model preselected in Chat |
 | `SEED_PROVIDER_TIMEOUT_SECONDS` | `120` | Per-request provider timeout |
 | `SEED_RUN_MAX_STEPS` / `SEED_RUN_MAX_RUNTIME_SECONDS` / `SEED_RUN_MAX_TOTAL_TOKENS` | `8` / `300` / `200000` | Per-run limits (each task attempt, chat turns included). The last allowed step gets no tools and is told to answer with what it has |
+| `SEED_BUDGET_TASK_USD` / `SEED_BUDGET_DAILY_USD` | unset | Spend limits in US dollars (D-035). A run stops with "spend limit reached" once its tokens cost the task limit. A task is not started once the last 24 hours cost the daily limit. Unset means no limit. With a limit set, a task on a model with no known price is refused |
+| `SEED_MODEL_PRICES` | built-in: `deepseek-v4.1-flash` | JSON of dollars per million tokens by model, added to the built-in ones: `{"glm-5.3-flash": {"input_per_m": 0.2, "output_per_m": 0.8}}` |
+| `SEED_NOTIFICATION_KEEP_READ_DAYS` | `30` | Read notifications are deleted this many days after they were read. Unread ones are kept (D-036) |
 | `SEED_CHAT_CONTEXT_TURNS` | `20` | How many earlier completed turns a new chat message carries in full; older ones reach the model as a summary (D-022) |
 | `SEED_APPROVAL_REQUIRED_TOOLS` | `["run_command"]` | JSON list of tools that wait for a person's approval before each call; `[]` turns approvals off |
 | `SEED_WORKSPACE_ROOT` | `/tmp/seed-workspaces` | Worker without a sandbox: workspace dirs (one per task, or per conversation for chat); scratch space, kept as artifacts when `SEED_ARTIFACT_ROOT` is set |

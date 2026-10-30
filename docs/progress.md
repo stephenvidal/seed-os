@@ -2450,3 +2450,47 @@ long message.
 **Open questions:** should notifications of approvals for tasks not started from Telegram
 (a lone task, a schedule) also carry buttons? Not built: they would need a mapping from
 notification to call.
+
+## Increment 38 — Spend limits (M9 step 1, D-035)
+
+**Iteration:** M9 step 1. Done when a run stops at a dollar limit, a task is refused
+once the last 24 hours cost the daily limit, and an unpriced model is refused rather
+than let through, each with a test that fails when the check is removed.
+
+**Changed:** `core/pricing.py` (price per million tokens, built-in deepseek-v4.1-flash);
+`SEED_BUDGET_TASK_USD`, `SEED_BUDGET_DAILY_USD`, `SEED_MODEL_PRICES`; the agent loop
+ends with `cost_budget`; the worker refuses tasks (`daily_budget`, `price_unknown`)
+using `TaskStore.usage_since`; labels in Chat and Tasks; README, `.env.example`, roadmap.
+
+**Tested**
+```
+backend: ruff, mypy clean; pytest (DB) → 266 passed, 1 skipped (5 new tests)
+frontend: typecheck, lint, format clean; npm test passed
+```
+Breakage check: with the daily comparison and the cost comparison disabled,
+`test_task_stops_when_its_run_costs_the_limit`,
+`test_daily_limit_refuses_the_next_task_without_calling_the_model` and
+`test_stops_at_cost_budget` failed (3 failed, 3 passed).
+
+**Not tested:** against the live deployment or the real Ollama prices; the limits
+shown in the app (there is no spend view yet); delegated child tasks beyond each
+being checked on its own claim.
+
+**Open questions:** the dollar figures to set on the VPS (the monthly budget).
+
+## Increment 39 — Read notifications expire (D-036)
+
+**Changed:** `NotificationStore.purge_read`, called from the worker pass at most hourly;
+`SEED_NOTIFICATION_KEEP_READ_DAYS` (30); README; D-036 (closes D-030's open question,
+Stephen said yes on 2026-10-30).
+
+**Tested**
+```
+backend: ruff, mypy clean; pytest (DB) → 267 passed, 1 skipped (1 new)
+```
+Breakage check: flipping the comparison (keeping old, deleting recent) fails
+`test_only_notifications_read_long_ago_are_deleted`.
+
+**Not tested:** the hourly call from a running worker (only `purge_read` is tested directly).
+
+**Open questions:** none.

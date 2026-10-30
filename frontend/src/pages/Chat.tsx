@@ -55,6 +55,9 @@ const STOPPED: Record<string, string> = {
   max_steps: "Stopped: step limit reached.",
   deadline: "Stopped: time limit reached.",
   token_budget: "Stopped: token budget reached.",
+  cost_budget: "Stopped: spend limit for this task reached.",
+  daily_budget: "Not run: the daily spend limit is used up.",
+  price_unknown: "Not run: this model's price is unknown, so the spend limit cannot be checked.",
   provider_error: "Stopped: model provider error.",
   abandoned: "The worker stopped responding on every attempt.",
 };
