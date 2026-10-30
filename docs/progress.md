@@ -2136,3 +2136,24 @@ second task started.
 worker; very many schedules (20 are handled per pass).
 
 **Open questions:** none new. Step 2b is the page to manage schedules.
+
+## Increment 27 — Tools page fixes from the live check of #35 (M8)
+
+**Changed:** the usage table became a stacked list (the table's right-aligned
+headings ran together at 390 px, and the "offered in" text was truncated); the
+time and output limits show on each tool's row; the usage API returns `reasons`,
+the three commonest error messages per tool, shown under "Why they failed".
+
+**Tested**
+```
+backend: ruff, format, mypy clean; tests/test_tools_api.py → 5 passed
+         (new: reasons are the 3 commonest messages, cut to 200 characters)
+frontend: typecheck, lint, format:check clean; npm test → 115 passed
+```
+**Not tested:** at 390 px in a browser (the layout is stacked and wraps; checked
+by reading, not by a screenshot); the live site.
+
+**Why list_files (9 of 23) and read_file (5 of 7) fail:** not known from here. The
+code's failures are the model naming a path that does not exist, a directory, an
+absolute path or a file that is not UTF-8. The page now shows the actual messages,
+so the live site will say which.

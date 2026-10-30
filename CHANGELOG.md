@@ -7,6 +7,12 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
 - HTML answers that were not fenced or a whole page showed as an empty answer;
   they now render (D-020). The per-step output cap is 16,384 tokens, up from 4,096.
 
+### Changed
+- Tools page (M8): usage is a stacked list that reads at 390 px (the table's headings
+  ran together and "offered in" was cut off); each tool's time and output limits show
+  on its row; `GET /api/v1/tools` usage gains `reasons`, each tool's three commonest
+  error messages, so a failure rate can be read.
+
 ### Added
 - Schedules (M8, D-029): `/api/v1/schedules` (list, create, replace, delete, run
   now); a saved task starting every N minutes or daily at a time in a timezone,

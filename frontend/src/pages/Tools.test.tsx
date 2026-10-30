@@ -47,8 +47,17 @@ const VIEW = {
       failed: 3,
       avg_ms: 1500,
       failures: { denied: 2, tool_error: 1 },
+      reasons: [{ message: "No such file: a.txt", count: 1 }],
     },
-    { tool: "read_file", calls: 1200, ok: 1200, failed: 0, avg_ms: 12, failures: {} },
+    {
+      tool: "read_file",
+      calls: 1200,
+      ok: 1200,
+      failed: 0,
+      avg_ms: 12,
+      failures: {},
+      reasons: [],
+    },
   ],
 };
 
@@ -70,6 +79,8 @@ describe("Tools & Skills", () => {
     expect(run).toHaveTextContent("runs code");
     expect(run).toHaveTextContent("asks you first");
     expect(run).toHaveTextContent("SEED_SANDBOX_URL");
+    // The limits show without opening the details.
+    expect(run).toHaveTextContent("75 s · 20,000 chars");
     expect(delegate).toHaveTextContent("answered by an agent");
 
     // The details open on demand.
@@ -83,12 +94,16 @@ describe("Tools & Skills", () => {
     expect(policy).toHaveTextContent("SEED_APPROVAL_REQUIRED_TOOLS");
 
     const usage = screen.getByRole("region", { name: "Usage (24h)" });
-    expect(within(usage).getByRole("row", { name: /run_command/ })).toHaveTextContent(
-      "run_command5231.5 sdenied 2, tool error 1",
+    const rows = within(within(usage).getByRole("list", { name: "Tool usage" })).getAllByRole(
+      "listitem",
     );
-    expect(within(usage).getByRole("row", { name: /read_file/ })).toHaveTextContent(
-      "read_file1,2001,200012 ms—",
-    );
+    const ran = rows.find((r) => r.textContent?.startsWith("run_command"));
+    const readUse = rows.find((r) => r.textContent?.startsWith("read_file"));
+    expect(ran).toHaveTextContent("Calls5Succeeded2Failed3Average time1.5 s");
+    expect(ran).toHaveTextContent("Why they failed: denied 2, tool error 1");
+    expect(ran).toHaveTextContent("1× No such file: a.txt");
+    expect(readUse).toHaveTextContent("Calls1,200Succeeded1,200Failed0Average time12 ms");
+    expect(readUse).not.toHaveTextContent("Why they failed");
     expect(screen.getByText("No skills yet")).toBeInTheDocument();
     expect(await axe(container)).toHaveNoViolations();
   });
