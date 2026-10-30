@@ -6,6 +6,7 @@ import { BrandMark } from "./components/shell/BrandMark";
 import { Button } from "./components/ui/Button";
 import { useSession } from "./lib/auth";
 import { AgentsPage } from "./pages/Agents";
+import { SchedulesPage } from "./pages/Schedules";
 import { ModelsPage } from "./pages/areas";
 import { ToolsPage } from "./pages/Tools";
 import { ProjectPage, ProjectsPage } from "./pages/Projects";
@@ -60,6 +61,7 @@ export function App() {
         <Route path="tasks" element={<TasksPage />} />
         <Route path="tasks/:id" element={<TaskDetailPage />} />
         <Route path="agents" element={<AgentsPage />} />
+        <Route path="schedules" element={<SchedulesPage />} />
         <Route path="projects" element={<ProjectsPage />} />
         <Route path="projects/:id" element={<ProjectPage />} />
         <Route path="studio" element={<StudioPage />} />

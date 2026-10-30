@@ -2,6 +2,7 @@ import {
   Activity,
   Bot,
   Boxes,
+  CalendarClock,
   Cpu,
   FolderKanban,
   LayoutDashboard,
@@ -55,6 +56,14 @@ export const NAV: NavItem[] = [
     chord: "a",
     group: "workspace",
     description: "Orchestrator and specialists",
+  },
+  {
+    path: "/schedules",
+    label: "Schedules",
+    icon: CalendarClock,
+    chord: "e",
+    group: "workspace",
+    description: "Tasks that start on a timetable",
   },
   {
     path: "/projects",

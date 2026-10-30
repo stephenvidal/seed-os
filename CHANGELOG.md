@@ -14,6 +14,8 @@ All notable changes. Format: Keep a Changelog; versions follow the milestones.
   error messages, so a failure rate can be read.
 
 ### Added
+- Schedules page (M8): list, create, edit, pause or resume, run now and delete schedules;
+  the time zone defaults to the browser's.
 - Schedules (M8, D-029): `/api/v1/schedules` (list, create, replace, delete, run
   now); a saved task starting every N minutes or daily at a time in a timezone,
   started by the workers exactly once per due time; migration 0016; new
