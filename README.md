@@ -67,6 +67,11 @@ it — with full visibility and control.
   agent has a `search_knowledge` tool that returns the five best matching passages
   (Postgres full-text search, English stemming; "quoted phrases" and -excluded
   words work). Documents are split into passages of up to 1,500 characters.
+- **Recall across chats (M9):** SEED's own chat turns and tasks (not agents') have
+  a `session_search` tool that finds up to five of your earlier finished chat turns
+  by what you asked and what it answered, across all your chats, projects and
+  Telegram (D-039). The chat being answered is left out; it is already in context.
+  Postgres full-text search, as for project knowledge.
 - **Session summaries (M6):** a chat message carries the last 20 answered turns
   in full (`SEED_CHAT_CONTEXT_TURNS`); the turns before them reach the model as a
   summary of up to 250 words instead of being dropped (D-022). The worker makes it

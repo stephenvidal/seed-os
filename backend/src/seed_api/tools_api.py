@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from .agents.delegation import delegate_tool
 from .auth import Principal, require_role
+from .chat.recall import recall_tool
 from .config import Settings, get_settings
 from .core.tools import Permission, Tool
 from .flow.store import TaskStore
@@ -43,6 +44,8 @@ AVAILABLE_IN: dict[str, str] = {
     "web_search": "Every task and chat turn, when SEED_OLLAMA_API_KEY is set and "
     "SEED_WEB_TOOLS is not false",
     "web_fetch": "Every task and chat turn, as for web_search",
+    "session_search": "Every task and chat turn of SEED's own (not agents'); "
+    "searches your other chats",
     "remember": "Chats in a project; proposes a note you approve",
     "delegate": "Tasks that may hand work on (SEED_DELEGATION_MAX_DEPTH), once you have agents",
     "skill_list": "Tasks that may see a skill: SEED's see the shared ones, an agent's those "
@@ -128,6 +131,7 @@ def catalog(settings: Settings) -> list[ToolInfo]:
     tools: list[Tool] = [
         *sandbox_tools(none, nil, settings.sandbox_command_timeout_seconds),
         *web_tools(none),
+        recall_tool(none, owner="", conversation_id=None),
         remember_tool(none, project_id=nil, task_id=nil, conversation_id=None),
         knowledge_tool(none, project_id=nil),
         delegate_tool([]),

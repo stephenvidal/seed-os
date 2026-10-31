@@ -2521,3 +2521,26 @@ per-task users); a real model's run followed by a real test suite.
 
 **Open questions:** feed a failed check back to the agent for another try (how many rounds)?
 Checks on schedules and agents' tasks?
+
+## Increment 42 — Recall across chats (M9 step 4a, D-039)
+
+**Iteration:** M9 step 4a. Done when SEED's own runs can search the owner's earlier finished
+chat turns, never another owner's, never the chat being answered and never failed turns,
+with a test that fails when each of those filters is removed.
+
+**Changed:** migration `0024_recall` (generated `recall_tsv` on tasks, partial GIN index);
+`chat/recall.py` (`RecallStore`, `session_search`); the worker gives it to non-agent runs;
+Tools page catalog; README, roadmap, D-039.
+
+**Tested**
+```
+backend: ruff, mypy clean; pytest (DB) → 288 passed, 1 skipped (3 new)
+```
+Breakage checks: dropping the "not this chat" filter fails
+`test_search_finds_the_owners_other_chats_only`; dropping the owner filter fails it too.
+
+**Not tested:** a real model choosing to search; search speed on a large history (the index is
+partial and GIN, so it should hold up); the migration on the live database (it rewrites the
+tasks table to fill the generated column, which takes a moment on a big table).
+
+**Open questions:** none; 4b (memory about the owner, approval per note) is next.
