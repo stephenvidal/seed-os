@@ -1099,3 +1099,36 @@ harm of any memory; one tap of approval keeps it honest, and it matches how proj
 message is sent, so an approval reaches a chat's next run even if the message was already queued.
 A waiting proposal is not announced in the bell or Telegram yet; SEED says in its answer that it
 proposed one, and Settings shows it. Agents do not see or write these notes.
+
+
+## D-041 — MCP client: remote servers, approval per call, untrusted results
+
+**Context:** M9 step 6. Hermes Agent uses tools from MCP servers; SEED has only its own. Stephen
+picked the MCP client next (2026-10-31).
+
+**Options:** (a) remote servers over Streamable HTTP only; (b) also local servers started as
+processes (stdio); (c) servers added in the app and stored in the database.
+
+**Choice:** (a), listed in `SEED_MCP_SERVERS` (JSON in the environment, since headers may carry
+keys). Python `mcp` SDK 1.x. Each run of SEED's own (not agents') connects to every listed server
+at once, each in a task of its own that opens and closes the connection, so one server failing
+cannot break the run or the others; a server that does not connect within
+`SEED_MCP_CONNECT_TIMEOUT_SECONDS` is recorded as `mcp_unavailable`. Tools are named
+`mcp_<server>_<tool>` (64 characters at most; characters other than letters, digits, `_` and `-`
+become `_`), their description says they come from outside SEED, and the model sees the server's
+own argument schema (a new `Tool.parameters`); the server checks arguments. Permission
+`network`. Every call waits for the owner's approval unless the server is configured with
+`"approval": "never"`; an optional `tools` list keeps only the named tools. Results (text, text
+resources, or structured content when there is no text) are fenced with `untrusted()` up to
+12,000 characters, and a server's own error comes back as content with `is_error`, fenced too.
+
+**Reason:** stdio servers would run arbitrary programs inside the worker container, outside the
+sandbox; remote servers keep that risk outside SEED. Approval by default because a server's tools
+can act on outside systems and their descriptions are written by someone else. Config in the
+environment matches every other credential in SEED and needs no new table or screen.
+
+**Consequences:** Adding a server means editing the env and restarting the worker. Connections
+are per run, so a run waiting for approval reconnects when it resumes; a server that is down then
+leaves the call as an unknown tool. The Tools page does not list MCP tools (it would have to
+connect from the API). Server tool descriptions reach the model unfenced, cut to 1,000
+characters; a server you list is trusted that far. Agents do not get MCP tools.

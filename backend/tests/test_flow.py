@@ -463,6 +463,38 @@ async def test_a_task_can_search_the_web_and_gets_fenced_content(
     assert results[0]["ok"] is True and "UNTRUSTED CONTENT" in json.dumps(results[0])
 
 
+async def test_a_task_uses_mcp_tools_and_skips_a_server_that_is_gone(
+    store: TaskStore, tmp_path: Path, mcp_url: str
+) -> None:
+    """D-041: a configured server's tools are offered and their results fenced; a
+    server that does not answer is recorded and the task goes on without it."""
+    from seed_api.config import McpServer
+
+    from .mcp_server import free_port
+
+    settings = Settings(
+        workspace_root=str(tmp_path),
+        mcp_servers=[
+            McpServer(name="calc", url=mcp_url, approval="never"),
+            McpServer(name="gone", url=f"http://127.0.0.1:{free_port()}/mcp"),
+        ],
+        mcp_connect_timeout_seconds=5,
+    )
+    task = await new_task(store)
+    w = worker(store, settings, [calls(("mcp_calc_add", {"a": 2, "b": 40})), reply("42")], "w1")
+    await w.run_once()
+    done = await store.get(task.id)
+    assert done is not None and done.state == "completed"
+    offered = {t.name for t in w.provider.requests[0].tools}  # type: ignore[attr-defined]
+    assert "mcp_calc_add" in offered and not any(n.startswith("mcp_gone") for n in offered)
+    events = await store.events(task.id, after=0, limit=100)
+    gone = [e.data for e in events if e.type == "mcp_unavailable"]
+    assert gone and gone[0]["server"] == "gone"
+    results = [e.data for e in events if e.type == "tool_result"]
+    assert results[0]["ok"] is True
+    assert "UNTRUSTED CONTENT" in json.dumps(results[0]) and "42" in json.dumps(results[0])
+
+
 # D-038: the owner's check decides, not the agent.
 async def checked(
     store: TaskStore,

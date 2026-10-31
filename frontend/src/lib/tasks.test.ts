@@ -114,6 +114,20 @@ describe("toTimeline", () => {
   });
 });
 
+describe("MCP servers", () => {
+  it("says when a server's tools were left out", () => {
+    seq = 0;
+    const [item] = toTimeline([
+      ev("mcp_unavailable", { server: "docs", reason: "no answer within 15s" }),
+    ]);
+    expect(item).toMatchObject({
+      kind: "note",
+      tone: "warning",
+      text: "MCP server docs did not connect (no answer within 15s); its tools were left out",
+    });
+  });
+});
+
 describe("approvals", () => {
   const ask = (id: string) =>
     ev("approval_requested", { id, name: "run_command", arguments: { command: "make" } });
