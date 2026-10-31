@@ -72,6 +72,9 @@ it — with full visibility and control.
   proposal is used only after you approve it under "What SEED knows about you" on
   the Settings page, where you can also add, edit and delete notes. Up to 4,000
   characters of approved notes, newest first, reach each run as it starts.
+  "Import from Hermes Agent" below it takes a Hermes USER.md or MEMORY.md (chosen
+  or pasted), previews the entries it would add and the ones it skips (already a
+  note, or over 500 characters), then adds them as approved notes (D-042).
 - **Recall across chats (M9):** SEED's own chat turns and tasks (not agents') have
   a `session_search` tool that finds up to five of your earlier finished chat turns
   by what you asked and what it answered, across all your chats, projects and
@@ -210,6 +213,7 @@ it — with full visibility and control.
 | DELETE | `/api/v1/projects/{id}/memories/{memory_id}` | admin | 204; deletes a note or rejects a proposal; 404 `not_found` |
 | GET | `/api/v1/memory` | admin | What SEED knows about you (D-040), proposals first, then approved, newest first: `{id, owner, content, status, created_by, source_task_id, source_conversation_id, approved_at, …}`; `?status=proposed\|approved` |
 | POST | `/api/v1/memory` | admin | `{content}` (whitespace collapsed, 1–500 chars) → 201 note, approved as written; 422 |
+| POST | `/api/v1/memory/import` | admin | `{text}` (a Hermes Agent USER.md or MEMORY.md, up to 50,000 chars; entries split on lines holding only `§`) → `{added[], skipped[{content, reason: duplicate\|too_long}]}`; added notes are approved; `?preview=true` saves nothing (D-042); 422 |
 | PATCH | `/api/v1/memory/{id}` | admin | `{content?, approve?}` → the note; `approve: true` makes a proposal reach the model; 404 `not_found` (also for another user's note) |
 | DELETE | `/api/v1/memory/{id}` | admin | 204; deletes a note or rejects a proposal; 404 `not_found` |
 | DELETE | `/api/v1/conversations/{id}` | admin | 204; removes the conversation, its turns and their events; 409 `turn_in_progress` while a turn is queued, running or waiting; 404 `not_found` |

@@ -2613,3 +2613,26 @@ a run that pauses for approval of an MCP call and resumes (the approval path is 
 
 **Open questions:** which MCP servers Stephen wants first; whether the Tools page should list
 MCP tools (it would have to connect from the API).
+
+## Increment 46 — Import Hermes Agent memory files (M9 step 7, part 1, D-042)
+
+**Iteration:** M9 step 7a. Done when the owner can bring a Hermes Agent USER.md or MEMORY.md into
+"What SEED knows about you", see first what would be added and skipped, and the imported notes reach
+SEED's runs like their own notes.
+
+**Changed:** `owner_memory.py` (`hermes_entries`, `plan_import`, `add_many`, `contents`,
+`POST /api/v1/memory/import`); `components/HermesMemoryImport.tsx` on Settings; `lib/memory.ts`;
+README, roadmap, D-042. The format was read from Hermes Agent's source
+(`tools/memory_tool_store.py`: `ENTRY_DELIMITER = "\n§\n"`, limits 2,200 and 1,375).
+
+**Tested**
+```
+backend: ruff, ruff format, mypy clean; pytest (DB) → 302 passed, 1 skipped (2 new)
+frontend: typecheck, lint, format clean; npm test → 134 passed (1 new)
+```
+Breakage checks: dropping the duplicate check fails `test_the_api_imports_a_hermes_memory_file`;
+making Preview save fails the Settings import test.
+
+**Not tested:** a real file from Stephen's Hermes install; a real browser.
+
+**Open questions:** none. Next in step 7: a Hermes skills folder in one go, and past sessions.

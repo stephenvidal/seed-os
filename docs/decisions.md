@@ -1132,3 +1132,32 @@ are per run, so a run waiting for approval reconnects when it resumes; a server 
 leaves the call as an unknown tool. The Tools page does not list MCP tools (it would have to
 connect from the API). Server tool descriptions reach the model unfenced, cut to 1,000
 characters; a server you list is trusted that far. Agents do not get MCP tools.
+
+
+## D-042 — Hermes import, part 1: memory files become notes about the owner
+
+**Context:** M9 step 7 (Hermes migration). Stephen asked to continue development (2026-10-31)
+while the next channel waits on his pick. Hermes Agent keeps its memory in
+`~/.hermes/memories/USER.md` (who the user is) and `MEMORY.md` (its own notes), entries joined by
+a line holding only `§` (`ENTRY_DELIMITER = "\n§\n"` in its `tools/memory_tool_store.py`), at
+most 1,375 and 2,200 characters. SKILL.md import exists already (D-033).
+
+**Options:** (a) each entry becomes an approved note about the owner; (b) each becomes a proposal
+the owner approves one by one; (c) SEED reads the files from the Hermes installation itself.
+
+**Choice:** (a), after a preview. `POST /api/v1/memory/import` takes the file's text; entries are
+split on the delimiter only (a bare `§` inside an entry stays), whitespace is collapsed, and an
+entry already among the owner's notes (any status), repeated in the file, or over 500 characters
+is skipped with its reason. `?preview=true` returns the same answer without saving. Settings has
+"Import from Hermes Agent": choose or paste a file, Preview, then Import. All notes of one import
+are saved in one transaction.
+
+**Reason:** the owner picks the file and sees every entry before it is saved, which is the
+approval; asking again per note adds taps and nothing else. (c) is ruled out: SEED never touches
+the Hermes Agent installation, and it may be on another machine.
+
+**Consequences:** MEMORY.md is Hermes' notes about its work rather than about the owner; both land
+in the same list, which is what every SEED run is given. Hermes' limits (3,575 characters for both
+files) fit SEED's 4,000-character prompt budget, but with SEED's own notes added the oldest stop
+reaching the model. Entries over 500 characters must be added by hand, shortened. Still to come in
+step 7: a whole Hermes skills folder at once, and past sessions.

@@ -9,6 +9,7 @@ they are when it starts, newest first, within MEMORY_BUDGET_CHARS.
 """
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Annotated, Literal
 
@@ -74,6 +75,25 @@ class OwnerMemoryStore:
             )
             row = await cur.fetchone()
         return OwnerMemory.model_validate(row)
+
+    async def add_many(self, owner: str, contents: Sequence[str]) -> None:
+        """Several of the owner's own notes, approved, all or none."""
+        async with self.pool.connection() as conn, conn.transaction():
+            for content in contents:
+                await conn.execute(
+                    "INSERT INTO owner_memories "
+                    "(id, owner, content, status, created_by, approved_at) "
+                    "VALUES (%s, %s, %s, 'approved', %s, now())",
+                    (uuid.uuid4(), owner, content, owner),
+                )
+
+    async def contents(self, owner: str) -> set[str]:
+        """Every note the owner has, proposed or approved, as written."""
+        async with self.pool.connection() as conn:
+            cur = await conn.execute(
+                "SELECT content FROM owner_memories WHERE owner = %s", (owner,)
+            )
+            return {r["content"] for r in await cur.fetchall()}
 
     async def update(
         self, owner: str, memory_id: uuid.UUID, *, content: str | None, approve: bool
@@ -215,6 +235,50 @@ class NewNote(BaseModel):
     _content = field_validator("content")(_tidy)
 
 
+# Hermes Agent keeps MEMORY.md and USER.md in ~/.hermes/memories/, entries joined by
+# this line (tools/memory_tool_store.py, ENTRY_DELIMITER).
+HERMES_DELIMITER = "\n§\n"
+MAX_IMPORT_CHARS = 50_000
+
+SkipReason = Literal["duplicate", "too_long"]
+
+
+class HermesFile(BaseModel):
+    text: str = Field(max_length=MAX_IMPORT_CHARS)
+
+
+class Skipped(BaseModel):
+    content: str
+    reason: SkipReason
+
+
+class ImportResult(BaseModel):
+    # With preview, the notes that would be added; otherwise the notes added.
+    added: list[str]
+    skipped: list[Skipped]
+
+
+def hermes_entries(text: str) -> list[str]:
+    """The entries of a Hermes Agent memory file, tidied, blanks left out."""
+    text = text.removeprefix("\ufeff").replace("\r\n", "\n")
+    return [e for e in (" ".join(part.split()) for part in text.split(HERMES_DELIMITER)) if e]
+
+
+def plan_import(entries: list[str], existing: set[str]) -> ImportResult:
+    added: list[str] = []
+    skipped: list[Skipped] = []
+    seen = set(existing)
+    for entry in entries:
+        if len(entry) > MAX_NOTE_CHARS:
+            skipped.append(Skipped(content=entry, reason="too_long"))
+        elif entry in seen:
+            skipped.append(Skipped(content=entry, reason="duplicate"))
+        else:
+            seen.add(entry)
+            added.append(entry)
+    return ImportResult(added=added, skipped=skipped)
+
+
 class NoteChange(BaseModel):
     # Left out: unchanged.
     content: str | None = Field(default=None, max_length=MAX_NOTE_CHARS)
@@ -246,6 +310,32 @@ async def add_note(
         "owner_memory_added", actor=principal.username, target=str(note.id), ip=client_ip(request)
     )
     return note
+
+
+@router.post("/import", response_model=ImportResult)
+async def import_hermes(
+    body: HermesFile,
+    request: Request,
+    principal: AdminOnly,
+    store: StoreDep,
+    audit: AuthStoreDep,
+    preview: bool = False,
+) -> ImportResult:
+    """Import a Hermes Agent memory file (USER.md or MEMORY.md): each entry becomes
+    a note, approved, since you chose the file. Entries you already have, or longer
+    than a note may be, are skipped and listed. `preview=true` saves nothing."""
+    plan = plan_import(hermes_entries(body.text), await store.contents(principal.username))
+    if preview or not plan.added:
+        return plan
+    await store.add_many(principal.username, plan.added)
+    await audit.audit(
+        "owner_memory_imported",
+        actor=principal.username,
+        target="hermes",
+        ip=client_ip(request),
+        detail={"added": len(plan.added), "skipped": len(plan.skipped)},
+    )
+    return plan
 
 
 @router.patch("/{memory_id}", response_model=OwnerMemory)
