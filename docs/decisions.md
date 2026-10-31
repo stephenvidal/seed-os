@@ -1161,3 +1161,29 @@ in the same list, which is what every SEED run is given. Hermes' limits (3,575 c
 files) fit SEED's 4,000-character prompt budget, but with SEED's own notes added the oldest stop
 reaching the model. Entries over 500 characters must be added by hand, shortened. Still to come in
 step 7: a whole Hermes skills folder at once, and past sessions.
+
+
+## D-043 — Hermes import, part 2: a whole skills folder at once
+
+**Context:** M9 step 7. One SKILL.md at a time works (D-033), but a Hermes install keeps dozens
+under `~/.hermes/skills/`, one folder per skill, often grouped by category.
+
+**Options:** (a) the browser reads the folder and sends every SKILL.md; (b) upload a zip and
+unpack it on the server; (c) loop the single import from the page.
+
+**Choice:** (a). The page uses a folder picker, keeps only files named `SKILL.md`, and sends
+their text with their path in the folder to `POST /api/v1/skills/import-folder` (at most 300
+files, 3,000,000 characters). Each is read and checked as the single import does. A file that
+cannot be read, or whose name the owner already has or an earlier file in the folder has, is
+listed with the reason and skipped; the rest are imported. `?preview=true` saves nothing: the
+page previews first, with every new skill ticked, and imports only the ones still ticked. All go
+to the same "Who can use it" choice.
+
+**Reason:** no archive handling on the server (zip bombs, paths), and the owner sees and picks
+before anything is saved, which matters because a Hermes install carries many bundled skills
+the owner may not want SEED to see.
+
+**Consequences:** files beside a SKILL.md (references, scripts, templates) are still not imported
+(D-033). Skills are saved one by one, so a failure part way (only a missing agent can cause one)
+leaves the earlier ones saved; the answer and the list show which. Past Hermes sessions remain
+for a later step.

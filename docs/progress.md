@@ -2636,3 +2636,25 @@ making Preview save fails the Settings import test.
 **Not tested:** a real file from Stephen's Hermes install; a real browser.
 
 **Open questions:** none. Next in step 7: a Hermes skills folder in one go, and past sessions.
+
+## Increment 47 — Import a Hermes skills folder (M9 step 7, part 2, D-043)
+
+**Iteration:** M9 step 7b. Done when the owner can pick a Hermes Agent skills folder, see which of
+its SKILL.md files would be imported and which skipped and why, untick any, and import the rest.
+
+**Changed:** `skills/api.py` (`_from_skill_md` shared with the single import,
+`POST /api/v1/skills/import-folder`); `lib/skills.ts`; Skills panel "Import a folder"
+(`FolderImportForm`); README, roadmap, D-043.
+
+**Tested**
+```
+backend: ruff, ruff format, mypy clean; pytest (DB) → 303 passed, 1 skipped (1 new: test_import_a_hermes_skills_folder)
+frontend: typecheck, lint, format clean; npm test → 135 passed (1 new)
+```
+Breakage checks: dropping the name-taken check fails `test_import_a_hermes_skills_folder`;
+dropping the SKILL.md filter in the page fails the folder test.
+
+**Not tested:** a real Hermes skills folder; the folder picker in a real browser (jsdom has no
+folder picker; the test sets each file's folder path itself).
+
+**Open questions:** none. Past Hermes sessions are the last part of step 7.

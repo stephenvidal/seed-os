@@ -162,7 +162,9 @@ it — with full visibility and control.
   calls failed over the last 24 hours, from recorded tool results. Below, your
   skills: write, change or delete them, or import a Hermes Agent SKILL.md by
   pasting it or choosing the file (the page says which header keys SEED does not
-  use). Each shows who may use it and links to the task that wrote it, when SEED
+  use). "Import a folder" takes a whole Hermes skills folder: it lists every
+  SKILL.md in it, which are new and which are skipped (name taken, unreadable),
+  and imports the ones you leave ticked (D-043). Each shows who may use it and links to the task that wrote it, when SEED
   did.
 - **Skills (M8, D-033):** procedures you save, in the shape of a Hermes Agent
   SKILL.md, written or imported through the API. Each task's prompt lists the
@@ -203,6 +205,7 @@ it — with full visibility and control.
 | GET | `/api/v1/skills` | admin | The caller's skills by name, shared and private: `{id, agent_id, name, description, tags[], body, written_by_task, …}`; `agent_id` set means private to that agent; `written_by_task` is the task that last wrote it with your approval (null: you did) |
 | POST | `/api/v1/skills` | admin | `{name, description, tags[], body, agent_id?}` → 201; name 1-64 lower-case letters, digits or `-` (lower-cased), unique per owner across shared and private (409 `name_taken`); description up to 1,024; up to 20 tags of 40; body up to 20,000; an `agent_id` that is not the caller's agent is 422 `no_such_agent` |
 | POST | `/api/v1/skills/import` | admin | `{text, agent_id?}`: a Hermes Agent SKILL.md (YAML header between `---` lines, then the instructions) → 201 `{skill, ignored[]}`; keeps name, description, tags (top level or `metadata.hermes.tags`) and body; `ignored` lists header keys SEED does not act on; 422 `invalid_skill_md` says what is wrong |
+| POST | `/api/v1/skills/import-folder` | admin | `{files[{path, text}], agent_id?}`: every SKILL.md of a Hermes Agent skills folder (1–300 files, 3,000,000 chars in all) → `[{path, name, description, outcome: new\|imported\|name_taken\|invalid, error}]` in file order; each is imported as by `/import`, and one whose name you have (or an earlier file has) or that cannot be read is skipped; `?preview=true` saves nothing (D-043); 422 |
 | GET / PUT / DELETE | `/api/v1/skills/{id}` | admin | Read, replace (same body as POST) or delete (204) a skill; 404 `not_found`; audited as `skill_created`/`skill_updated`/`skill_deleted`; deleting an agent deletes its private skills |
 | GET | `/api/v1/projects/{id}/memories` | admin | The project's notes, proposals first, then approved, newest first: `{id, content, status, created_by, source_task_id, source_conversation_id, approved_by, approved_at, …}`; `?status=proposed\|approved`; 404 `not_found` |
 | POST | `/api/v1/projects/{id}/memories` | admin | `{content}` (whitespace collapsed, 1–500 chars) → 201 note, approved as written; 404; 422 |
