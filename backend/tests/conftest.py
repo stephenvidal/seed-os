@@ -31,7 +31,7 @@ def db_url() -> str:
         conn.execute(
             "DROP TABLE IF EXISTS telegram_offset, telegram_chats, notifications, schedules, "
             "skills, agent_starters, agents, knowledge_chunks, knowledge_documents, "
-            "project_memories, projects, artifact_previews, "
+            "owner_memories, project_memories, projects, artifact_previews, "
             "artifact_versions, artifacts, task_events, tasks, conversations, audit_log, "
             "sessions, users, schema_migrations CASCADE"
         )

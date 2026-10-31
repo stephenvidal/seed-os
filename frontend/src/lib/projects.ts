@@ -47,6 +47,7 @@ export type Memory = {
   updated_at: string;
 };
 
+/** The longest note the API takes, in project memory and memory about the owner. */
 export const MAX_NOTE_CHARS = 500;
 export const memoryKey = (projectId: string) => ["memory", projectId] as const;
 

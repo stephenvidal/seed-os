@@ -67,6 +67,11 @@ it — with full visibility and control.
   agent has a `search_knowledge` tool that returns the five best matching passages
   (Postgres full-text search, English stemming; "quoted phrases" and -excluded
   words work). Documents are split into passages of up to 1,500 characters.
+- **Memory about you (M9):** notes SEED is given in every one of its own chats and
+  tasks, in any project (D-040). SEED proposes them with `remember_owner`; a
+  proposal is used only after you approve it under "What SEED knows about you" on
+  the Settings page, where you can also add, edit and delete notes. Up to 4,000
+  characters of approved notes, newest first, reach each run as it starts.
 - **Recall across chats (M9):** SEED's own chat turns and tasks (not agents') have
   a `session_search` tool that finds up to five of your earlier finished chat turns
   by what you asked and what it answered, across all your chats, projects and
@@ -196,6 +201,10 @@ it — with full visibility and control.
 | POST | `/api/v1/projects/{id}/documents` | admin | `{name, content}` (a file name ending .md, .markdown, .txt, .csv or .json; text up to 256 KiB, no NUL) → 201 document; 409 `name_taken`; 404; 422 |
 | DELETE | `/api/v1/projects/{id}/documents/{document_id}` | admin | 204; removes the document and its passages; 404 `not_found` |
 | DELETE | `/api/v1/projects/{id}/memories/{memory_id}` | admin | 204; deletes a note or rejects a proposal; 404 `not_found` |
+| GET | `/api/v1/memory` | admin | What SEED knows about you (D-040), proposals first, then approved, newest first: `{id, owner, content, status, created_by, source_task_id, source_conversation_id, approved_at, …}`; `?status=proposed\|approved` |
+| POST | `/api/v1/memory` | admin | `{content}` (whitespace collapsed, 1–500 chars) → 201 note, approved as written; 422 |
+| PATCH | `/api/v1/memory/{id}` | admin | `{content?, approve?}` → the note; `approve: true` makes a proposal reach the model; 404 `not_found` (also for another user's note) |
+| DELETE | `/api/v1/memory/{id}` | admin | 204; deletes a note or rejects a proposal; 404 `not_found` |
 | DELETE | `/api/v1/conversations/{id}` | admin | 204; removes the conversation, its turns and their events; 409 `turn_in_progress` while a turn is queued, running or waiting; 404 `not_found` |
 | POST | `/api/v1/conversations/{id}/turns` | admin | `{prompt, model?}`, optional `Idempotency-Key` → 201 task continuing the shown path, carrying its completed turns as context; `model` switches the conversation's model; 409 `turn_in_progress` while a turn is unfinished; 404 `not_found` |
 | POST | `/api/v1/tasks` | admin | `{model, prompt, title?, project_id?, check?}`, optional `Idempotency-Key` header → 201 task (`queued`); with `project_id` the task copies the project's instructions and approved memory and gets its `remember` and `search_knowledge` tools (404 `project_not_found`); `check` is a shell command run in the task's files in the sandbox once the agent finishes: exit code 0 completes the task, anything else fails it as `check_failed` (D-038); 200 with the existing task on a repeated key; 409 `idempotency_conflict`; 503 `provider_not_configured` |

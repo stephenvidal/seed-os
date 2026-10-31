@@ -21,6 +21,7 @@ from .chat.recall import recall_tool
 from .config import Settings, get_settings
 from .core.tools import Permission, Tool
 from .flow.store import TaskStore
+from .owner_memory import remember_owner_tool
 from .projects.knowledge import knowledge_tool
 from .projects.memory import remember_tool
 from .sandbox.client import sandbox_tools
@@ -46,6 +47,8 @@ AVAILABLE_IN: dict[str, str] = {
     "web_fetch": "Every task and chat turn, as for web_search",
     "session_search": "Every task and chat turn of SEED's own (not agents'); "
     "searches your other chats",
+    "remember_owner": "Every task and chat turn of SEED's own; proposes a note about you "
+    "that you approve on Settings",
     "remember": "Chats in a project; proposes a note you approve",
     "delegate": "Tasks that may hand work on (SEED_DELEGATION_MAX_DEPTH), once you have agents",
     "skill_list": "Tasks that may see a skill: SEED's see the shared ones, an agent's those "
@@ -132,6 +135,7 @@ def catalog(settings: Settings) -> list[ToolInfo]:
         *sandbox_tools(none, nil, settings.sandbox_command_timeout_seconds),
         *web_tools(none),
         recall_tool(none, owner="", conversation_id=None),
+        remember_owner_tool(none, owner="", task_id=nil, conversation_id=None),
         remember_tool(none, project_id=nil, task_id=nil, conversation_id=None),
         knowledge_tool(none, project_id=nil),
         delegate_tool([]),

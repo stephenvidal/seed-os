@@ -8,7 +8,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import __version__, auth, models, system, tools_api
+from . import __version__, auth, models, owner_memory, system, tools_api
 from .agents import api as agents_api
 from .agents.store import AgentStore
 from .chat import api as chat_api
@@ -21,6 +21,7 @@ from .flow.db import make_pool, migrate
 from .flow.store import TaskStore
 from .notifications import api as notifications_api
 from .notifications.store import NotificationStore
+from .owner_memory import OwnerMemoryStore
 from .projects import api as projects_api
 from .projects.knowledge import KnowledgeStore
 from .projects.memory import MemoryStore
@@ -60,6 +61,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.schedule_store = ScheduleStore(pool)
             app.state.notification_store = NotificationStore(pool)
             app.state.memory_store = MemoryStore(pool)
+            app.state.owner_memory_store = OwnerMemoryStore(pool)
             app.state.knowledge_store = KnowledgeStore(pool)
             app.state.auth_store = auth.AuthStore(pool)
             root = settings.artifact_root
@@ -91,6 +93,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(tasks_api.router)
     app.include_router(chat_api.router)
     app.include_router(projects_api.router)
+    app.include_router(owner_memory.router)
     app.include_router(agents_api.router)
     app.include_router(skills_api.router)
     app.include_router(schedules_api.router)

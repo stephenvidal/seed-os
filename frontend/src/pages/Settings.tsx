@@ -1,9 +1,11 @@
 import { Monitor, Moon, Sun } from "lucide-react";
+import { MemoryNotes } from "../components/MemoryNotes";
 import { PageHeader } from "../components/ui/PageHeader";
 import { Panel } from "../components/ui/Panel";
 import { cn } from "../components/ui/cn";
 import { useSession } from "../lib/auth";
 import { formatBytes } from "../lib/format";
+import { OWNER_MEMORY, ownerMemoryApi } from "../lib/memory";
 import { useTheme } from "../lib/theme";
 import type { ThemePreference } from "../lib/theme";
 import { useSystem } from "./useSystem";
@@ -41,7 +43,10 @@ export function SettingsPage() {
 
   return (
     <>
-      <PageHeader title="Settings" description="Appearance, account, and system." />
+      <PageHeader
+        title="Settings"
+        description="Appearance, what SEED knows about you, account, and system."
+      />
       <div className="flex max-w-3xl flex-col gap-4">
         <Panel title="Appearance">
           <Row label="Theme" hint="System follows your operating system and updates live.">
@@ -70,6 +75,13 @@ export function SettingsPage() {
             </div>
           </Row>
         </Panel>
+        <MemoryNotes
+          title="What SEED knows about you"
+          intro="Notes SEED is given in every chat and task, in any project. SEED can propose notes about you; they are used only after you approve them."
+          placeholder="Add a note, for example: I prefer short answers with the command first"
+          queryKey={OWNER_MEMORY}
+          api={ownerMemoryApi}
+        />
         <Panel title="Account">
           <Row
             label="Signed in as"

@@ -1073,3 +1073,29 @@ vector extension for a single owner's chats. (c) spends tokens on every turn whe
 of an edited message is searchable, not only the one kept (ADR-0013). Search crosses projects, so
 a project chat can find another project's chats; for one owner that is the point, and it is
 noted here in case projects ever get shared. Deleting a chat removes its turns from recall.
+
+
+## D-040 — Memory about the owner: SEED proposes, the owner approves
+
+**Context:** M9 step 4b. Hermes Agent keeps a profile of its user that every session sees. SEED
+has memory only per project (D-018), so a preference stated in one chat is lost in the next.
+Stephen chose (2026-10-31) that each note about him needs his approval, as for project memory.
+
+**Options:** (a) SEED proposes, the owner approves; (b) SEED saves notes itself and the owner
+edits them afterwards.
+
+**Choice:** (a). A table `owner_memories` with the same shape as project memory, keyed by owner.
+SEED's own runs (chat turns, tasks, Telegram; not agents) get `remember_owner`, which only
+proposes (at most five per message; a note already there is not proposed again). Approved notes,
+newest first within 4,000 characters, go into the system prompt as "What you know about the owner,
+approved by them". The Settings page lists them under "What SEED knows about you", with proposals
+first, Approve, Edit, Reject, and the owner's own notes, saved as approved. The notes list is now
+one component (`MemoryNotes`) shared by the project page and Settings.
+
+**Reason:** A note about the owner reaches every run, so a wrong or injected one does the most
+harm of any memory; one tap of approval keeps it honest, and it matches how project memory works.
+
+**Consequences:** Unlike project memory, the notes are read when a run starts, not copied when a
+message is sent, so an approval reaches a chat's next run even if the message was already queued.
+A waiting proposal is not announced in the bell or Telegram yet; SEED says in its answer that it
+proposed one, and Settings shows it. Agents do not see or write these notes.
