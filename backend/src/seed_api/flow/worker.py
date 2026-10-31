@@ -42,6 +42,7 @@ from ..core.workspace_tools import workspace_tools
 from ..errors import ApiError
 from ..models import make_provider, system_prompt
 from ..notifications.store import NotificationStore
+from ..owner_memory import OwnerMemoryStore, remember_owner_tool
 from ..projects.knowledge import KnowledgeStore, knowledge_tool
 from ..projects.memory import MemoryStore, remember_tool
 from ..sandbox.client import SandboxClient, sandbox_tools
@@ -303,11 +304,20 @@ class Worker:
             tools.append(
                 knowledge_tool(KnowledgeStore(self.store.pool), project_id=task.project_id)
             )
-        if task.agent is None:  # SEED's own runs can recall the owner's other chats (D-039)
+        owner_notes = OwnerMemoryStore(self.store.pool)
+        if task.agent is None:  # SEED's own runs recall other chats (D-039) and the owner (D-040)
             tools.append(
                 recall_tool(
                     RecallStore(self.store.pool),
                     owner=task.created_by,
+                    conversation_id=task.conversation_id,
+                )
+            )
+            tools.append(
+                remember_owner_tool(
+                    owner_notes,
+                    owner=task.created_by,
+                    task_id=task.id,
                     conversation_id=task.conversation_id,
                 )
             )
@@ -340,7 +350,12 @@ class Worker:
             system = [
                 agent_system_prompt(task.agent)
                 if task.agent is not None
-                else system_prompt(task.instructions, task.memory, summary)
+                else system_prompt(
+                    task.instructions,
+                    task.memory,
+                    summary,
+                    await owner_notes.for_prompt(task.created_by),
+                )
             ]
             if skills:
                 system.append(skills_index(skills))

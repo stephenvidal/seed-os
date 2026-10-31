@@ -2544,3 +2544,29 @@ partial and GIN, so it should hold up); the migration on the live database (it r
 tasks table to fill the generated column, which takes a moment on a big table).
 
 **Open questions:** none; 4b (memory about the owner, approval per note) is next.
+
+## Increment 43 — Memory about the owner (M9 step 4b, D-040)
+
+**Iteration:** M9 step 4b. Done when SEED can propose a note about the owner, the note reaches
+SEED's runs only after the owner approves it, never reaches another owner's runs, and the owner
+can approve, edit, reject and add notes on the Settings page.
+
+**Changed:** migration `0025_owner_memory`; `owner_memory.py` (store, `remember_owner`, the
+`/api/v1/memory` API); the worker gives SEED's own runs the tool and the approved notes;
+`system_prompt` takes them; Tools page catalog; `components/MemoryNotes.tsx` (the notes list,
+moved out of the project page and shared); Settings "What SEED knows about you"; the test
+database reset also drops `owner_memories`; README, roadmap, D-040.
+
+**Tested**
+```
+backend: ruff, mypy clean; pytest (DB) → 292 passed, 1 skipped (4 new)
+frontend: typecheck, lint, format clean; npm test → 132 passed (1 new; project memory tests pass on the shared component)
+```
+Breakage checks: giving the prompt proposed notes too fails
+`test_a_proposal_reaches_the_model_only_after_approval`; dropping the owner check on update
+fails three tests; Approve sending no `approve` fails both the project and the Settings test.
+
+**Not tested:** a real browser; a real model choosing to propose a note.
+
+**Open questions:** announce waiting proposals in the bell and Telegram (needs a new
+notification kind)?

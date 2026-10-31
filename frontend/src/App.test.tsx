@@ -111,6 +111,7 @@ describe("workspace shell", () => {
     mockApi({
       "GET /api/v1/auth/me": ME,
       "GET /api/v1/system": SYSTEM,
+      "GET /api/v1/memory": { status: 200, body: [] },
       "GET /api/v1/overview?hours=24": OVERVIEW,
     });
     const user = userEvent.setup();
