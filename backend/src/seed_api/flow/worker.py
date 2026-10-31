@@ -21,6 +21,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
+import httpx
 from pydantic import ValidationError
 
 from ..agents.delegation import (
@@ -43,6 +44,7 @@ from ..notifications.store import NotificationStore
 from ..projects.knowledge import KnowledgeStore, knowledge_tool
 from ..projects.memory import MemoryStore, remember_tool
 from ..sandbox.client import SandboxClient, sandbox_tools
+from ..sandbox.protocol import ExecRequest
 from ..schedules.store import ScheduleStore
 from ..skills.manage import skill_manage_tool
 from ..skills.runtime import forced_prompt, forced_skill, skill_tools, skills_index
@@ -52,7 +54,7 @@ from ..studio.store import ArtifactStore
 from ..studio.workspace import LocalFiles, SandboxFiles, WorkspaceFiles
 from ..web.tools import WebClient, web_tools
 from .db import make_pool, migrate
-from .store import Delegation, Lease, LeaseLost, Task, TaskStore
+from .store import Delegation, Lease, LeaseLost, Task, TaskStore, Verification
 
 log = logging.getLogger("seed.worker")
 
@@ -164,8 +166,56 @@ class Worker:
             )
         return None
 
+    async def _verify(self, task: Task, lease: Lease, command: str) -> Verification:
+        """Run the owner's check in the task's workspace; its exit code decides (D-038).
+        Whatever goes wrong running it is a failed check, never a pass."""
+        if self.sandbox is None:  # execute() refuses a check without one
+            raise RuntimeError(f"task {task.id}: a check to run without a sandbox")
+        timeout = self.settings.sandbox_command_timeout_seconds
+        try:
+            res = await self.sandbox.exec(
+                task.workspace, ExecRequest(command=command, timeout_s=timeout)
+            )
+        except (ToolFailure, httpx.HTTPError) as e:
+            done = Verification(
+                command=command,
+                passed=False,
+                exit_code=None,
+                timed_out=False,
+                stdout="",
+                stderr=f"The check could not be run: {e}"[:2000],
+                duration_ms=0,
+            )
+        else:
+            done = Verification(
+                command=command,
+                passed=res.exit_code == 0 and not res.timed_out,
+                exit_code=res.exit_code,
+                timed_out=res.timed_out,
+                stdout=res.stdout[-4000:],
+                stderr=res.stderr[-4000:],
+                duration_ms=res.duration_ms,
+            )
+        await self.store.append_event(
+            lease,
+            "verification",
+            {"passed": done.passed, "exit_code": done.exit_code, "timed_out": done.timed_out},
+        )
+        return done
+
     async def execute(self, task: Task, lease: Lease) -> None:
         log.info("task %s attempt %d claimed", task.id, lease.attempt)
+        if task.check_command is not None and self.sandbox is None:
+            await self.store.append_event(lease, "check_unavailable", {})
+            await self.store.finish(
+                lease,
+                state="failed",
+                termination="check_unavailable",
+                error="This task has a check, which needs the sandbox. Set SEED_SANDBOX_URL.",
+                result_text="",
+                usage=task.checkpoint.usage if task.checkpoint is not None else Usage(),
+            )
+            return
         stop = await self._budget_stop(task)
         if stop is not None:
             termination, message = stop
@@ -310,12 +360,23 @@ class Worker:
             )
             if not why["lost"]:
                 await self._save(task, lease, files)
+            verification: Verification | None = None
+            if (
+                result.termination == "completed"
+                and task.check_command is not None
+                and not why["lost"]
+            ):
+                verification = await self._verify(task, lease, task.check_command)
             if result.termination == "awaiting_delegation" and not why["lost"]:
                 step = checkpoints[0] if checkpoints else None
                 await self._delegate(task, lease, step, registry, limits)
                 return
             await self._settle(
-                task, lease, result.model_copy(update={"usage": result.usage + extra}), why
+                task,
+                lease,
+                result.model_copy(update={"usage": result.usage + extra}),
+                why,
+                verification,
             )
         except LeaseLost:
             log.warning("task %s attempt %d: lease lost; abandoning", task.id, lease.attempt)
@@ -456,7 +517,12 @@ class Worker:
             await self.store.append_event(lease, "artifacts_saved", report.model_dump())
 
     async def _settle(
-        self, task: Task, lease: Lease, result: RunResult, why: dict[str, bool]
+        self,
+        task: Task,
+        lease: Lease,
+        result: RunResult,
+        why: dict[str, bool],
+        verification: Verification | None = None,
     ) -> None:
         if why["lost"]:
             raise LeaseLost(str(lease.task_id))
@@ -469,15 +535,28 @@ class Worker:
             log.info("task %s released on shutdown", lease.task_id)
             return
         state = _STATE[result.termination]
+        termination: str = result.termination
+        error = result.error
+        if verification is not None and not verification.passed:
+            # The agent said it was done; the check says otherwise, and the check wins.
+            state, termination = "failed", "check_failed"
+            error = "The check failed: " + (
+                "it ran out of time."
+                if verification.timed_out
+                else f"exit code {verification.exit_code}."
+                if verification.exit_code is not None
+                else "it could not be run."
+            )
         await self.store.finish(
             lease,
             state=state,
-            termination=result.termination,
-            error=result.error,
+            termination=termination,
+            error=error,
             result_text=result.final_text,
             usage=result.usage,
+            verification=verification,
         )
-        log.info("task %s %s (%s)", lease.task_id, state, result.termination)
+        log.info("task %s %s (%s)", lease.task_id, state, termination)
 
 
 async def main(settings: Settings | None = None) -> None:

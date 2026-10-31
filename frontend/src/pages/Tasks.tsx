@@ -32,7 +32,7 @@ import {
   tasksApi,
   toTimeline,
 } from "../lib/tasks";
-import type { Task, TaskEvent, TimelineItem } from "../lib/tasks";
+import type { Task, TaskEvent, TimelineItem, Verification } from "../lib/tasks";
 
 const when = (iso: string) =>
   new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
@@ -60,6 +60,7 @@ function NewTask() {
   const models = useQuery({ queryKey: ["models"], queryFn: api.models, retry: false });
   const [model, setModel] = useState("");
   const [prompt, setPrompt] = useState("");
+  const [check, setCheck] = useState("");
   const projects = useQuery({ queryKey: PROJECTS, queryFn: projectsApi.list, retry: false });
   // A project's page links here with ?project=<id> to start a task in it.
   const [params] = useSearchParams();
@@ -72,12 +73,18 @@ function NewTask() {
   const create = useMutation({
     mutationFn: () =>
       tasksApi.create(
-        { model: selected, prompt: prompt.trim(), ...(project && { project_id: project }) },
+        {
+          model: selected,
+          prompt: prompt.trim(),
+          ...(project && { project_id: project }),
+          ...(check.trim() && { check: check.trim() }),
+        },
         key.current,
       ),
     onSuccess: (task) => {
       key.current = crypto.randomUUID();
       setPrompt("");
+      setCheck("");
       void qc.invalidateQueries({ queryKey: ["tasks"] });
       void navigate(`/tasks/${task.id}`);
     },
@@ -100,6 +107,20 @@ function NewTask() {
           placeholder="What should SEED do? It keeps working if you close this page."
           className="resize-y rounded-control border border-border bg-surface-1 px-3 py-2.5 text-sm text-fg outline-none placeholder:text-fg-subtle focus:border-accent focus:ring-2 focus:ring-ring"
         />
+        <label className="flex flex-col gap-1 text-xs text-fg-muted">
+          Check (optional): a command run in the task&apos;s files when SEED says it is done. Exit
+          code 0 passes; anything else fails the task.
+          <input
+            value={check}
+            onChange={(e) => {
+              setCheck(e.target.value);
+              key.current = crypto.randomUUID(); // a different task now
+            }}
+            maxLength={8000}
+            placeholder="e.g. python -m pytest -q"
+            className="h-8 rounded-control border border-border bg-surface-1 px-2 font-mono text-xs text-fg outline-none placeholder:text-fg-subtle focus:border-accent focus:ring-2 focus:ring-ring"
+          />
+        </label>
         <div className="flex flex-wrap items-center gap-2">
           <label className="flex min-w-0 items-center gap-2 text-xs text-fg-muted">
             Model
@@ -441,6 +462,14 @@ function TaskDetail() {
               </div>
             </Panel>
           )}
+          {t.check_command && <CheckPanel command={t.check_command} result={t.verification} />}
+          {t.termination === "check_failed" && t.result_text && (
+            <Panel title="What SEED said (its check did not agree)">
+              <div className="px-4 py-3">
+                <Markdown text={t.result_text} toggle />
+              </div>
+            </Panel>
+          )}
           {t.state === "failed" && (
             <Panel title="Failure">
               <p role="alert" className="flex items-start gap-2 px-4 py-3 text-sm text-danger">
@@ -510,5 +539,42 @@ function TaskDetail() {
         </Panel>
       </div>
     </>
+  );
+}
+
+function CheckPanel({ command, result }: { command: string; result?: Verification | null }) {
+  const output = result ? [result.stdout, result.stderr].filter(Boolean).join("\n") : "";
+  return (
+    <Panel
+      title="Check"
+      action={
+        result ? (
+          <Badge tone={result.passed ? "accent" : "danger"}>
+            {result.passed ? "passed" : "failed"}
+          </Badge>
+        ) : (
+          <Badge>not run yet</Badge>
+        )
+      }
+    >
+      <div className="flex flex-col gap-2 px-4 py-3 text-xs">
+        <code className="font-mono break-all text-fg">{command}</code>
+        {result && (
+          <p className="text-fg-muted">
+            {result.timed_out
+              ? "Ran out of time"
+              : result.exit_code === null
+                ? "Could not be run"
+                : `Exit code ${result.exit_code}`}{" "}
+            · {(result.duration_ms / 1000).toFixed(1)} s
+          </p>
+        )}
+        {output && (
+          <pre className="max-h-64 overflow-auto rounded-control bg-surface-2 p-2 font-mono whitespace-pre-wrap break-words text-fg">
+            {output}
+          </pre>
+        )}
+      </div>
+    </Panel>
   );
 }

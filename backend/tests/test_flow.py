@@ -59,6 +59,7 @@ async def pool(db_url: str) -> AsyncIterator[Pool]:
         "0020_skills",
         "0021_agent_skills",
         "0022_skill_writer",
+        "0023_verification",
     ]
     yield pool
     await pool.close()
@@ -458,3 +459,99 @@ async def test_a_task_can_search_the_web_and_gets_fenced_content(
         e.data for e in await store.events(task.id, after=0, limit=100) if e.type == "tool_result"
     ]
     assert results[0]["ok"] is True and "UNTRUSTED CONTENT" in json.dumps(results[0])
+
+
+# D-038: the owner's check decides, not the agent.
+async def checked(
+    store: TaskStore,
+    tmp_path: Path,
+    check: str,
+    script: list[Step],
+    *,
+    timeout: float = 5,
+    sandbox: bool = True,
+) -> tuple[Task, Worker]:
+    root = tmp_path / "sandbox"
+    root.mkdir()
+    settings = Settings(
+        workspace_root=str(tmp_path / "local"),
+        sandbox_root=str(root),
+        sandbox_isolate_users=False,
+        sandbox_command_timeout_seconds=timeout,
+    )
+    http = httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=create_sandbox_app(settings)), base_url="http://sb"
+    )
+    task, _ = await store.create(
+        created_by="admin",
+        title="t",
+        model="fake",
+        prompt="write a.txt",
+        max_attempts=3,
+        idempotency_key=None,
+        check_command=check,
+    )
+    provider = ScriptedProvider(script)
+    w = Worker(
+        store,
+        settings,
+        lambda: provider,
+        sandbox=SandboxClient(http) if sandbox else None,
+        worker_id="w",
+    )
+    w.provider = provider  # type: ignore[attr-defined]
+    assert await w.run_once() is True
+    await http.aclose()
+    done = await store.get(task.id)
+    assert done is not None
+    return done, w
+
+
+def write(content: str) -> Step:
+    return calls(("write_file", {"path": "a.txt", "content": content}))
+
+
+async def test_a_passing_check_completes_the_task_and_is_recorded(
+    store: TaskStore, tmp_path: Path
+) -> None:
+    done, _ = await checked(store, tmp_path, "grep -q fine a.txt", [write("fine"), reply("Done")])
+    assert (done.state, done.termination) == ("completed", "completed")
+    assert done.verification is not None and done.verification.passed
+    assert done.verification.exit_code == 0 and done.verification.command == "grep -q fine a.txt"
+    events = [e.type for e in await store.events(done.id, after=0, limit=100)]
+    assert events.count("verification") == 1
+
+
+async def test_a_failing_check_fails_the_task_though_the_agent_said_done(
+    store: TaskStore, tmp_path: Path
+) -> None:
+    script = [write("broken"), reply("All done, it works!")]
+    done, _ = await checked(store, tmp_path, "echo no >&2; grep -q fine a.txt", script)
+    assert (done.state, done.termination) == ("failed", "check_failed")
+    assert done.result_text == "All done, it works!"  # the agent's answer is kept to read
+    assert done.error is not None and "exit code 1" in done.error
+    v = done.verification
+    assert v is not None and not v.passed and v.exit_code == 1 and "no" in v.stderr
+
+
+async def test_a_check_that_runs_out_of_time_fails(store: TaskStore, tmp_path: Path) -> None:
+    done, _ = await checked(store, tmp_path, "sleep 5", [reply("Done")], timeout=1)
+    assert done.termination == "check_failed" and done.error is not None
+    assert "ran out of time" in done.error
+    assert done.verification is not None and done.verification.timed_out
+
+
+async def test_a_check_without_a_sandbox_refuses_before_calling_the_model(
+    store: TaskStore, tmp_path: Path
+) -> None:
+    done, w = await checked(store, tmp_path, "true", [reply("Done")], sandbox=False)
+    assert done.termination == "check_unavailable" and done.state == "failed"
+    assert w.provider.requests == []  # type: ignore[attr-defined]
+
+
+async def test_the_check_does_not_run_when_the_run_did_not_finish(
+    store: TaskStore, tmp_path: Path
+) -> None:
+    loop = [calls(("list_files", {})) for _ in range(9)]
+    done, _ = await checked(store, tmp_path, "true", loop)
+    assert done.termination == "max_steps" and done.verification is None

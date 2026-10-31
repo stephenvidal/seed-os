@@ -42,6 +42,21 @@ export type Task = {
   parent_task_id?: string | null;
   /** On a delegated task: the agent it runs as, as it was when delegated. */
   agent?: { id: string; name: string; description: string } | null;
+  /** The owner's check, run once the agent says it is done (D-038). */
+  check_command?: string | null;
+  /** What running the check came to; its exit code decides. */
+  verification?: Verification | null;
+};
+
+export type Verification = {
+  command: string;
+  passed: boolean;
+  /** Null when the command was killed or could not be run. */
+  exit_code: number | null;
+  timed_out: boolean;
+  stdout: string;
+  stderr: string;
+  duration_ms: number;
 };
 
 export type TaskEvent = {
@@ -61,7 +76,10 @@ export const tasksApi = {
   inProject: (projectId: string) =>
     request<Task[]>(`/api/v1/tasks?limit=100&project_id=${encodeURIComponent(projectId)}`),
   /** The key makes a double-submitted form create one task, not two. */
-  create: (body: { model: string; prompt: string; project_id?: string }, idempotencyKey: string) =>
+  create: (
+    body: { model: string; prompt: string; project_id?: string; check?: string },
+    idempotencyKey: string,
+  ) =>
     request<Task>("/api/v1/tasks", {
       method: "POST",
       body: JSON.stringify(body),
@@ -145,6 +163,8 @@ const TERMINATION_TEXT: Record<string, string> = {
   max_steps: "Stopped: step limit reached",
   deadline: "Stopped: time limit reached",
   token_budget: "Stopped: token budget reached",
+  check_failed: "Failed its check",
+  check_unavailable: "Not run: its check needs the sandbox",
   cost_budget: "Stopped: spend limit for this task reached",
   daily_budget: "Not run: daily spend limit used up",
   price_unknown: "Not run: model price unknown, spend limit cannot be checked",
@@ -320,6 +340,19 @@ export function toTimeline(events: TaskEvent[]): TimelineItem[] {
           e,
           d.state === "completed" ? "accent" : "warning",
           `${String(d.agent)} ${d.state === "completed" ? "reported back" : `stopped: ${String(d.state)}`}`,
+        );
+        break;
+      case "verification":
+        note(
+          e,
+          d.passed ? "accent" : "danger",
+          d.passed
+            ? "Check passed (exit code 0)"
+            : d.timed_out
+              ? "Check failed: it ran out of time"
+              : d.exit_code === null
+                ? "Check failed: it could not be run"
+                : `Check failed (exit code ${String(d.exit_code)})`,
         );
         break;
       case "lease_expired":
