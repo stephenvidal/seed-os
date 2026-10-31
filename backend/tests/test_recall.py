@@ -78,3 +78,11 @@ async def test_a_chat_turn_can_search_earlier_chats(pool: Pool, tmp_path: Path) 
     assert tool_message.role == "tool"
     [hit] = json.loads(tool_message.content or "")["results"]
     assert hit["asked"] == "Remember my bike is a Brompton" and hit["answered"] == "Noted."
+
+
+def test_the_tool_says_to_stop_at_a_good_hit() -> None:
+    """The live check (2026-10-31) saw a found answer followed by run_command for the
+    same fact, which waited for approval. The description now says not to."""
+    from seed_api.chat.recall import DESCRIPTION
+
+    assert "answer from it: do not also search files or run commands" in DESCRIPTION

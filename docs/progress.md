@@ -2570,3 +2570,15 @@ fails three tests; Approve sending no `approve` fails both the project and the S
 
 **Open questions:** announce waiting proposals in the bell and Telegram (needs a new
 notification kind)?
+
+## Increment 44 — session_search stops at a good hit (fix, D-039)
+
+**Changed:** the `session_search` description tells the model to answer from a result that
+answers the question, not to also search files or run commands. The live check of #52 saw a
+found answer followed by `run_command` grepping for the same fact, which held the turn for approval.
+
+**Tested**
+```
+pytest tests/test_recall.py tests/test_tools_api.py → passed (1 new: the description says so)
+```
+**Not tested:** whether the live model now stops; that needs the next live check.
