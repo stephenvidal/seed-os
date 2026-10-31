@@ -31,6 +31,7 @@ from ..agents.delegation import (
     delegated_prompt,
 )
 from ..agents.store import AgentCopy, AgentStore
+from ..chat.recall import RecallStore, recall_tool
 from ..chat.summary import SummaryFailed, summary_through
 from ..config import Settings, get_settings
 from ..core.agent import Checkpoint, RunEvent, RunLimits, RunResult, Termination, run_agent
@@ -301,6 +302,14 @@ class Worker:
             )
             tools.append(
                 knowledge_tool(KnowledgeStore(self.store.pool), project_id=task.project_id)
+            )
+        if task.agent is None:  # SEED's own runs can recall the owner's other chats (D-039)
+            tools.append(
+                recall_tool(
+                    RecallStore(self.store.pool),
+                    owner=task.created_by,
+                    conversation_id=task.conversation_id,
+                )
             )
         if task.delegation_depth < self.settings.delegation_max_depth:
             agents = await AgentStore(self.store.pool).all(task.created_by)

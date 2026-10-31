@@ -1047,3 +1047,29 @@ sandbox fails at once as `check_unavailable`, before calling the model. Retrying
 another try yet, and schedules, chat turns and agents' tasks do not take checks yet. The check runs
 in the task's own sandbox user with no network, so a test suite that needs to download packages
 fails unless they are already in the workspace.
+
+
+## D-039 — Recall across chats: session_search over finished chat turns
+
+**Context:** M9 step 4. Hermes Agent searches its past sessions; SEED sees only the chat it is
+answering (plus a summary of that chat's older turns, D-022). Asked "what did we decide about X
+last week?", it cannot know. Step 4b, memory about the owner, is separate (Stephen chose on
+2026-10-31 that each note needs his approval).
+
+**Options:** (a) full-text search over finished chat turns; (b) embeddings and vector search;
+(c) put recent chats' summaries in every prompt.
+
+**Choice:** (a). A generated `recall_tsv` column on tasks (prompt and answer, English stemming)
+with a partial GIN index on finished chat turns. SEED's own runs (chat turns, tasks, Telegram
+turns; not agents) get `session_search`: up to five of the owner's finished turns, best match
+first, with the chat's title and date, the question cut to 500 characters and the answer to
+1,500. The chat being answered is left out. Same search syntax as project knowledge.
+
+**Reason:** Postgres already does this for knowledge (D-021), with no new service, model or
+cost; it costs nothing until the model decides to search. Embeddings would add a model and a
+vector extension for a single owner's chats. (c) spends tokens on every turn whether needed or not.
+
+**Consequences:** Matching is by words, not meaning: "car" does not find "vehicle". Every version
+of an edited message is searchable, not only the one kept (ADR-0013). Search crosses projects, so
+a project chat can find another project's chats; for one owner that is the point, and it is
+noted here in case projects ever get shared. Deleting a chat removes its turns from recall.
