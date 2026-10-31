@@ -40,6 +40,20 @@ class ContextMessage(BaseModel):
     content: str
 
 
+class Verification(BaseModel):
+    """What running a task's check came to (D-038). The exit code decides: `passed`
+    is exit code 0 and nothing else. `exit_code` is None when the command was killed
+    or could not be run, and `stderr` then says why."""
+
+    command: str
+    passed: bool
+    exit_code: int | None
+    timed_out: bool
+    stdout: str
+    stderr: str
+    duration_ms: int
+
+
 class Decision(BaseModel):
     approved: bool
     by: str
@@ -85,6 +99,9 @@ class Task(BaseModel):
     workspace_id: uuid.UUID | None
     awaiting_approval: ToolCall | None
     approvals: dict[str, Decision]
+    # D-038: the owner's check, run after the agent finishes, and its result.
+    check_command: str | None
+    verification: Verification | None
     # Delegation (D-025). On a child: its parent, the parent's call it answers and
     # the agent it runs as. On a parent: the call waiting for a child, and the
     # results children came back with, by call id.
@@ -169,6 +186,7 @@ async def insert_task(
     delegated_call: str | None = None,
     agent: AgentCopy | None = None,
     delegation_depth: int = 0,
+    check_command: str | None = None,
 ) -> DictRow | None:
     """Insert a queued task and its first event. Returns None, inserting nothing,
     when this creator already used the idempotency key. Call inside a transaction."""
@@ -177,9 +195,10 @@ async def insert_task(
         INSERT INTO tasks (id, created_by, title, model, prompt, state, idempotency_key,
                            max_attempts, last_seq, conversation_id, turn, parent_id, context,
                            workspace_id, project_id, instructions, memory, summary_of,
-                           parent_task_id, delegated_call, agent, delegation_depth)
+                           parent_task_id, delegated_call, agent, delegation_depth,
+                           check_command)
         VALUES (%s, %s, %s, %s, %s, 'queued', %s, %s, 1, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s)
+                %s, %s, %s, %s, %s)
         ON CONFLICT (created_by, idempotency_key) DO NOTHING
         RETURNING *
         """,
@@ -204,6 +223,7 @@ async def insert_task(
             delegated_call,
             Jsonb(agent.model_dump(mode="json")) if agent else None,
             delegation_depth,
+            check_command,
         ),
     )
     row = await cur.fetchone()
@@ -246,6 +266,7 @@ class TaskStore:
         project_id: uuid.UUID | None = None,
         instructions: str | None = None,
         memory: str | None = None,
+        check_command: str | None = None,
     ) -> tuple[Task, bool]:
         """Insert a queued task, in a project when `project_id` is given (with what
         it copies from the project, see chat/store.py project_context). With an
@@ -263,6 +284,7 @@ class TaskStore:
                 project_id=project_id,
                 instructions=instructions,
                 memory=memory,
+                check_command=check_command,
             )
             if row is not None:
                 return Task.model_validate(row), True
@@ -341,7 +363,7 @@ class TaskStore:
                 UPDATE tasks SET
                     state = 'queued', max_attempts = attempt + %s, cancel_requested = false,
                     checkpoint = NULL, termination = NULL, error = NULL, result_text = NULL,
-                    approvals = '{}', delegations = '{}', finished_at = NULL,
+                    verification = NULL, approvals = '{}', delegations = '{}', finished_at = NULL,
                     last_seq = last_seq + 1,
                     updated_at = now()
                 WHERE id = %s AND state IN ('failed', 'canceled') AND parent_task_id IS NULL
@@ -533,6 +555,7 @@ class TaskStore:
         error: str | None,
         result_text: str,
         usage: Usage,
+        verification: Verification | None = None,
     ) -> None:
         async with self.pool.connection() as conn, conn.transaction():
             cur = await conn.execute(
@@ -540,6 +563,7 @@ class TaskStore:
                 UPDATE tasks SET
                     state = %(state)s, termination = %(term)s, error = %(error)s,
                     result_text = %(text)s, usage = %(usage)s,
+                    verification = coalesce(%(verification)s::jsonb, verification),
                     lease_owner = NULL, lease_expires_at = NULL,
                     finished_at = now(), updated_at = now()
                 WHERE id = %(id)s AND lease_owner = %(worker)s AND attempt = %(attempt)s
@@ -553,6 +577,7 @@ class TaskStore:
                     "error": error,
                     "text": result_text,
                     "usage": Jsonb(usage.model_dump()),
+                    "verification": Jsonb(verification.model_dump()) if verification else None,
                 },
             )
             row = await cur.fetchone()

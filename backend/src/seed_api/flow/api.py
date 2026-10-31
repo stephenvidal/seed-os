@@ -17,7 +17,8 @@ from ..chat.store import ChatError, project_context
 from ..config import Settings, get_settings
 from ..core.messages import ToolCall, Usage
 from ..errors import ApiError
-from .store import TERMINAL, Task, TaskEvent, TaskState, TaskStore
+from ..sandbox.protocol import MAX_COMMAND_CHARS
+from .store import TERMINAL, Task, TaskEvent, TaskState, TaskStore, Verification
 
 router = APIRouter(prefix="/api/v1/tasks", tags=["tasks"])
 STREAM_POLL_S = 0.5
@@ -77,6 +78,9 @@ class TaskView(BaseModel):
     awaiting_delegation: ToolCall | None
     parent_task_id: uuid.UUID | None
     agent: AgentCopy | None
+    # D-038: the owner's check and what running it came to.
+    check_command: str | None
+    verification: Verification | None
 
     @classmethod
     def of(cls, task: Task) -> "TaskView":
@@ -93,6 +97,9 @@ class CreateTask(BaseModel):
     # The task runs in this project: it gets the project's instructions, memory
     # and knowledge like a chat turn does (D-023).
     project_id: uuid.UUID | None = None
+    # A shell command run in the task's workspace once the agent says it is done.
+    # Its exit code decides whether the task passed (D-038); needs the sandbox.
+    check: str | None = Field(default=None, min_length=1, max_length=MAX_COMMAND_CHARS)
 
 
 class EventsPage(BaseModel):
@@ -141,11 +148,13 @@ async def create_task(
         prompt=body.prompt,
         max_attempts=settings.task_max_attempts,
         idempotency_key=idempotency_key,
+        check_command=body.check,
         **project,
     )
     if not created:
-        sent = (body.model, body.prompt, None, body.project_id)
-        if (task.model, task.prompt, task.conversation_id, task.project_id) != sent:
+        sent = (body.model, body.prompt, None, body.project_id, body.check)
+        have = (task.model, task.prompt, task.conversation_id, task.project_id, task.check_command)
+        if have != sent:
             raise ApiError(
                 409,
                 "idempotency_conflict",

@@ -116,7 +116,7 @@ def test_tasks_survive_an_api_restart(db_settings: Settings, db_url: str) -> Non
         assert second.get(f"/api/v1/tasks/{tid}").json()["state"] == "queued"
     with psycopg.connect(db_url) as conn:
         row = conn.execute("SELECT count(*) FROM schema_migrations").fetchone()
-        assert row == (22,)  # migrations ran once, not per start
+        assert row == (23,)  # migrations ran once, not per start
 
 
 def sse(text: str) -> list[tuple[str | None, str | None, dict]]:  # type: ignore[type-arg]
@@ -203,3 +203,16 @@ def test_a_waiting_task_cancels_at_once(api: TestClient, db_url: str) -> None:
     r = api.post(f"/api/v1/tasks/{tid}/cancel")
     assert r.status_code == 200
     assert r.json()["state"] == "canceled" and r.json()["awaiting_approval"] is None
+
+
+def test_a_task_carries_its_check(api: TestClient) -> None:
+    """D-038: the check is kept on the task and shown; an empty one is refused."""
+    h = {"Idempotency-Key": "checked-1"}
+    made = api.post("/api/v1/tasks", json={**BODY, "check": "pytest -q"}, headers=h)
+    assert made.status_code == 201
+    body = made.json()
+    assert body["check_command"] == "pytest -q" and body["verification"] is None
+    other = api.post("/api/v1/tasks", json={**BODY, "check": "true"}, headers=h)
+    assert other.status_code == 409  # same key, different check
+    assert api.post("/api/v1/tasks", json={**BODY, "check": ""}).status_code == 422
+    assert api.post("/api/v1/tasks", json=BODY).json()["check_command"] is None

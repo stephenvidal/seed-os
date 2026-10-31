@@ -2494,3 +2494,30 @@ Breakage check: flipping the comparison (keeping old, deleting recent) fails
 **Not tested:** the hourly call from a running worker (only `purge_read` is tested directly).
 
 **Open questions:** none.
+
+## Increment 41 — Test-verified completion (M9 step 3, D-038)
+
+**Iteration:** M9 step 3. Done when a task can carry a check command, the worker runs it in
+the sandbox after the agent finishes, exit code 0 is the only pass, a failed or unrunnable check
+fails the task even though the agent said done, and the result shows on the task page.
+
+**Changed:** migration `0023_verification` (`check_command`, `verification`); `Verification` on
+tasks; `check` on `POST /api/v1/tasks` (and in the idempotency comparison); the worker's
+`_verify` and `check_failed` / `check_unavailable`; the new-task form's Check field, a Check
+panel and the overruled answer on the task page, timeline notes; README, roadmap, D-038.
+
+**Tested**
+```
+backend: ruff, mypy clean; pytest (DB) → 285 passed, 1 skipped (6 new)
+frontend: typecheck, lint, format clean; npm test → 131 passed (2 new)
+```
+Breakage checks: making every check pass, or ignoring a failed check in settle, fails
+`test_a_failing_check_fails_the_task_though_the_agent_said_done` and
+`test_a_check_that_runs_out_of_time_fails`; dropping `check` from the form's request or the
+Check panel fails both new frontend tests.
+
+**Not tested:** a real browser; the live sandbox (tests use the sandbox app in-process without
+per-task users); a real model's run followed by a real test suite.
+
+**Open questions:** feed a failed check back to the agent for another try (how many rounds)?
+Checks on schedules and agents' tasks?

@@ -129,6 +129,65 @@ describe("Tasks", () => {
     );
   });
 
+  it("sends the check written on a new task", async () => {
+    const spy = mockApi({
+      "GET /api/v1/auth/me": ME,
+      "GET /api/v1/models": MODELS,
+      "GET /api/v1/tasks?limit=100": { status: 200, body: [] },
+      "POST /api/v1/tasks": { status: 201, body: task({ id: "t2", state: "queued" }) },
+      "GET /api/v1/tasks/t2": { status: 200, body: task({ id: "t2", state: "queued" }) },
+    });
+    vi.stubGlobal("EventSource", FakeEventSource);
+    const user = userEvent.setup();
+    renderApp(<App />, "/tasks");
+    await screen.findByRole("option", { name: "m-default" });
+    await user.type(screen.getByLabelText("What should SEED do?"), "Fix the tests");
+    await user.type(screen.getByLabelText(/Check \(optional\)/), "  pytest -q ");
+    await user.click(screen.getByRole("button", { name: "Create task" }));
+    await waitFor(() => expect(FakeEventSource.last?.url).toBe("/api/v1/tasks/t2/stream?after=0"));
+    const post = spy.mock.calls.find((c) => c[1]?.method === "POST");
+    expect(JSON.parse(String(post?.[1]?.body))).toEqual({
+      model: "m-default",
+      prompt: "Fix the tests",
+      check: "pytest -q",
+    });
+  });
+
+  it("shows a failed check with its output and the answer it overruled", async () => {
+    mockApi({
+      "GET /api/v1/auth/me": ME,
+      "GET /api/v1/tasks/t1": {
+        status: 200,
+        body: task({
+          state: "failed",
+          termination: "check_failed",
+          error: "The check failed: exit code 1.",
+          result_text: "All done, it works!",
+          check_command: "pytest -q",
+          verification: {
+            command: "pytest -q",
+            passed: false,
+            exit_code: 1,
+            timed_out: false,
+            stdout: "1 failed",
+            stderr: "",
+            duration_ms: 1200,
+          },
+        }),
+      },
+    });
+    vi.stubGlobal("EventSource", FakeEventSource);
+    renderApp(<App />, "/tasks/t1");
+    await screen.findByRole("heading", { name: "Write the report" });
+    expect(screen.getByText("pytest -q")).toBeInTheDocument();
+    expect(screen.getAllByText("failed")).toHaveLength(2); // the task's state and the check's
+    expect(screen.getByText(/Exit code 1/)).toBeInTheDocument();
+    expect(screen.getByText("1 failed")).toBeInTheDocument();
+    expect(screen.getByText("What SEED said (its check did not agree)")).toBeInTheDocument();
+    expect(screen.getByText("All done, it works!")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("The check failed: exit code 1.");
+  });
+
   it("tells a task waiting for an agent from one waiting for you", async () => {
     mockApi({
       "GET /api/v1/auth/me": ME,

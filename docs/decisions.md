@@ -1023,3 +1023,27 @@ notifications are never deleted, however old.
 
 **Consequences:** The bell's history of read items is 30 days long. Marking an old item read
 starts its 30 days then, not at creation.
+
+
+## D-038 — Test-verified completion: the owner's check decides, not the agent
+
+**Context:** M9 step 3. The spec comparison ranks "tests judge success, not the agent" as the
+most valuable idea SEED lacks. A task ends `completed` when the model says it is done. Stephen
+chose (2026-10-31) that the owner writes the check on the task, over agent-proposed checks.
+
+**Options:** (a) the owner writes a check command on the task; (b) the agent proposes one through
+a tool and the owner approves it; (c) both, in stages.
+
+**Choice:** (a). `POST /api/v1/tasks` takes `check`, a shell command. When the run ends
+`completed`, the worker runs it in the task's workspace in the sandbox, with the usual command
+limits (`SEED_SANDBOX_COMMAND_TIMEOUT_SECONDS`). Exit code 0 completes the task. Any other exit,
+a timeout, or a check that cannot be run fails it as `check_failed`; "could not run" never counts
+as a pass. The result (`verification`: exit code, output tails, duration) is kept on the task,
+logged as a `verification` event, and shown on the task page with the agent's answer it overruled.
+The owner wrote the command, so it needs no approval. A task with a check on a worker without a
+sandbox fails at once as `check_unavailable`, before calling the model. Retrying clears the result.
+
+**Consequences:** One check per task, run once: a failed check is not fed back to the agent for
+another try yet, and schedules, chat turns and agents' tasks do not take checks yet. The check runs
+in the task's own sandbox user with no network, so a test suite that needs to download packages
+fails unless they are already in the workspace.
