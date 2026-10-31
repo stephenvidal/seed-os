@@ -77,6 +77,13 @@ it — with full visibility and control.
   by what you asked and what it answered, across all your chats, projects and
   Telegram (D-039). The chat being answered is left out; it is already in context.
   Postgres full-text search, as for project knowledge.
+- **MCP servers (M9):** remote MCP servers you list in `SEED_MCP_SERVERS` lend their
+  tools to SEED's own chat turns and tasks (not agents'), named `mcp_<server>_<tool>`
+  (D-041). Each run connects over Streamable HTTP and lists the server's tools; a
+  server that does not answer within `SEED_MCP_CONNECT_TIMEOUT_SECONDS` is recorded on
+  the task as `mcp_unavailable` and the run goes on without it. Every call waits for
+  your approval unless the server says `"approval": "never"`, and what comes back is
+  marked as untrusted content. The Tools page does not list these tools yet.
 - **Session summaries (M6):** a chat message carries the last 20 answered turns
   in full (`SEED_CHAT_CONTEXT_TURNS`); the turns before them reach the model as a
   summary of up to 250 words instead of being dropped (D-022). The worker makes it
@@ -296,6 +303,8 @@ docker compose exec api python -m seed_api.users list    # in the compose stack
 | `SEED_SANDBOX_MEMORY_MB` / `SEED_SANDBOX_CPU_SECONDS` / `SEED_SANDBOX_MAX_PROCESSES` / `SEED_SANDBOX_MAX_FILE_MB` | `512` / `60` / `64` / `64` | Per-command limits, set on the sandbox service |
 | `SEED_SANDBOX_ROOT` | `/workspaces` | Sandbox: where task workspaces live |
 | `SEED_SANDBOX_ISOLATE_USERS` | `true` | Sandbox: run each task as its own user (needs root in the container; `false` only for tests) |
+| `SEED_MCP_SERVERS` | `[]` | Worker: JSON list of remote MCP servers (D-041), each `{"name", "url", "headers", "approval", "tools"}`. `name` is 1-24 lowercase letters, digits or `-`; `url` the server's Streamable HTTP endpoint; `headers` (optional) are sent with every request, e.g. `{"Authorization": "Bearer …"}`; `approval` is `always` (default: each call waits for you) or `never`; `tools` (optional) keeps only the tools named |
+| `SEED_MCP_CONNECT_TIMEOUT_SECONDS` / `SEED_MCP_CALL_TIMEOUT_SECONDS` | `15` / `60` | How long a run waits for a server to connect and list its tools, and for one tool call |
 | `SEED_PUBLIC_URL` | unset | Where people open SEED (`https://…`); messages sent outside the app link back to it. Unset: no links |
 | `SEED_TELEGRAM_BOT_TOKEN` | unset | Telegram gateway (D-031): the bot's token from @BotFather. Unset: the `gateway` service exits at start |
 | `SEED_TELEGRAM_CHAT_ID` | unset | The one chat SEED sends to. Message the bot and it replies with your chat's id |

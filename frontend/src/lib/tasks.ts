@@ -355,6 +355,13 @@ export function toTimeline(events: TaskEvent[]): TimelineItem[] {
                 : `Check failed (exit code ${String(d.exit_code)})`,
         );
         break;
+      case "mcp_unavailable":
+        note(
+          e,
+          "warning",
+          `MCP server ${String(d.server)} did not connect (${String(d.reason)}); its tools were left out`,
+        );
+        break;
       case "lease_expired":
         note(
           e,

@@ -40,6 +40,7 @@ from ..core.providers.base import Provider, ProviderError
 from ..core.tools import ToolFailure, ToolRegistry
 from ..core.workspace_tools import workspace_tools
 from ..errors import ApiError
+from ..mcp_client import McpConnection, McpUnavailable, connect, mcp_tools
 from ..models import make_provider, system_prompt
 from ..notifications.store import NotificationStore
 from ..owner_memory import OwnerMemoryStore, remember_owner_tool
@@ -330,6 +331,11 @@ class Worker:
         if skills:
             tools.extend(skill_tools(skills))
         forced = forced_skill(task.prompt, skills) if task.agent is None else None
+        mcp: list[McpConnection] = []
+        if task.agent is None and self.settings.mcp_servers:  # remote MCP servers (D-041)
+            mcp = await self._mcp(lease)
+            for conn in mcp:
+                tools.extend(mcp_tools(conn, call_timeout_s=self.settings.mcp_call_timeout_seconds))
         gated = set(self.settings.approval_required_tools)
         tools = [
             replace(t, requires_approval=t.requires_approval or t.name in gated) for t in tools
@@ -410,6 +416,38 @@ class Worker:
             await provider.aclose()
             if web is not None:
                 await web.aclose()
+            for conn in mcp:
+                await conn.aclose()
+
+    async def _mcp(self, lease: Lease) -> list[McpConnection]:
+        """A connection to each configured MCP server that answers (D-041). One that
+        does not is recorded on the task, and the run goes on without its tools."""
+        settings = self.settings
+        results = await asyncio.gather(
+            *(
+                connect(
+                    server,
+                    timeout_s=settings.mcp_connect_timeout_seconds,
+                    call_timeout_s=settings.mcp_call_timeout_seconds,
+                )
+                for server in settings.mcp_servers
+            ),
+            return_exceptions=True,
+        )
+        out: list[McpConnection] = []
+        for server, result in zip(settings.mcp_servers, results, strict=True):
+            if isinstance(result, McpConnection):
+                out.append(result)
+                continue
+            if not isinstance(result, McpUnavailable):
+                for conn in out:
+                    await conn.aclose()
+                raise result
+            log.warning("MCP server %s unavailable: %s", server.name, result)
+            await self.store.append_event(
+                lease, "mcp_unavailable", {"server": server.name, "reason": str(result)}
+            )
+        return out
 
     async def _summary(
         self, task: Task, lease: Lease, provider: Provider

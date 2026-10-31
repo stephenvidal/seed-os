@@ -10,6 +10,8 @@ from seed_api import auth
 from seed_api.config import Settings, get_settings
 from seed_api.main import create_app
 
+from .mcp_server import mcp_url  # noqa: F401 - a fixture, shared by the MCP tests
+
 LOGIN = {"username": "admin", "password": "correct-horse"}
 
 

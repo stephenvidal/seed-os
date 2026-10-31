@@ -38,9 +38,16 @@ class Tool:
     requires_approval: bool = False
     deferred: bool = False
     max_output_chars: int = 20_000
+    # The schema the model is shown, when it is not the input model's own: an MCP
+    # server's tool describes its arguments itself and checks them itself (D-041).
+    parameters: dict[str, Any] | None = None
 
     def spec(self) -> ToolSpec:
-        schema = self.input_model.model_json_schema()
+        schema = (
+            dict(self.parameters)
+            if self.parameters is not None
+            else (self.input_model.model_json_schema())
+        )
         schema.pop("title", None)
         return ToolSpec(name=self.name, description=self.description, parameters=schema)
 

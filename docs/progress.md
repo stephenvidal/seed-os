@@ -2582,3 +2582,34 @@ found answer followed by `run_command` grepping for the same fact, which held th
 pytest tests/test_recall.py tests/test_tools_api.py → passed (1 new: the description says so)
 ```
 **Not tested:** whether the live model now stops; that needs the next live check.
+
+## Increment 45 — MCP client (M9 step 6, D-041)
+
+**Iteration:** M9 step 6. Done when tools from a remote MCP server listed in the environment are
+offered to SEED's own runs, every call waits for approval unless the server is set otherwise,
+results are fenced as untrusted, and a server that is down is recorded while the run goes on.
+
+**Changed:** `mcp` (1.30+, below 2) added to the backend; `McpServer` and `SEED_MCP_SERVERS`,
+`SEED_MCP_CONNECT_TIMEOUT_SECONDS`, `SEED_MCP_CALL_TIMEOUT_SECONDS` in config; `mcp_client.py`
+(one task per connection, tools named `mcp_<server>_<tool>`, results through `untrusted()`);
+`Tool.parameters` so a tool can show the model a schema of its own; the worker connects for SEED's
+own runs and records `mcp_unavailable`; the task timeline says when a server's tools were left
+out; README, `.env.example`, roadmap row 9 (it still said step 1 was in progress), D-041.
+
+**Tested** (against a real MCP server, FastMCP over Streamable HTTP, started inside the tests)
+```
+backend: ruff, ruff format, mypy clean; pip check clean
+pytest (DB) → 300 passed, 1 skipped (7 new: 6 in test_mcp_client.py, 1 in test_flow.py)
+frontend: typecheck, lint, format clean; npm test → 133 passed (1 new)
+```
+Breakage checks: returning the server's text unfenced and dropping the approval flag fails
+`test_tools_are_listed_named_and_gated` and `test_results_are_fenced_and_errors_reported`;
+not connecting in the worker fails `test_a_task_uses_mcp_tools_and_skips_a_server_that_is_gone`.
+An unreachable server fails in well under a second (`test_unreachable_server_fails_alone`).
+
+**Not tested:** a real hosted MCP server (with auth headers); a real model choosing an MCP tool;
+a run that pauses for approval of an MCP call and resumes (the approval path is the same as for
+`run_command`, and resuming reconnects); the Docker image build with the new dependency.
+
+**Open questions:** which MCP servers Stephen wants first; whether the Tools page should list
+MCP tools (it would have to connect from the API).

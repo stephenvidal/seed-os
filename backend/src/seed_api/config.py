@@ -1,11 +1,25 @@
 """Environment-based configuration. Secrets are read from the environment only."""
 
 from functools import lru_cache
+from typing import Literal
 
-from pydantic import Field, SecretStr
+from pydantic import BaseModel, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .core.pricing import DEFAULT_PRICES, ModelPrice
+
+
+class McpServer(BaseModel):
+    """One remote MCP server whose tools SEED's own runs may use (D-041)."""
+
+    name: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,23}$")
+    url: str = Field(pattern=r"^https?://\S+$", max_length=2_000)
+    # Sent with every request, e.g. {"Authorization": "Bearer ..."}. Kept secret.
+    headers: dict[str, SecretStr] = {}
+    # "always": every call waits for the owner's approval. "never": calls run freely.
+    approval: Literal["always", "never"] = "always"
+    # Only these of the server's tools, by the server's own names. Unset => all.
+    tools: list[str] | None = None
 
 
 class Settings(BaseSettings):
@@ -84,6 +98,11 @@ class Settings(BaseSettings):
     telegram_chat_id: int | None = None
     telegram_user: str | None = None
     telegram_api_url: str = "https://api.telegram.org"
+    # Remote MCP servers (D-041), as a JSON list of {name, url, headers, approval,
+    # tools}. Empty => none. Headers may carry keys, so this lives in the env only.
+    mcp_servers: list[McpServer] = []
+    mcp_connect_timeout_seconds: float = Field(default=15, gt=0, le=120)
+    mcp_call_timeout_seconds: float = Field(default=60, gt=0, le=600)
 
     def price_of(self, model: str) -> ModelPrice | None:
         return self.model_prices.get(model) or DEFAULT_PRICES.get(model)
