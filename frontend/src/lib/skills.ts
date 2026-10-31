@@ -24,6 +24,17 @@ export type Imported = {
   ignored: string[];
 };
 
+/** One SKILL.md of a Hermes skills folder, and what importing it does or did (D-043). */
+export type FolderItem = {
+  path: string;
+  name: string | null;
+  description: string | null;
+  outcome: "new" | "imported" | "name_taken" | "invalid";
+  error: string | null;
+};
+
+export type FolderFile = { path: string; text: string };
+
 export const SKILLS = ["skills"] as const;
 
 /** The rule the API applies to a name, so the form can say so before sending. */
@@ -42,5 +53,11 @@ export const skillsApi = {
     request<Imported>("/api/v1/skills/import", {
       method: "POST",
       body: JSON.stringify({ text, agent_id: agentId }),
+    }),
+  /** Every SKILL.md of a Hermes skills folder; `preview` saves nothing. */
+  importFolder: (files: FolderFile[], agentId: string | null, preview: boolean) =>
+    request<FolderItem[]>(`/api/v1/skills/import-folder${preview ? "?preview=true" : ""}`, {
+      method: "POST",
+      body: JSON.stringify({ files, agent_id: agentId }),
     }),
 };

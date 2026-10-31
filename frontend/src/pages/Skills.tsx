@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, FileUp, Pencil, Plus, Sparkles, Trash2 } from "lucide-react";
+import { AlertTriangle, FileUp, FolderUp, Pencil, Plus, Sparkles, Trash2 } from "lucide-react";
 import { useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
 import { Link } from "react-router-dom";
@@ -12,7 +12,7 @@ import { AGENTS, agentsApi } from "../lib/agents";
 import type { Agent } from "../lib/agents";
 import { ApiError } from "../lib/api";
 import { SKILLS, SKILL_NAME, skillsApi } from "../lib/skills";
-import type { Skill, SkillInput } from "../lib/skills";
+import type { FolderFile, FolderItem, Skill, SkillInput } from "../lib/skills";
 
 const field =
   "rounded-control border border-border bg-surface-1 px-2.5 text-sm text-fg outline-none focus:border-accent";
@@ -260,6 +260,160 @@ function ImportForm({ agents, onDone }: { agents: Agent[]; onDone: () => void })
   );
 }
 
+const SKIPPED: Record<Exclude<FolderItem["outcome"], "new" | "imported">, string> = {
+  name_taken: "you already have a skill with this name",
+  invalid: "could not be read",
+};
+
+/** Every SKILL.md of a Hermes Agent skills folder (D-043): preview, pick, import. */
+function FolderImportForm({ agents, onDone }: { agents: Agent[]; onDone: () => void }) {
+  const qc = useQueryClient();
+  const [files, setFiles] = useState<FolderFile[]>([]);
+  const [agentId, setAgentId] = useState<string | null>(null);
+  const [chosen, setChosen] = useState<Set<string>>(new Set());
+  const [error, setError] = useState<string | null>(null);
+  const preview = useMutation({
+    mutationFn: (picked: FolderFile[]) => skillsApi.importFolder(picked, agentId, true),
+    onSuccess: (items) =>
+      setChosen(new Set(items.filter((i) => i.outcome === "new").map((i) => i.path))),
+  });
+  const save = useMutation({
+    mutationFn: () =>
+      skillsApi.importFolder(
+        files.filter((f) => chosen.has(f.path)),
+        agentId,
+        false,
+      ),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: SKILLS }),
+  });
+
+  async function pick(e: ChangeEvent<HTMLInputElement>) {
+    const all = Array.from(e.target.files ?? []).filter((f) => f.name === "SKILL.md");
+    setError(null);
+    preview.reset();
+    if (all.length === 0) {
+      setFiles([]);
+      setError("There is no SKILL.md in that folder.");
+      return;
+    }
+    try {
+      const read = await Promise.all(
+        all.map(async (f, i) => ({
+          // Without a folder path, number them so each stays distinct.
+          path: f.webkitRelativePath || `${i + 1}/${f.name}`,
+          text: await f.text(),
+        })),
+      );
+      setFiles(read);
+      preview.mutate(read);
+    } catch {
+      setError("Could not read the folder.");
+    }
+  }
+
+  if (save.isSuccess) {
+    const done = save.data.filter((i) => i.outcome === "imported").length;
+    return (
+      <div className="flex items-center justify-between gap-3 px-4 py-4 text-sm" role="status">
+        <p className="text-fg">
+          Imported {done} skill{done === 1 ? "" : "s"}.
+        </p>
+        <Button size="sm" onClick={onDone}>
+          Done
+        </Button>
+      </div>
+    );
+  }
+  const items = preview.data ?? [];
+  const failure =
+    error ?? (preview.error || save.error ? message((preview.error ?? save.error) as Error) : null);
+  return (
+    <div className="flex flex-col gap-3 px-4 py-4 text-sm">
+      <p className="text-xs text-fg-muted">
+        Choose your Hermes Agent skills folder (<span className="font-mono">~/.hermes/skills</span>
+        ). SEED reads every SKILL.md in it and shows what it would import before it does.
+      </p>
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="flex cursor-pointer items-center gap-1.5 text-xs text-fg-muted">
+          <FileUp size={14} aria-hidden />
+          Choose a folder
+          <input
+            type="file"
+            multiple
+            onChange={pick}
+            className="sr-only"
+            ref={(el) => el?.setAttribute("webkitdirectory", "")}
+          />
+        </label>
+        <WhoSelect agents={agents} value={agentId} onChange={setAgentId} />
+      </div>
+      {preview.isPending && (
+        <p className="flex items-center gap-2 text-fg-muted">
+          <Spinner /> Reading {files.length} skills…
+        </p>
+      )}
+      {items.length > 0 && (
+        <ul aria-label="Skills in the folder" className="flex flex-col gap-1">
+          {items.map((i) => (
+            <li
+              key={i.path}
+              className="flex items-start gap-2 rounded-control bg-surface-2 px-2.5 py-1.5"
+            >
+              {i.outcome === "new" ? (
+                <input
+                  type="checkbox"
+                  aria-label={`Import ${i.name}`}
+                  checked={chosen.has(i.path)}
+                  onChange={(e) => {
+                    const next = new Set(chosen);
+                    if (e.target.checked) next.add(i.path);
+                    else next.delete(i.path);
+                    setChosen(next);
+                  }}
+                  className="mt-1"
+                />
+              ) : (
+                <span className="mt-1 w-[13px]" aria-hidden />
+              )}
+              <div className="min-w-0">
+                <p className="truncate font-mono text-xs text-fg">{i.name ?? i.path}</p>
+                {i.outcome === "new" ? (
+                  <p className="text-xs text-fg-muted">{i.description}</p>
+                ) : (
+                  <p className="text-xs text-warning">
+                    Skipped: {SKIPPED[i.outcome as keyof typeof SKIPPED]}
+                    {i.error ? ` (${i.error})` : ""}
+                  </p>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      {failure && (
+        <p role="alert" className="text-xs text-danger">
+          {failure}
+        </p>
+      )}
+      <div className="flex justify-end gap-2">
+        <Button size="sm" onClick={onDone}>
+          Cancel
+        </Button>
+        <Button
+          variant="primary"
+          size="sm"
+          disabled={chosen.size === 0 || save.isPending}
+          onClick={() => save.mutate()}
+        >
+          {save.isPending
+            ? "Importing…"
+            : `Import ${chosen.size} skill${chosen.size === 1 ? "" : "s"}`}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function SkillRow({ skill, agents }: { skill: Skill; agents: Agent[] }) {
   const qc = useQueryClient();
   const [mode, setMode] = useState<"view" | "edit" | "delete">("view");
@@ -362,7 +516,7 @@ export function SkillsPanel() {
   const qc = useQueryClient();
   const list = useQuery({ queryKey: SKILLS, queryFn: skillsApi.list, retry: false });
   const agents = useQuery({ queryKey: AGENTS, queryFn: agentsApi.list, retry: false });
-  const [open, setOpen] = useState<"none" | "new" | "import">("none");
+  const [open, setOpen] = useState<"none" | "new" | "import" | "folder">("none");
   const roster = agents.data ?? [];
 
   return (
@@ -373,6 +527,9 @@ export function SkillsPanel() {
           <div className="flex gap-2">
             <Button size="sm" onClick={() => setOpen("import")}>
               <FileUp size={14} aria-hidden /> Import
+            </Button>
+            <Button size="sm" onClick={() => setOpen("folder")}>
+              <FolderUp size={14} aria-hidden /> Import a folder
             </Button>
             <Button size="sm" onClick={() => setOpen("new")}>
               <Plus size={14} aria-hidden /> New skill
@@ -403,6 +560,11 @@ export function SkillsPanel() {
       {open === "import" && (
         <div role="group" aria-label="Import a skill" className="border-b border-border">
           <ImportForm agents={roster} onDone={() => setOpen("none")} />
+        </div>
+      )}
+      {open === "folder" && (
+        <div role="group" aria-label="Import a skills folder" className="border-b border-border">
+          <FolderImportForm agents={roster} onDone={() => setOpen("none")} />
         </div>
       )}
       {list.isPending ? (

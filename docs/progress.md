@@ -2613,3 +2613,48 @@ a run that pauses for approval of an MCP call and resumes (the approval path is 
 
 **Open questions:** which MCP servers Stephen wants first; whether the Tools page should list
 MCP tools (it would have to connect from the API).
+
+## Increment 46 — Import Hermes Agent memory files (M9 step 7, part 1, D-042)
+
+**Iteration:** M9 step 7a. Done when the owner can bring a Hermes Agent USER.md or MEMORY.md into
+"What SEED knows about you", see first what would be added and skipped, and the imported notes reach
+SEED's runs like their own notes.
+
+**Changed:** `owner_memory.py` (`hermes_entries`, `plan_import`, `add_many`, `contents`,
+`POST /api/v1/memory/import`); `components/HermesMemoryImport.tsx` on Settings; `lib/memory.ts`;
+README, roadmap, D-042. The format was read from Hermes Agent's source
+(`tools/memory_tool_store.py`: `ENTRY_DELIMITER = "\n§\n"`, limits 2,200 and 1,375).
+
+**Tested**
+```
+backend: ruff, ruff format, mypy clean; pytest (DB) → 302 passed, 1 skipped (2 new)
+frontend: typecheck, lint, format clean; npm test → 134 passed (1 new)
+```
+Breakage checks: dropping the duplicate check fails `test_the_api_imports_a_hermes_memory_file`;
+making Preview save fails the Settings import test.
+
+**Not tested:** a real file from Stephen's Hermes install; a real browser.
+
+**Open questions:** none. Next in step 7: a Hermes skills folder in one go, and past sessions.
+
+## Increment 47 — Import a Hermes skills folder (M9 step 7, part 2, D-043)
+
+**Iteration:** M9 step 7b. Done when the owner can pick a Hermes Agent skills folder, see which of
+its SKILL.md files would be imported and which skipped and why, untick any, and import the rest.
+
+**Changed:** `skills/api.py` (`_from_skill_md` shared with the single import,
+`POST /api/v1/skills/import-folder`); `lib/skills.ts`; Skills panel "Import a folder"
+(`FolderImportForm`); README, roadmap, D-043.
+
+**Tested**
+```
+backend: ruff, ruff format, mypy clean; pytest (DB) → 303 passed, 1 skipped (1 new: test_import_a_hermes_skills_folder)
+frontend: typecheck, lint, format clean; npm test → 135 passed (1 new)
+```
+Breakage checks: dropping the name-taken check fails `test_import_a_hermes_skills_folder`;
+dropping the SKILL.md filter in the page fails the folder test.
+
+**Not tested:** a real Hermes skills folder; the folder picker in a real browser (jsdom has no
+folder picker; the test sets each file's folder path itself).
+
+**Open questions:** none. Past Hermes sessions are the last part of step 7.

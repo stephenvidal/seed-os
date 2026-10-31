@@ -191,6 +191,40 @@ def test_import_a_hermes_skill_md(api: TestClient) -> None:
     assert api.post("/api/v1/skills/import", json=no_agent).status_code == 422
 
 
+def test_import_a_hermes_skills_folder(api: TestClient) -> None:
+    api.post("/api/v1/skills/import", json={"text": HERMES})  # deploy-k8s is taken
+    other = HERMES.replace("deploy-k8s", "arxiv").replace("Deploy an app", "Search papers")
+    files = [
+        {"path": "skills/devops/deploy-k8s/SKILL.md", "text": HERMES},
+        {"path": "skills/research/arxiv/SKILL.md", "text": other},
+        {"path": "skills/research/arxiv-copy/SKILL.md", "text": other},
+        {"path": "skills/broken/SKILL.md", "text": "no header"},
+    ]
+    preview = api.post("/api/v1/skills/import-folder?preview=true", json={"files": files})
+    assert preview.status_code == 200, preview.text
+    assert [(i["name"], i["outcome"]) for i in preview.json()] == [
+        ("deploy-k8s", "name_taken"),
+        ("arxiv", "new"),
+        ("arxiv", "name_taken"),  # the folder's first one wins
+        (None, "invalid"),
+    ]
+    assert "YAML header" in preview.json()[3]["error"]
+    assert [s["name"] for s in api.get("/api/v1/skills").json()] == ["deploy-k8s"]
+    done = api.post("/api/v1/skills/import-folder", json={"files": files})
+    assert [i["outcome"] for i in done.json()] == [
+        "name_taken",
+        "imported",
+        "name_taken",
+        "invalid",
+    ]
+    skills = {s["name"]: s for s in api.get("/api/v1/skills").json()}
+    assert set(skills) == {"arxiv", "deploy-k8s"}
+    assert skills["arxiv"]["description"] == "Search papers to Kubernetes"
+    assert api.post("/api/v1/skills/import-folder", json={"files": []}).status_code == 422
+    big = [{"path": f"{i}/SKILL.md", "text": "x" * 40_000} for i in range(76)]
+    assert api.post("/api/v1/skills/import-folder", json={"files": big}).status_code == 422
+
+
 def test_skills_belong_to_their_owner(api: TestClient, db_url: str) -> None:
     theirs = uuid.uuid4()
     with psycopg.connect(db_url) as conn:

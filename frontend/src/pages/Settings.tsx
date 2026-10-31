@@ -1,4 +1,5 @@
 import { Monitor, Moon, Sun } from "lucide-react";
+import { HermesMemoryImport } from "../components/HermesMemoryImport";
 import { MemoryNotes } from "../components/MemoryNotes";
 import { PageHeader } from "../components/ui/PageHeader";
 import { Panel } from "../components/ui/Panel";
@@ -82,6 +83,7 @@ export function SettingsPage() {
           queryKey={OWNER_MEMORY}
           api={ownerMemoryApi}
         />
+        <HermesMemoryImport />
         <Panel title="Account">
           <Row
             label="Signed in as"

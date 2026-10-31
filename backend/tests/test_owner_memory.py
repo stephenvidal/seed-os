@@ -123,3 +123,49 @@ def test_the_api_adds_edits_approves_and_deletes(api: TestClient, db_url: str) -
     assert api.delete(f"/api/v1/memory/{pid}").status_code == 204
     assert api.delete(f"/api/v1/memory/{pid}").status_code == 404
     assert api.patch(f"/api/v1/memory/{uuid.uuid4()}", json={"approve": True}).status_code == 404
+
+
+HERMES_USER_MD = (
+    "\ufeffName: Stephen.\r\n§\r\nPrefers   short answers.\n§\n\n§\n"
+    "Works nights\n§\nPrefers short answers."
+)
+
+
+def test_hermes_entries_split_on_the_section_line_only() -> None:
+    from seed_api.owner_memory import hermes_entries
+
+    assert hermes_entries(HERMES_USER_MD) == [
+        "Name: Stephen.",
+        "Prefers short answers.",
+        "Works nights",
+        "Prefers short answers.",
+    ]
+    assert hermes_entries("Costs 5 § per item") == ["Costs 5 § per item"]  # a bare § stays
+
+
+def test_the_api_imports_a_hermes_memory_file(api: TestClient) -> None:
+    api.post("/api/v1/memory", json={"content": "Works nights"})
+    long = "x" * 501
+    body = {"text": HERMES_USER_MD + "\n§\n" + long}
+    preview = api.post("/api/v1/memory/import?preview=true", json=body)
+    assert preview.status_code == 200
+    assert preview.json()["added"] == ["Name: Stephen.", "Prefers short answers."]
+    assert [s["reason"] for s in preview.json()["skipped"]] == [
+        "duplicate",
+        "duplicate",
+        "too_long",
+    ]
+    assert len(api.get("/api/v1/memory").json()) == 1  # preview saves nothing
+    done = api.post("/api/v1/memory/import", json=body)
+    assert done.json()["added"] == ["Name: Stephen.", "Prefers short answers."]
+    notes = api.get("/api/v1/memory").json()
+    assert sorted(n["content"] for n in notes) == [
+        "Name: Stephen.",
+        "Prefers short answers.",
+        "Works nights",
+    ]
+    assert all(n["status"] == "approved" for n in notes)
+    again = api.post("/api/v1/memory/import", json=body).json()
+    assert again["added"] == [] and len(again["skipped"]) == 5
+    too_big = api.post("/api/v1/memory/import", json={"text": "a" * 50_001})
+    assert too_big.status_code == 422

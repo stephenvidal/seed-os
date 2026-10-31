@@ -1,7 +1,7 @@
 """Skills API (D-033): write, import, list, change and delete the owner's skills."""
 
 import uuid
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, Field, ValidationError, field_validator
@@ -79,6 +79,29 @@ def _no_agent() -> ApiError:
     return ApiError(422, "no_such_agent", "That agent does not exist.")
 
 
+def _from_skill_md(text: str, agent_id: uuid.UUID | None) -> tuple[SkillIn, list[str]]:
+    """A skill from a SKILL.md's text, and the header keys SEED ignores; or 422."""
+    try:
+        md = parse(text)
+        skill_in = SkillIn.model_validate(
+            {
+                "name": md.name,
+                "description": md.description,
+                "tags": md.tags,
+                "body": md.body,
+                "agent_id": agent_id,
+            }
+        )
+    except SkillMdError as e:
+        raise ApiError(422, "invalid_skill_md", str(e)) from None
+    except ValidationError as e:
+        first = e.errors()[0]
+        field = ".".join(str(p) for p in first["loc"]) or "header"
+        message = str(first.get("ctx", {}).get("error", first["msg"]))
+        raise ApiError(422, "invalid_skill_md", f"{field}: {message}") from None
+    return skill_in, md.ignored
+
+
 @router.get("", response_model=list[Skill])
 async def list_skills(principal: AdminOnly, store: SkillsDep) -> list[Skill]:
     """The signed-in user's skills, shared and private, by name."""
@@ -116,27 +139,88 @@ async def import_skill(
     body: ImportIn, request: Request, principal: AdminOnly, store: SkillsDep, audit: AuthStoreDep
 ) -> Imported:
     """Add a skill from the text of a Hermes Agent SKILL.md."""
-    try:
-        md = parse(body.text)
-        skill_in = SkillIn.model_validate(
-            {
-                "name": md.name,
-                "description": md.description,
-                "tags": md.tags,
-                "body": md.body,
-                "agent_id": body.agent_id,
-            }
-        )
-    except SkillMdError as e:
-        raise ApiError(422, "invalid_skill_md", str(e)) from None
-    except ValidationError as e:
-        first = e.errors()[0]
-        field = ".".join(str(p) for p in first["loc"]) or "header"
-        message = str(first.get("ctx", {}).get("error", first["msg"]))
-        raise ApiError(422, "invalid_skill_md", f"{field}: {message}") from None
+    skill_in, ignored = _from_skill_md(body.text, body.agent_id)
     return Imported(
-        skill=await _create(skill_in, request, principal, store, audit), ignored=md.ignored
+        skill=await _create(skill_in, request, principal, store, audit), ignored=ignored
     )
+
+
+# A Hermes Agent skills folder (~/.hermes/skills/), as the browser reads it: every
+# SKILL.md in it, by its path in the folder (D-043).
+MAX_FOLDER_FILES = 300
+MAX_FOLDER_CHARS = 3_000_000
+
+
+class FolderFile(BaseModel):
+    path: str = Field(min_length=1, max_length=500)
+    text: str = Field(max_length=MAX_TEXT + 1)
+
+
+class FolderIn(BaseModel):
+    files: list[FolderFile] = Field(min_length=1, max_length=MAX_FOLDER_FILES)
+    agent_id: uuid.UUID | None = None
+
+    @field_validator("files")
+    @classmethod
+    def size_ok(cls, v: list[FolderFile]) -> list[FolderFile]:
+        if sum(len(f.text) for f in v) > MAX_FOLDER_CHARS:
+            raise ValueError(f"At most {MAX_FOLDER_CHARS} characters in all.")
+        return v
+
+
+FolderOutcome = Literal["new", "imported", "name_taken", "invalid"]
+
+
+class FolderItem(BaseModel):
+    path: str
+    name: str | None
+    description: str | None
+    # new: would be imported (preview); name_taken: you have a skill by that name,
+    # or an earlier file in the folder does; invalid: see `error`.
+    outcome: FolderOutcome
+    error: str | None = None
+
+
+@router.post("/import-folder", response_model=list[FolderItem])
+async def import_folder(
+    body: FolderIn,
+    request: Request,
+    principal: AdminOnly,
+    store: SkillsDep,
+    audit: AuthStoreDep,
+    preview: bool = False,
+) -> list[FolderItem]:
+    """Add every SKILL.md of a Hermes Agent skills folder, each as the single import
+    would. One that cannot be read, or whose name is taken, is listed and skipped;
+    the rest are imported. `preview=true` saves nothing."""
+    taken = {s.name for s in await store.all(principal.username)}
+    out: list[FolderItem] = []
+    for f in body.files:
+        try:
+            skill_in, _ = _from_skill_md(f.text, body.agent_id)
+        except ApiError as e:
+            out.append(
+                FolderItem(
+                    path=f.path, name=None, description=None, outcome="invalid", error=e.message
+                )
+            )
+            continue
+        item = FolderItem(
+            path=f.path, name=skill_in.name, description=skill_in.description, outcome="new"
+        )
+        if skill_in.name in taken:
+            item.outcome = "name_taken"
+        elif not preview:
+            try:
+                await _create(skill_in, request, principal, store, audit)
+                item.outcome = "imported"
+            except ApiError as e:
+                if e.code != "name_taken":
+                    raise
+                item.outcome = "name_taken"
+        taken.add(skill_in.name)
+        out.append(item)
+    return out
 
 
 @router.get("/{skill_id}", response_model=Skill)

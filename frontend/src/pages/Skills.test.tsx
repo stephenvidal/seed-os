@@ -177,6 +177,69 @@ describe("Skills", () => {
     expect(bodies[1]).toEqual({ text, agent_id: null });
   });
 
+  it("imports the skills of a Hermes folder that you pick", async () => {
+    const item = (
+      path: string,
+      name: string | null,
+      outcome: string,
+      error: string | null = null,
+    ) => ({
+      path,
+      name,
+      description: name ? `About ${name}` : null,
+      outcome,
+      error,
+    });
+    const spy = mockApi({
+      "GET /api/v1/auth/me": ME,
+      "GET /api/v1/tools?hours=24": TOOLS,
+      "GET /api/v1/agents": { status: 200, body: [] },
+      "GET /api/v1/skills": { status: 200, body: [skill()] },
+      "POST /api/v1/skills/import-folder?preview=true": {
+        status: 200,
+        body: [
+          item("arxiv/SKILL.md", "arxiv", "new"),
+          item("notes/SKILL.md", "notes", "new"),
+          item("deploy/SKILL.md", "deploy-site", "name_taken"),
+        ],
+      },
+      "POST /api/v1/skills/import-folder": {
+        status: 200,
+        body: [item("arxiv/SKILL.md", "arxiv", "imported")],
+      },
+    });
+    const user = userEvent.setup();
+    renderApp(<App />, "/tools");
+    await user.click(await screen.findByRole("button", { name: "Import a folder" }));
+    const form = screen.getByRole("group", { name: "Import a skills folder" });
+    const md = (name: string, dir = name) => {
+      const f = new File([`---\nname: ${name}\n---\nx`], "SKILL.md");
+      Object.defineProperty(f, "webkitRelativePath", { value: `${dir}/SKILL.md` });
+      return f;
+    };
+    await user.upload(within(form).getByLabelText("Choose a folder"), [
+      md("arxiv"),
+      new File(["ignored"], "README.md"),
+      md("notes"),
+      md("deploy-site", "deploy"),
+    ]);
+    const list = await within(form).findByRole("list", { name: "Skills in the folder" });
+    expect(within(list).getByText(/Skipped: you already have a skill/)).toBeInTheDocument();
+    const previewBody = sent(spy, "POST", "/api/v1/skills/import-folder?preview=true") as {
+      files: unknown[];
+    };
+    expect(previewBody.files).toHaveLength(3); // only the SKILL.md files
+
+    await user.click(within(list).getByRole("checkbox", { name: "Import notes" }));
+    await user.click(within(form).getByRole("button", { name: "Import 1 skill" }));
+    expect(await within(form).findByRole("status")).toHaveTextContent("Imported 1 skill.");
+    const saved = sent(spy, "POST", "/api/v1/skills/import-folder") as {
+      files: { text: string }[];
+      agent_id: null;
+    };
+    expect(saved.files.map((f) => f.text)).toEqual(["---\nname: arxiv\n---\nx"]);
+  });
+
   it("changes and deletes a skill", async () => {
     let skills = [skill()];
     const spy = mockApi({

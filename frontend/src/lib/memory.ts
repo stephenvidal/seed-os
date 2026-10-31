@@ -16,6 +16,12 @@ export type OwnerNote = {
   updated_at: string;
 };
 
+/** What importing a Hermes Agent memory file adds, or added, and what it skips. */
+export type HermesImport = {
+  added: string[];
+  skipped: { content: string; reason: "duplicate" | "too_long" }[];
+};
+
 export const OWNER_MEMORY = ["owner-memory"] as const;
 
 /** Proposals first, then approved notes. */
@@ -26,4 +32,10 @@ export const ownerMemoryApi = {
   update: (id: string, body: { content?: string; approve?: boolean }) =>
     request<OwnerNote>(`/api/v1/memory/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   remove: (id: string) => request<void>(`/api/v1/memory/${id}`, { method: "DELETE" }),
+  /** A Hermes Agent USER.md or MEMORY.md; `preview` saves nothing. */
+  importHermes: (text: string, preview: boolean) =>
+    request<HermesImport>(`/api/v1/memory/import${preview ? "?preview=true" : ""}`, {
+      method: "POST",
+      body: JSON.stringify({ text }),
+    }),
 };

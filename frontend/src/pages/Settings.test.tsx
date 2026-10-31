@@ -73,3 +73,42 @@ describe("What SEED knows about you", () => {
     expect(JSON.parse(String(post?.[1]?.body))).toEqual({ content: "Works nights" });
   });
 });
+
+describe("Import from Hermes Agent", () => {
+  it("previews a memory file, then imports what it would add", async () => {
+    const plan = {
+      added: ["Name: Stephen"],
+      skipped: [{ content: "Prefers short answers", reason: "duplicate" }],
+    };
+    const spy = mockApi({
+      "GET /api/v1/auth/me": ME,
+      "GET /api/v1/system": SYSTEM,
+      "GET /api/v1/memory": { status: 200, body: [note({})] },
+      "POST /api/v1/memory/import?preview=true": { status: 200, body: plan },
+      "POST /api/v1/memory/import": { status: 200, body: plan },
+    });
+    const user = userEvent.setup();
+    renderApp(<App />, "/settings");
+
+    const file = new File(["Name: Stephen\n§\nPrefers short answers"], "USER.md");
+    const input = (await screen.findByText("Or choose a file")).querySelector("input");
+    await user.upload(input as HTMLInputElement, file);
+    expect(screen.getByLabelText("Hermes memory file")).toHaveValue(
+      "Name: Stephen\n§\nPrefers short answers",
+    );
+    await user.click(screen.getByRole("button", { name: "Preview" }));
+    const preview = await screen.findByRole("region", { name: "Import preview" });
+    expect(within(preview).getByText("Name: Stephen")).toBeInTheDocument();
+    expect(
+      within(preview).getByText("Skipped, already a note: Prefers short answers"),
+    ).toBeInTheDocument();
+    expect(spy.mock.calls.filter((c) => String(c[0]) === "/api/v1/memory/import")).toHaveLength(0);
+
+    await user.click(within(preview).getByRole("button", { name: "Import 1 note" }));
+    expect(await screen.findByText("Added 1 note.")).toBeInTheDocument();
+    const saved = spy.mock.calls.find((c) => String(c[0]) === "/api/v1/memory/import");
+    expect(JSON.parse(String(saved?.[1]?.body))).toEqual({
+      text: "Name: Stephen\n§\nPrefers short answers",
+    });
+  });
+});
