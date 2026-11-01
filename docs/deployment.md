@@ -96,6 +96,24 @@ no token is set. To switch it on:
    to `.env` and run `docker compose up -d gateway` again.
 The token is a secret like the others: vault and `.env` only.
 
+### Discord (M9, optional)
+The `discord` service lets you talk to SEED in Discord direct messages, with your
+notifications and Approve / Deny buttons there too (D-044). It exits at start while no
+token is set. To switch it on:
+1. At https://discord.com/developers/applications, choose New Application, name it
+   (for example SEED), open Bot, choose Reset Token and copy the token. No privileged
+   intents are needed.
+2. Discord lets you message a bot you share a server with. Under OAuth2 → URL Generator,
+   tick `bot`, open the link it makes and add the bot to a server of yours (a private
+   one is fine). It needs no permissions there.
+3. Add `SEED_DISCORD_BOT_TOKEN=<token>` (and `SEED_PUBLIC_URL` if it is not set yet) to
+   `/opt/seed/.env`, then run `docker compose up -d discord` in `/opt/seed`.
+4. In Discord, click the bot's name and send it a message. It replies with your
+   account's id. Add `SEED_DISCORD_USER_ID=<id>` to `.env` and run
+   `docker compose up -d discord` again. Messages from any other account are not answered.
+The token is a secret: vault and `.env` only. A wrong token stops the service with a
+log line naming it (`docker compose logs discord`).
+
 ### Secrets handling
 `SEED_ADMIN_PASSWORD` and `SEED_POSTGRES_PASSWORD` live in the encrypted vault
 (`vault.py get SEED_ADMIN_PASSWORD` on golden-eye) and in `/opt/seed/.env` on the

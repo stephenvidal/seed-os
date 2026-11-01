@@ -98,6 +98,13 @@ class Settings(BaseSettings):
     telegram_chat_id: int | None = None
     telegram_user: str | None = None
     telegram_api_url: str = "https://api.telegram.org"
+    # Discord gateway (D-044). Unset token => the gateway does not run. The user id
+    # is the one Discord account SEED talks to, by direct message; the bot tells
+    # anyone else their id. The user is whose notifications are sent there.
+    discord_bot_token: SecretStr | None = None
+    discord_user_id: str | None = Field(default=None, pattern=r"^[0-9]{5,25}$")
+    discord_user: str | None = None
+    discord_api_url: str = "https://discord.com/api/v10"
     # Remote MCP servers (D-041), as a JSON list of {name, url, headers, approval,
     # tools}. Empty => none. Headers may carry keys, so this lives in the env only.
     mcp_servers: list[McpServer] = []

@@ -132,6 +132,14 @@ it — with full visibility and control.
   calls (arguments, result, time, approval), checkpoints, and the raw event log
   (streamed text chunks are counted, not listed). A running task refreshes every
   3 s. Model reasoning is never stored, so it is never shown.
+- **Discord (M9):** with a bot token and your Discord account's id set, the `discord`
+  service talks to you in Discord direct messages as the Telegram gateway does in its
+  chat (D-044): a message is a Chat turn in its own conversation, `/new` starts
+  another, answers come back with Discord's own Markdown, a turn waiting for approval
+  shows the call's arguments with Approve / Deny buttons (only your account can press
+  them; each decision is in the audit log with `via: discord`), and notifications from
+  the last hour arrive once each. Any other account that messages the bot is told its
+  id, and nothing else. It keeps one websocket to Discord and resumes it after a drop.
 - **Telegram (M8):** with a bot token and chat id set, the `gateway` service sends
   each notification to Telegram once, with a link back when `SEED_PUBLIC_URL` is set. Answers from chats keep their Markdown formatting (bold, italic, code, links, bullets); tables stay as text.
   Only notifications from the last hour are sent, so starting it sends no backlog.
@@ -312,6 +320,9 @@ docker compose exec api python -m seed_api.users list    # in the compose stack
 | `SEED_SANDBOX_ISOLATE_USERS` | `true` | Sandbox: run each task as its own user (needs root in the container; `false` only for tests) |
 | `SEED_MCP_SERVERS` | `[]` | Worker: JSON list of remote MCP servers (D-041), each `{"name", "url", "headers", "approval", "tools"}`. `name` is 1-24 lowercase letters, digits or `-`; `url` the server's Streamable HTTP endpoint; `headers` (optional) are sent with every request, e.g. `{"Authorization": "Bearer …"}`; `approval` is `always` (default: each call waits for you) or `never`; `tools` (optional) keeps only the tools named |
 | `SEED_MCP_CONNECT_TIMEOUT_SECONDS` / `SEED_MCP_CALL_TIMEOUT_SECONDS` | `15` / `60` | How long a run waits for a server to connect and list its tools, and for one tool call |
+| `SEED_DISCORD_BOT_TOKEN` | unset | Discord gateway (D-044): the bot's token. Unset: the `discord` service exits at start. A token Discord refuses stops the service |
+| `SEED_DISCORD_USER_ID` | unset | The one Discord account SEED talks to, by direct message. Message the bot and it replies with your id |
+| `SEED_DISCORD_USER` | `SEED_ADMIN_USERNAME` | Whose chats and notifications that account gets |
 | `SEED_PUBLIC_URL` | unset | Where people open SEED (`https://…`); messages sent outside the app link back to it. Unset: no links |
 | `SEED_TELEGRAM_BOT_TOKEN` | unset | Telegram gateway (D-031): the bot's token from @BotFather. Unset: the `gateway` service exits at start |
 | `SEED_TELEGRAM_CHAT_ID` | unset | The one chat SEED sends to. Message the bot and it replies with your chat's id |

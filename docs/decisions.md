@@ -1187,3 +1187,38 @@ the owner may not want SEED to see.
 (D-033). Skills are saved one by one, so a failure part way (only a missing agent can cause one)
 leaves the earlier ones saved; the answer and the list show which. Past Hermes sessions remain
 for a later step.
+
+
+## D-044 — Discord gateway: direct messages, like Telegram
+
+**Context:** M9 step 5 (more channels). Stephen picked Discord (2026-11-01). Hermes Agent talks
+on Discord as well as Telegram. SEED's Telegram gateway (D-031, D-032) shows the shape: one
+linked account, chat turns, notifications, Approve / Deny buttons.
+
+**Options:** (a) a bot that reads direct messages over Discord's Gateway websocket; (b) slash
+commands over Discord's interactions webhook (needs a public HTTPS endpoint and request
+signatures, and only answers commands, not plain messages); (c) a library such as discord.py.
+
+**Choice:** (a), written against the documented Gateway and REST API with `websockets` (already
+installed with uvicorn) and httpx, as its own `discord` service (`python -m
+seed_api.gateways.discord`). It asks only for the direct-messages intent (4096); their text
+reaches a bot without the privileged message-content intent, so the owner switches nothing on.
+One Discord account is linked (`SEED_DISCORD_USER_ID`); anyone else is told their id. Messages
+from bots or from servers are ignored. A message is a chat turn keyed `discord:<message id>`;
+the code that queues a turn is now shared with Telegram (`gateways/turns.py`). Approve / Deny are
+message buttons; a press by another account gets a reply only they see; a decision replaces the
+message, removing its buttons, and is audited with `via: discord`. Notifications get their own
+`discord_sent_at`, so Telegram and Discord each send every notification once. Mentions are off on
+everything sent. The connection heartbeats, resumes after a drop or a reconnect request (Discord
+replays the missed events, and the turn key keeps a replayed message to one turn), starts a new
+session when Discord says the old one is gone, and stops the service on close codes that mean the
+token or intents are wrong, rather than retrying forever.
+
+**Reason:** plain messages are how the owner talks to SEED on Telegram; slash commands would be a
+different, clumsier product. A library would bring its own event loop model and many features
+unused here; the protocol needed is small and now tested against a real websocket server.
+
+**Consequences:** the bot must share a server with the owner for Discord to allow the DM
+(docs/deployment.md says how). Only direct messages: SEED does not read server channels. One
+gateway process per bot token (Discord allows one session per bot without sharding, which a
+one-person bot never needs). Migration `0026_discord`.

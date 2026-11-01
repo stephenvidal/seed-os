@@ -2658,3 +2658,29 @@ dropping the SKILL.md filter in the page fails the folder test.
 folder picker; the test sets each file's folder path itself).
 
 **Open questions:** none. Past Hermes sessions are the last part of step 7.
+
+## Increment 48 — Discord gateway (M9 step 5, D-044)
+
+**Iteration:** M9 step 5, Discord (Stephen's pick, 2026-11-01). Done when a Discord direct message
+from the linked account is a SEED chat turn whose answer comes back in the DM, approvals arrive with
+Approve / Deny buttons only that account can press, notifications arrive once each, strangers learn
+only their id, and the connection survives drops and stops on a bad token.
+
+**Changed:** `gateways/discord.py` (REST client, Gateway connection with heartbeat, resume and
+fatal close codes, messages, buttons, answers, notifications); `gateways/turns.py` (queueing a
+turn, now shared with Telegram); config `SEED_DISCORD_BOT_TOKEN`, `SEED_DISCORD_USER_ID`,
+`SEED_DISCORD_USER`, `SEED_DISCORD_API_URL`; migration `0026_discord`; a `discord` service in both
+compose files; `websockets` named as a dependency (it was already installed with uvicorn);
+docs/deployment.md setup steps, README, `.env.example`, roadmap, D-044.
+
+**Tested** (fake Discord REST; a scripted socket; one test against a real local websocket server)
+```
+backend: ruff, ruff format, mypy clean; pip check clean
+pytest (DB) → 314 passed, 1 skipped (11 new in test_discord.py; Telegram's 19 pass on the shared turn code)
+```
+Breakage checks: answering any account fails the stranger test; not tracking the sequence
+number fails the resume test and the real-websocket test.
+
+**Not tested:** real Discord (needs Stephen's bot token); the frontend is unchanged.
+
+**Open questions:** none.
