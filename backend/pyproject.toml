@@ -15,6 +15,7 @@ dependencies = [
   "tzdata>=2024.1",
   "pyyaml>=6.0",
   "mcp>=1.30,<2",
+  "websockets>=13",
 ]
 
 [project.optional-dependencies]

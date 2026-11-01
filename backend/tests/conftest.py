@@ -31,8 +31,8 @@ def db_url() -> str:
         pytest.skip("SEED_TEST_DATABASE_URL not set")
     with psycopg.connect(url, autocommit=True) as conn:
         conn.execute(
-            "DROP TABLE IF EXISTS telegram_offset, telegram_chats, notifications, schedules, "
-            "skills, agent_starters, agents, knowledge_chunks, knowledge_documents, "
+            "DROP TABLE IF EXISTS discord_chats, telegram_offset, telegram_chats, notifications, "
+            "schedules, skills, agent_starters, agents, knowledge_chunks, knowledge_documents, "
             "owner_memories, project_memories, projects, artifact_previews, "
             "artifact_versions, artifacts, task_events, tasks, conversations, audit_log, "
             "sessions, users, schema_migrations CASCADE"

@@ -28,11 +28,12 @@ from typing import Any
 import httpx
 
 from ..auth import AuthStore
-from ..chat.store import ChatError, ChatStore
+from ..chat.store import ChatStore
 from ..config import Settings, get_settings
 from ..flow.db import Pool, make_pool, migrate
 from ..flow.store import TERMINAL, TaskStore
 from ..notifications.store import Notification
+from .turns import queue_turn
 
 log = logging.getLogger("seed.telegram")
 
@@ -365,40 +366,18 @@ class TelegramGateway:
 
     async def _turn(self, chat: int, prompt: str, update: dict[str, Any]) -> str:
         """Queue the message as a chat turn; returns what to tell the chat now."""
-        if self.settings.ollama_api_key is None:
-            return "SEED has no model provider configured, so it cannot answer."
-        if len(prompt) > 20_000:
-            return "That message is too long: send at most 20,000 characters."
-        key = f"telegram:{update['update_id']}"
-        conversation = await self._conversation(chat)
-        try:
-            if conversation is None:
-                raise ChatError("not_found", "no conversation yet")
-            task, _ = await self.chats.send(
-                conversation,
-                owner=self.owner,
-                prompt=prompt,
-                model=None,
-                max_attempts=self.settings.task_max_attempts,
-                idempotency_key=key,
-                context_turns=self.settings.chat_context_turns,
-            )
-        except ChatError as e:
-            if e.code == "turn_in_progress":
-                return "SEED is still answering your last message. Send this again after."
-            if e.code != "not_found":
-                return e.message
-            if self.settings.default_model is None:
-                return "No model is chosen: set SEED_DEFAULT_MODEL on the server."
-            conv, task, _ = await self.chats.start(
-                owner=self.owner,
-                model=self.settings.default_model,
-                prompt=prompt,
-                max_attempts=self.settings.task_max_attempts,
-                idempotency_key=key,
-            )
-            conversation = conv.id
-        await self._remember(chat, conversation=conversation, awaiting=task.id)
+        queued = await queue_turn(
+            self.chats,
+            self.settings,
+            owner=self.owner,
+            conversation=await self._conversation(chat),
+            prompt=prompt,
+            key=f"telegram:{update['update_id']}",
+        )
+        if isinstance(queued, str):
+            return queued
+        conversation, task = queued
+        await self._remember(chat, conversation=conversation, awaiting=task)
         return "Working on it…"
 
     async def _conversation(self, chat: int) -> Any:
