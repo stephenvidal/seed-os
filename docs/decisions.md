@@ -1222,3 +1222,35 @@ unused here; the protocol needed is small and now tested against a real websocke
 (docs/deployment.md says how). Only direct messages: SEED does not read server channels. One
 gateway process per bot token (Discord allows one session per bot without sharding, which a
 one-person bot never needs). Migration `0026_discord`.
+
+## D-045 — Past Hermes Agent chats come in as SEED chats, read in the browser
+
+**Context:** M9 step 7 (Hermes migration). Memory files (D-042) and skills (D-043) import already;
+Hermes' past sessions live in `~/.hermes/state.db`, a SQLite file with a `sessions` table and a
+`messages` table (role user, assistant, tool, system or session_meta; times in unix seconds;
+structured content stored as JSON after a `\0json:` prefix). Asked Stephen whether to bring them in
+(decision card, "Import them as chats" recommended); built on that option while waiting.
+
+**Options:** (a) upload state.db to the API and read it there; (b) read it in the browser with
+SQLite compiled to WebAssembly (sql.js) and send only the chat text, in batches; (c) skip past
+sessions.
+
+**Choice:** (b). The Settings page's "Import from Hermes Agent" panel takes a state.db, loads
+sql.js only then, and lists what it found (sessions, messages, date range). Hermes' own background
+sessions (source tool, subagent, kanban, oneshot) and tool, system and metadata messages are left
+out. `POST /api/v1/conversations/import-hermes` takes up to 50 sessions per request (the page keeps
+each request under 1.5 MB). Each session becomes a conversation; a user message starts a turn and
+the assistant text after it is that turn's answer. Turns are stored as finished tasks
+(`termination = 'imported'`) at their original times, so they show in Chat and in past-chat search
+(D-039) and are never run. The conversation id is derived from the owner and the Hermes session id,
+so importing the same file again adds nothing. Audited as `hermes_sessions_imported`.
+
+**Reason:** a state.db is often far larger than the 2 MB the web server lets through, and the API
+container has 256 MB of memory and no disk to spare for it; the browser reads it locally and only
+the text SEED keeps leaves the machine. Storing turns as ordinary chat turns means every existing
+screen and the recall tool work on them with no special cases.
+
+**Consequences:** the production CSP adds `'wasm-unsafe-eval'` so the page may compile sql.js;
+sql.js (about 650 KB of WebAssembly) loads only when a file is chosen. Tool calls and their results
+from Hermes sessions are not kept. Regenerate or Edit on an imported turn asks SEED's own model, as
+on any turn.

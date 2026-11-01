@@ -5,6 +5,7 @@ import type { ChangeEvent } from "react";
 import { ApiError } from "../lib/api";
 import { OWNER_MEMORY, ownerMemoryApi } from "../lib/memory";
 import type { HermesImport } from "../lib/memory";
+import { HermesSessionsImport } from "./HermesSessionsImport";
 import { Button } from "./ui/Button";
 import { Panel } from "./ui/Panel";
 
@@ -139,6 +140,7 @@ export function HermesMemoryImport() {
           </p>
         )}
       </div>
+      <HermesSessionsImport />
     </Panel>
   );
 }

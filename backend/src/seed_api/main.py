@@ -12,6 +12,7 @@ from . import __version__, auth, models, owner_memory, system, tools_api
 from .agents import api as agents_api
 from .agents.store import AgentStore
 from .chat import api as chat_api
+from .chat import hermes as chat_hermes
 from .chat.store import ChatStore
 from .config import Settings, get_settings
 from .errors import install_error_handlers
@@ -92,6 +93,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(models.router)
     app.include_router(tasks_api.router)
     app.include_router(chat_api.router)
+    app.include_router(chat_hermes.router)
     app.include_router(projects_api.router)
     app.include_router(owner_memory.router)
     app.include_router(agents_api.router)
