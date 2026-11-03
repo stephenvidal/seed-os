@@ -75,6 +75,9 @@ it — with full visibility and control.
   "Import from Hermes Agent" below it takes a Hermes USER.md or MEMORY.md (chosen
   or pasted), previews the entries it would add and the ones it skips (already a
   note, or over 500 characters), then adds them as approved notes (D-042).
+  "Choose state.db" there takes Hermes' `~/.hermes/state.db`, reads it in the
+  browser, says how many chat sessions it holds, and imports them as SEED chats
+  at their original dates, each once; tool calls are left out (D-045).
 - **Recall across chats (M9):** SEED's own chat turns and tasks (not agents') have
   a `session_search` tool that finds up to five of your earlier finished chat turns
   by what you asked and what it answered, across all your chats, projects and
@@ -228,6 +231,7 @@ it — with full visibility and control.
 | PATCH | `/api/v1/memory/{id}` | admin | `{content?, approve?}` → the note; `approve: true` makes a proposal reach the model; 404 `not_found` (also for another user's note) |
 | DELETE | `/api/v1/memory/{id}` | admin | 204; deletes a note or rejects a proposal; 404 `not_found` |
 | DELETE | `/api/v1/conversations/{id}` | admin | 204; removes the conversation, its turns and their events; 409 `turn_in_progress` while a turn is queued, running or waiting; 404 `not_found` |
+| POST | `/api/v1/conversations/import-hermes` | admin | `{sessions[{id, title?, source?, model?, started_at, messages[{role: user\|assistant, content, timestamp}]}]}` (1–50 sessions, up to 5,000 messages each, times in unix seconds) → `[{id, outcome: imported\|already_imported\|empty, turns, conversation_id}]`; each session becomes a finished chat at its original times, once (D-045); 422 |
 | POST | `/api/v1/conversations/{id}/turns` | admin | `{prompt, model?}`, optional `Idempotency-Key` → 201 task continuing the shown path, carrying its completed turns as context; `model` switches the conversation's model; 409 `turn_in_progress` while a turn is unfinished; 404 `not_found` |
 | POST | `/api/v1/tasks` | admin | `{model, prompt, title?, project_id?, check?}`, optional `Idempotency-Key` header → 201 task (`queued`); with `project_id` the task copies the project's instructions and approved memory and gets its `remember` and `search_knowledge` tools (404 `project_not_found`); `check` is a shell command run in the task's files in the sandbox once the agent finishes: exit code 0 completes the task, anything else fails it as `check_failed` (D-038); 200 with the existing task on a repeated key; 409 `idempotency_conflict`; 503 `provider_not_configured` |
 | GET / POST | `/api/v1/schedules` | admin | List the caller's schedules by name / create one (201): `{name, prompt, model, project_id?, kind: "interval" \| "daily", every_minutes (interval: 5-10080), at_time ("09:30", daily), timezone (IANA name, default UTC), enabled}`; the response adds `next_run_at` (null while disabled), `last_run_at`, `last_outcome` (`started` or `skipped_busy`) and `last_task_id`; 404 `project_not_found`; audited |

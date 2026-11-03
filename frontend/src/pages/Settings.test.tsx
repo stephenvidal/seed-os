@@ -4,6 +4,35 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
 import { mockApi, renderApp } from "../test/render";
 
+vi.mock("../lib/hermes", async (original) => ({
+  ...(await original<typeof import("../lib/hermes")>()),
+  // A state.db with one chat in it, as sql.js would read it.
+  openStateDb: vi.fn(async () => ({
+    close: () => undefined,
+    exec: (sql: string) => {
+      if (sql.startsWith("PRAGMA table_info(sessions)"))
+        return [{ columns: ["name"], values: [["id"], ["title"], ["source"], ["started_at"]] }];
+      if (sql.startsWith("PRAGMA")) return [{ columns: ["name"], values: [["role"]] }];
+      if (sql.startsWith("SELECT id"))
+        return [
+          {
+            columns: ["id", "title", "source", "model", "started_at"],
+            values: [["s1", "Plan", "cli", null, 1772360100]],
+          },
+        ];
+      return [
+        {
+          columns: ["session_id", "role", "content", "timestamp"],
+          values: [
+            ["s1", "user", "Backups?", 1772360101],
+            ["s1", "assistant", "Nightly.", 1772360102],
+          ],
+        },
+      ];
+    },
+  })),
+}));
+
 const ME = { status: 200, body: { username: "admin", role: "admin" } };
 const SYSTEM = {
   status: 200,
@@ -110,5 +139,33 @@ describe("Import from Hermes Agent", () => {
     expect(JSON.parse(String(saved?.[1]?.body))).toEqual({
       text: "Name: Stephen\n§\nPrefers short answers",
     });
+  });
+});
+
+describe("Importing past Hermes chats", () => {
+  it("reads state.db, says what it found, and imports it", async () => {
+    const spy = mockApi({
+      "GET /api/v1/auth/me": ME,
+      "GET /api/v1/system": SYSTEM,
+      "GET /api/v1/memory": { status: 200, body: [] },
+      "POST /api/v1/conversations/import-hermes": {
+        status: 200,
+        body: [{ id: "s1", outcome: "imported", turns: 1, conversation_id: "c1" }],
+      },
+    });
+    const user = userEvent.setup();
+    renderApp(<App />, "/settings");
+    const input = (await screen.findByText("Choose state.db")).querySelector("input");
+    await user.upload(input as HTMLInputElement, new File(["db"], "state.db"));
+    expect(
+      await screen.findByText("1 session, 2 messages, from 2026-03-01 to 2026-03-01."),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Import 1 session" }));
+    expect(await screen.findByText(/Imported 1 session \(1 turn\)/)).toBeInTheDocument();
+    const call = spy.mock.calls.find((c) => String(c[0]) === "/api/v1/conversations/import-hermes");
+    const body = JSON.parse(String(call?.[1]?.body)) as {
+      sessions: { id: string; messages: unknown[] }[];
+    };
+    expect(body.sessions.map((x) => [x.id, x.messages.length])).toEqual([["s1", 2]]);
   });
 });

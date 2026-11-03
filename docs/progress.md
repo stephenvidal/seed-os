@@ -2684,3 +2684,37 @@ number fails the resume test and the real-websocket test.
 **Not tested:** real Discord (needs Stephen's bot token); the frontend is unchanged.
 
 **Open questions:** none.
+
+## Increment 49 — Past Hermes Agent chats (M9 step 7, D-045)
+
+**Iteration:** M9 step 7, past sessions. Done when a Hermes state.db chosen on the Settings page is
+read in the browser, its chat sessions arrive as SEED chats with their original dates, show in Chat
+and in past-chat search, and importing it again adds nothing.
+
+**Changed:** `chat/hermes.py` (`POST /api/v1/conversations/import-hermes`); `lib/hermes.ts`
+(reading state.db with sql.js, batching); `HermesSessionsImport.tsx` inside the Hermes import panel
+on Settings; sql.js 1.14.2 and @types/sql.js 1.4.11 (exact); nginx CSP `'wasm-unsafe-eval'`;
+README, roadmap, D-045.
+
+**Tested**
+```
+backend: ruff, mypy clean; pytest (DB) → 317 passed, 1 skipped (3 new in test_hermes_sessions.py)
+frontend: typecheck, lint, format clean; npm test → 141 passed (5 in hermes.test.ts against a real
+sql.js database, 1 in Settings.test.tsx)
+```
+Browser check (Chromium via Playwright against `vite preview` and a local API, with the production
+CSP injected; the model list was stubbed because no model provider is reachable locally):
+```
+found: 2 sessions, 4 messages, from 2026-03-01 to 2026-03-02.
+done: Imported 2 sessions (2 turns). Open Chat
+(second run) done: Imported 0 sessions (0 turns). 2 sessions were already here. Open Chat
+chat ok
+```
+Chat then listed "Zebrafish backups" and "What is the VPS port for SEED?" and showed the imported
+question and answer.
+
+**Not tested:** a real Hermes state.db (the test file follows the schema in Hermes' source); a very
+large file in a real browser.
+
+**Open questions:** the browser console shows the existing stylesheet's embedded `data:` font
+blocked by the production CSP (`font-src 'self'`); it predates this change and is left alone here.
